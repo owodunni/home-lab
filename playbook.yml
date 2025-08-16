@@ -1,0 +1,10 @@
+---
+- hosts: all
+  become: true
+
+  tasks:
+  - name: Upgrade system and remove old packages
+    apt:
+      update_cache: true
+      upgrade: full
+      autoremove: true
