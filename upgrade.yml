@@ -1,11 +1,36 @@
 ---
-- name: Upgrade everything on all hosts
+# System upgrade playbook for Pi cluster
+# Based on best practices from geerlingguy/pi-cluster
+- name: Upgrade all software on all hosts
   hosts: all
   become: true
 
   tasks:
-    - name: Upgrade system and remove old packages
+    # cache_valid_time: only update cache if older than 24 hours (86400 seconds)
+    # https://docs.ansible.com/ansible/latest/collections/ansible/builtin/apt_module.html
+    - name: Update apt package cache (if older than 24 hours)
       ansible.builtin.apt:
         update_cache: true
-        upgrade: full
+        cache_valid_time: 86400 # 24h in seconds
+
+    # upgrade: dist provides better dependency resolution than 'full'
+    # https://docs.ansible.com/ansible/latest/collections/ansible/builtin/apt_module.html
+    - name: Upgrade all software packages
+      ansible.builtin.apt:
+        upgrade: dist
+
+    # Check if /var/run/reboot-required exists (created by package maintainers)
+    - name: Check if a reboot is required
+      ansible.builtin.stat:
+        path: /var/run/reboot-required
+        get_checksum: false
+      register: reboot_required_file
+
+    # https://docs.ansible.com/ansible/latest/collections/ansible/builtin/reboot_module.html
+    - name: Reboot the server (if required)
+      ansible.builtin.reboot:
+      when: reboot_required_file.stat.exists
+
+    - name: Remove dependencies that are no longer required
+      ansible.builtin.apt:
         autoremove: true
