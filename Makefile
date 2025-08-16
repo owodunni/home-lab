@@ -1,4 +1,4 @@
-.PHONY: help install lint precommit
+.PHONY: help install lint precommit upgrade
 
 help: ## Show this help message
 	@echo "Available commands:"
@@ -20,3 +20,7 @@ lint: ## Run YAML linting, Ansible linting, and syntax check
 precommit: ## Run pre-commit hooks on staged files
 	@echo "Running pre-commit hooks..."
 	uv run pre-commit run
+
+upgrade: ## Run Ansible upgrade playbook on all servers
+	@echo "Running system upgrades on all servers..."
+	uv run ansible-playbook upgrade.yml
