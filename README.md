@@ -33,5 +33,12 @@
 To provision a new host for the cluster:
 
 1. Install OS
-2. Add public key to the hosts ~/.ssh/authorized_keys file
+2. Copy your SSH public key to the host:
+   ```bash
+   ssh-copy-id -i ~/.ssh/your_key.pub alexanderp@hostname
+   ```
+   Or copy to all hosts at once:
+   ```bash
+   for host in pi-cm5-1 pi-cm5-2 pi-cm5-3 pi-cm5-4; do ssh-copy-id -i ~/.ssh/your_key.pub alexanderp@$host; done
+   ```
 3. Add hosts to the [hosts.ini](./hosts.ini) file
