@@ -98,6 +98,26 @@ Your redirects prevent over-engineering. When uncertain about implementation, st
 - **Vagrant fallback**: Consider Vagrant if Molecule testing proves insufficient
 - **Rollback documentation**: Recovery procedures for each service
 
+## Git Commit Guidelines
+
+**⚠️ MANDATORY**: Read `docs/git-commit-guidelines.md` before each commit.
+
+**Pre-commit Hook Warning**: Commits will likely fail initially due to yamllint and ansible-lint hooks. Follow this workflow:
+
+1. **Stage files**: `git add .`
+2. **Run pre-commit**: `make precommit`
+3. **Fix any issues** reported by linters
+4. **Stage fixes**: `git add .`
+5. **Commit**: Use proper message format from guidelines
+
+**Key Requirements**:
+- Imperative mood in subject line ("Add feature" not "Added feature")
+- 50-character subject limit, 72-character body wrap
+- Separate subject from body with blank line
+- Use commit type prefixes: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `ci:`, `config:`
+
+See `docs/git-commit-guidelines.md` for complete standards based on https://cbea.ms/git-commit/
+
 ## Core Files
 
 - `upgrade.yml`: Main Ansible playbook that runs system upgrades across all hosts

@@ -1,4 +1,4 @@
-.PHONY: help install lint
+.PHONY: help install lint precommit
 
 help: ## Show this help message
 	@echo "Available commands:"
@@ -16,3 +16,7 @@ lint: ## Run YAML linting, Ansible linting, and syntax check
 	uv run ansible-lint
 	@echo "Checking Ansible syntax..."
 	uv run ansible-playbook --syntax-check *.yml
+
+precommit: ## Run pre-commit hooks on staged files
+	@echo "Running pre-commit hooks..."
+	uv run pre-commit run
