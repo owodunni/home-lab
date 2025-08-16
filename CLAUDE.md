@@ -73,11 +73,23 @@ Your redirects prevent over-engineering. When uncertain about implementation, st
 
 ## Development Workflow
 
-- **Pre-commit validation**: YAML + Ansible syntax checking
-- **Static analysis**: Lint checking for best practices
+- **Dependencies**: Install with `make install` (uses UV package manager)
+- **Pre-commit validation**: YAML + Ansible syntax checking via pre-commit hooks
+- **Static analysis**: `make lint` runs yamllint + ansible-lint for best practices
 - **Isolated testing**: Molecule for role development and validation
 - **Dry runs**: Test playbook logic before execution
 - **Production deployment**: Only after validation pipeline passes
+
+## Quality Gates
+
+**YAML Linting (yamllint):**
+- Configuration: `.yamllint` extends default rules
+
+**Ansible Linting (ansible-lint):**
+- Runs on all playbooks and roles
+
+**Pre-commit Hooks:**
+- Automatic validation on git commits
 
 ## Safety Practices
 
@@ -88,9 +100,13 @@ Your redirects prevent over-engineering. When uncertain about implementation, st
 
 ## Core Files
 
-- `playbook.yml`: Main Ansible playbook that runs system upgrades across all hosts
+- `upgrade.yml`: Main Ansible playbook that runs system upgrades across all hosts
 - `hosts.ini`: Ansible inventory defining cluster and NAS node groups
 - `ansible.cfg`: Ansible configuration pointing to hosts.ini and setting default user (alexanderp)
+- `pyproject.toml`: UV/Python dependency management with ansible, ansible-lint, yamllint
+- `.yamllint`: YAML linting configuration based on geerlingguy/pi-cluster standards
+- `Makefile`: Development commands (install, lint, help)
+- `.pre-commit-config.yaml`: Git hooks for automated quality checks
 
 ## Progress Tracking
 
