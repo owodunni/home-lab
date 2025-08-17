@@ -1,0 +1,22 @@
+---
+# Unattended upgrades configuration for all Pi cluster hosts
+
+# Trusted update sources - security updates prioritized
+unattended_origins_patterns:
+  - 'origin=Debian,codename=${distro_codename},label=Debian-Security'
+  - 'origin=Debian,codename=${distro_codename},label=Debian'
+  - 'origin=Raspbian,codename=${distro_codename},label=Raspbian'
+
+# Packages to exclude from automatic updates
+unattended_package_blacklist: []
+
+# Automatic reboot after updates requiring restart
+unattended_automatic_reboot: true
+unattended_automatic_reboot_time: "02:00"
+
+# Clean up unused packages automatically
+unattended_remove_unused_dependencies: true
+unattended_remove_new_unused_dependencies: true
+
+# Don't install during shutdown to keep shutdown times fast
+unattended_install_on_shutdown: false

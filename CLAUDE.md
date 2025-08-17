@@ -36,11 +36,20 @@ This is a home lab automation repository using Ansible to provision and manage a
 
 ## Architecture Principles
 
+**⚠️ MANDATORY**: Before making any structural or architectural changes, you MUST:
+1. **Read** `docs/project-structure.md` to understand current architecture
+2. **Update** `docs/project-structure.md` after implementing changes
+3. **Verify** changes align with established patterns and variable hierarchy
+
+**⚠️ MANDATORY**: Before editing or creating any playbooks or group_vars, you MUST:
+1. **Read** `docs/playbook-guidelines.md` to understand documentation standards
+2. **Follow** the established documentation patterns from `upgrade.yml`
+3. **Document** WHY decisions were made, not just WHAT was implemented
+
 **Prefer explicit over implicit:**
 - Clear function names over clever abstractions
 - Obvious data flow over hidden magic
 - Direct dependencies over service locators
-
 - **Idempotent playbooks**: Must be safe to run multiple times
 
 ## Git Commit Guidelines
@@ -73,19 +82,15 @@ Your redirects prevent over-engineering. When uncertain about implementation, st
 
 ## Development Workflow
 
-- **Dependencies**: Install with `make install` (uses UV package manager)
+- **Dependencies**: Install with `make setup` (combines Python deps + Ansible collections)
 - **Static analysis**: `make precommit` runs linters and syntax checks
 - **Dry runs**: Test playbook logic before execution
 
 ## Core Files
 
-- `upgrade.yml`: Main Ansible playbook that runs system upgrades across all hosts
-- `hosts.ini`: Ansible inventory defining cluster and NAS node groups
-- `ansible.cfg`: Ansible configuration pointing to hosts.ini and setting default user (alexanderp)
-- `pyproject.toml`: UV/Python dependency management with ansible, ansible-lint, yamllint
-- `.yamllint`: YAML linting configuration based on geerlingguy/pi-cluster standards
-- `Makefile`: Development commands (install, lint, help)
-- `.pre-commit-config.yaml`: Git hooks for automated quality checks
+To understand the project structure read
+
+- `docs/project-structure.md`: **MANDATORY READ** - Complete project architecture and variable system
 
 ## Progress Tracking
 
