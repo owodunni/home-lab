@@ -36,16 +36,24 @@ This is a home lab automation repository using Ansible to provision and manage a
 
 ## Architecture Principles
 
-**This is always a feature branch:**
-- Delete old code completely - no deprecation needed
-- No versioned names (processV2, handleNew, ClientOld)
-- No migration code unless explicitly requested
-- No "removed code" comments - just delete it
-
 **Prefer explicit over implicit:**
 - Clear function names over clever abstractions
 - Obvious data flow over hidden magic
 - Direct dependencies over service locators
+
+- **Idempotent playbooks**: Must be safe to run multiple times
+
+## Git Commit Guidelines
+
+**⚠️ MANDATORY**: Read `docs/git-commit-guidelines.md` before each commit.
+
+**Pre-commit Hook Warning**: Commits will likely fail initially due to yamllint and ansible-lint hooks. Follow this workflow:
+
+1. **Stage files**: `git add .`
+2. **Run pre-commit**: `make precommit`
+3. **Fix any issues** reported by linters
+4. **Stage fixes**: `git add .`
+5. **Commit**: Use proper message format from guidelines
 
 ## Maximize Efficiency
 
@@ -63,60 +71,11 @@ This is a home lab automation repository using Ansible to provision and manage a
 
 Your redirects prevent over-engineering. When uncertain about implementation, stop and ask for guidance.
 
-## Testing Levels (Simple → Complex)
-
-1. **YAML Syntax Validation** - Basic YAML format checking
-2. **Ansible Syntax Check** - Ansible-specific syntax validation
-3. **Static Analysis** - Code quality and best practices (ansible-lint)
-4. **Dry Run Testing** - Simulate playbook execution without changes
-5. **Molecule Testing** - Comprehensive role testing in isolated environments
-
 ## Development Workflow
 
 - **Dependencies**: Install with `make install` (uses UV package manager)
-- **Pre-commit validation**: YAML + Ansible syntax checking via pre-commit hooks
-- **Static analysis**: `make lint` runs yamllint + ansible-lint for best practices
-- **Isolated testing**: Molecule for role development and validation
+- **Static analysis**: `make precommit` runs linters and syntax checks
 - **Dry runs**: Test playbook logic before execution
-- **Production deployment**: Only after validation pipeline passes
-
-## Quality Gates
-
-**YAML Linting (yamllint):**
-- Configuration: `.yamllint` extends default rules
-
-**Ansible Linting (ansible-lint):**
-- Runs on all playbooks and roles
-
-**Pre-commit Hooks:**
-- Automatic validation on git commits
-
-## Safety Practices
-
-- **Idempotent playbooks**: Must be safe to run multiple times
-- **Molecule**: Use Molecule for isolated testing instead of staging environment
-- **Vagrant fallback**: Consider Vagrant if Molecule testing proves insufficient
-- **Rollback documentation**: Recovery procedures for each service
-
-## Git Commit Guidelines
-
-**⚠️ MANDATORY**: Read `docs/git-commit-guidelines.md` before each commit.
-
-**Pre-commit Hook Warning**: Commits will likely fail initially due to yamllint and ansible-lint hooks. Follow this workflow:
-
-1. **Stage files**: `git add .`
-2. **Run pre-commit**: `make precommit`
-3. **Fix any issues** reported by linters
-4. **Stage fixes**: `git add .`
-5. **Commit**: Use proper message format from guidelines
-
-**Key Requirements**:
-- Imperative mood in subject line ("Add feature" not "Added feature")
-- 50-character subject limit, 72-character body wrap
-- Separate subject from body with blank line
-- Use commit type prefixes: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `ci:`, `config:`
-
-See `docs/git-commit-guidelines.md` for complete standards based on https://cbea.ms/git-commit/
 
 ## Core Files
 
