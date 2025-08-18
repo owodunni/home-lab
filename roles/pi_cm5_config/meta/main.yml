@@ -1,0 +1,18 @@
+---
+galaxy_info:
+  author: Home Lab Automation
+  description: Configure Raspberry Pi CM5 boot settings using geerlingguy's elegant pattern
+  company: Personal
+  license: MIT
+  min_ansible_version: "2.9"
+  platforms:
+    - name: Debian
+      versions:
+        - bookworm
+  galaxy_tags:
+    - raspberrypi
+    - cm5
+    - bootconfig
+    - poweroptimization
+
+dependencies: []

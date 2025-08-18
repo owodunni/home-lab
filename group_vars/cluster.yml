@@ -1,0 +1,7 @@
+---
+# Configuration specific to cluster nodes (pi-cm5-1, pi-cm5-2, pi-cm5-3)
+# These are compute nodes without dedicated storage requirements
+
+# Pi CM5 configuration for cluster nodes - compute nodes without storage requirements
+# PCIe disabled for maximum power savings on compute nodes
+pi_pcie_enabled: false  # No M.2 storage needed for compute nodes

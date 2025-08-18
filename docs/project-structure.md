@@ -20,9 +20,20 @@ home-lab/
 │   └── playbook-guidelines.md
 ├── playbooks/                  # Ansible playbooks
 │   ├── upgrade.yml             # System upgrade playbook
-│   └── unattended-upgrades.yml # Unattended upgrades setup
+│   ├── unattended-upgrades.yml # Unattended upgrades setup
+│   ├── pi-basic-config.yml     # Basic Pi CM5 headless configuration
+│   ├── pi-power-optimize.yml   # Pi CM5 power optimization
+│   ├── pi-storage-config.yml   # Pi CM5 storage and PCIe configuration
+│   └── pi-validate-config.yml  # Pi CM5 configuration validation
+├── roles/                      # Custom Ansible roles
+│   ├── pi_basic_config/        # Basic Pi CM5 headless settings
+│   ├── pi_power_optimize/      # Pi CM5 power optimization
+│   ├── pi_storage_config/      # Pi CM5 storage and PCIe settings
+│   └── pi_validate_config/     # Pi CM5 configuration validation
 └── group_vars/                 # Variable configuration
-    └── all.yml                 # Variables for all hosts
+    ├── all.yml                 # Variables for all hosts
+    ├── cluster.yml             # Cluster-specific variables
+    └── nas.yml                 # NAS-specific variables
 ```
 
 ## Infrastructure Overview
@@ -81,32 +92,49 @@ Unified configuration for all hosts:
 ```yaml
 ---
 # Unattended upgrades configuration for all Pi cluster hosts
-
-# Trusted update sources - security updates prioritized
 unattended_origins_patterns:
   - 'origin=Debian,codename=${distro_codename},label=Debian-Security'
   - 'origin=Debian,codename=${distro_codename},label=Debian'
   - 'origin=Raspbian,codename=${distro_codename},label=Raspbian'
 
-# Automatic reboot after updates requiring restart
 unattended_automatic_reboot: true
 unattended_automatic_reboot_time: "02:00"
+
+# Pi CM5 configuration - modular approach with focused playbooks
+pi_basic_config:
+  arm_64bit: 1
+  gpu_mem: 64  # Minimal for headless operation
+  camera_auto_detect: 0
+  display_auto_detect: 0
+
+pi_power_optimize:
+  disable_wifi: true      # ~183mW power reduction
+  disable_bluetooth: true
+  disable_hdmi_audio: true
+  disable_leds: true      # <2mA per LED
+```
+
+#### group_vars/cluster.yml and group_vars/nas.yml
+Group-specific configurations for different hardware requirements:
+```yaml
+# group_vars/cluster.yml - Compute nodes without M.2 storage
+pi_storage_config:
+  pcie:
+    enabled: false  # Disable PCIe for power savings
+
+# group_vars/nas.yml - Storage node with M.2 SATA controller
+pi_storage_config:
+  pcie:
+    enabled: true   # Enable PCIe for M.2 SATA support
 ```
 
 #### host_vars/ (When to Use)
 Create `host_vars/hostname.yml` only for truly unique per-host settings:
 ```yaml
 ---
-# host_vars/pi-cm5-4.yml (if NAS needs different behavior later)
-storage_devices:
-  - /dev/sda1
-  - /dev/sdb1
-
-# host_vars/pi-cm5-1.yml
+# host_vars/pi-cm5-1.yml (example)
 cluster_role: primary
 ```
-
-**Note**: We currently use a single `group_vars/all.yml` for simplicity. Group-specific files can be added later when actual differences emerge.
 
 ## Configuration Strategy
 

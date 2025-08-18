@@ -1,0 +1,46 @@
+---
+# Pi CM5 configuration defaults - inspired by geerlingguy's elegant pattern
+# Uses variable arrays with regexp/line pattern for flexible config management
+
+# Base Pi CM5 settings for headless operation
+pi_base_config:
+  # Enable 64-bit mode (essential for CM5)
+  - regexp: "^#?arm_64bit"
+    line: "arm_64bit=1"
+  # Minimal GPU memory for headless operation
+  - regexp: "^#?gpu_mem"
+    line: "gpu_mem=64"
+  # Disable camera auto-detection for power savings
+  - regexp: "^#?camera_auto_detect"
+    line: "camera_auto_detect=0"
+  # Disable display auto-detection for power savings
+  - regexp: "^#?display_auto_detect"
+    line: "display_auto_detect=0"
+
+# Power optimization settings - can save ~200mW+ total
+pi_power_config:
+  # Disable WiFi (~183mW power reduction)
+  - regexp: "^dtoverlay=disable-wifi"
+    line: "dtoverlay=disable-wifi"
+  # Disable Bluetooth (additional power savings)
+  - regexp: "^dtoverlay=disable-bt"
+    line: "dtoverlay=disable-bt"
+  # Disable HDMI audio output
+  - regexp: "^dtoverlay=vc4-kms-v3d.*"
+    line: "dtoverlay=vc4-kms-v3d,noaudio"
+
+# PCIe configuration (controlled by pi_pcie_enabled variable)
+pi_pcie_config:
+  # Enable/disable PCIe based on node type (NAS vs cluster)
+  - regexp: "^dtparam=pciex1"
+    line: "dtparam=pciex1={{ 'on' if pi_pcie_enabled | default(false) else 'off' }}"
+
+# Pi CM5 config file location (updated path for Pi 5/CM5)
+pi_config_file: "/boot/firmware/config.txt"
+
+# Default PCIe setting (disabled for power savings)
+pi_pcie_enabled: false
+
+# Create backup before making changes
+pi_backup_enabled: true
+

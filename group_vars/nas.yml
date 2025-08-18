@@ -1,0 +1,7 @@
+---
+# Configuration specific to NAS node (pi-cm5-4)
+# This node requires M.2 SATA controller support via PCIe
+
+# Pi CM5 configuration for NAS node - storage node requiring M.2 controller
+# PCIe enabled for M.2 SATA/NVMe controller support
+pi_pcie_enabled: true  # Required for M.2 SATA controller support

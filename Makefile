@@ -1,7 +1,7 @@
 # Development and deployment automation for Pi cluster home lab
-ANSIBLE_PLAYBOOK = uv run ansible-playbook
+ANSIBLE_PLAYBOOK = ANSIBLE_ROLES_PATH=$(CURDIR)/roles  uv run ansible-playbook
 
-.PHONY: help setup lint precommit upgrade unattended-upgrades
+.PHONY: help setup lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config pi-full-config
 
 help:
 	@echo "Available commands:"
@@ -30,4 +30,12 @@ upgrade:
 
 unattended-upgrades:
 	@echo "Setting up unattended upgrades on all servers..."
-	$(ANSIBLE_PLAYBOOK) playbooks/unattended-upgrades.yml
+	$(ANSIBLE_PLAYBOOK) playbooks/unattended-upgrades.yml  --check --diff
+
+pi-base-config:
+	@echo "Configuring Pi CM5 base settings and power optimization..."
+	$(ANSIBLE_PLAYBOOK) playbooks/pi-base-config.yml --check --diff
+
+pi-storage-config:
+	@echo "Configuring Pi CM5 storage settings..."
+	$(ANSIBLE_PLAYBOOK) playbooks/pi-storage-config.yml --check --diff
