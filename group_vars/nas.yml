@@ -5,3 +5,8 @@
 # Pi CM5 configuration for NAS node - storage node requiring M.2 controller
 # PCIe enabled for M.2 SATA/NVMe controller support
 pi_pcie_enabled: true  # Required for M.2 SATA controller support
+
+# PCIe generation speed for NAS node
+# 3 = PCIe Gen3 for maximum NVMe performance (~2x faster than Gen2)
+# Note: Gen3 not officially certified, may cause stability issues with some drives
+pi_pcie_generation: 3
