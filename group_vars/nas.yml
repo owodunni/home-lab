@@ -10,3 +10,8 @@ pi_pcie_enabled: true  # Required for M.2 SATA controller support
 # 3 = PCIe Gen3 for maximum NVMe performance (~2x faster than Gen2)
 # Note: Gen3 not officially certified, may cause stability issues with some drives
 pi_pcie_generation: 3
+
+# POE configuration for NAS node
+# Enable POE support for Waveshare PoE HAT (G) - not needed for cluster on Turing Pi 2
+# Reference: https://www.waveshare.com/wiki/PoE_HAT_(G)#How_to_Install
+pi_poe_enabled: true

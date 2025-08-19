@@ -51,5 +51,19 @@ pi_pcie_enabled: false
 # Default PCIe generation (2=certified, 3=faster but may be unstable)
 pi_pcie_generation: 2
 
+# POE configuration (controlled by pi_poe_enabled variable)
+# Uses conditional config array - only applies POE settings when enabled
+pi_poe_config: "{{ pi_poe_config_enabled if pi_poe_enabled | default(false) else [] }}"
+
+# POE settings when enabled (NAS nodes with Waveshare PoE HAT)
+# Reference: https://www.waveshare.com/wiki/PoE_HAT_(G)#How_to_Install
+pi_poe_config_enabled:
+  # Enable USB max current to prevent limit warnings with PoE power
+  - regexp: "^usb_max_current_enable"
+    line: "usb_max_current_enable=1"
+
+# Default POE setting (disabled for cluster nodes on Turing Pi 2)
+pi_poe_enabled: false
+
 # Create backup before making changes
 pi_backup_enabled: true
