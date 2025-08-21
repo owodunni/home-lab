@@ -34,6 +34,9 @@ pi_power_config:
 pi_pcie_config: "{{ pi_pcie_config_enabled if pi_pcie_enabled | default(false) else [] }}"
 
 # PCIe settings when enabled (NAS nodes)
+# Includes Pi 5/CM5 compatibility fixes for PCIe controller issues
+# Reference: https://forums.raspberrypi.com/viewtopic.php?t=363682
+# Reference: https://github.com/raspberrypi/linux/issues/6214
 pi_pcie_config_enabled:
   # Enable PCIe connector
   - regexp: "^dtparam=pciex1"
@@ -41,6 +44,12 @@ pi_pcie_config_enabled:
   # Set PCIe generation speed (2=Gen2, 3=Gen3)
   - regexp: "^dtparam=pciex1_gen"
     line: "dtparam=pciex1_gen={{ pi_pcie_generation | default(2) }}"
+  # Pi 5/CM5 PCIe compatibility fix - resolves controller detection issues
+  - regexp: "^dtoverlay=pciex1-compat-pi5"
+    line: "dtoverlay=pciex1-compat-pi5,no-mip"
+  # Pi 5/CM5 32-bit DMA compatibility for older PCIe devices
+  - regexp: "^dtoverlay=pcie-32bit-dma-pi5"
+    line: "dtoverlay=pcie-32bit-dma-pi5"
 
 # Pi CM5 config file location (updated path for Pi 5/CM5)
 pi_config_file: "/boot/firmware/config.txt"

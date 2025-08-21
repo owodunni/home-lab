@@ -22,7 +22,6 @@
     insertafter: EOF
     state: present
     create: true
-    mode: "0644"
   with_items: "{{ pi_base_config }}"
   notify: reboot required
   tags:

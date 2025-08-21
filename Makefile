@@ -30,7 +30,7 @@ upgrade:
 
 unattended-upgrades:
 	@echo "Setting up unattended upgrades on all servers..."
-	$(ANSIBLE_PLAYBOOK) playbooks/unattended-upgrades.yml  --check --diff
+	$(ANSIBLE_PLAYBOOK) playbooks/unattended-upgrades.yml
 
 pi-base-config:
 	@echo "Configuring Pi CM5 base settings and power optimization..."
@@ -38,4 +38,4 @@ pi-base-config:
 
 pi-storage-config:
 	@echo "Configuring Pi CM5 storage settings..."
-	$(ANSIBLE_PLAYBOOK) playbooks/pi-storage-config.yml --check --diff
+	$(ANSIBLE_PLAYBOOK) playbooks/pi-storage-config.yml --diff
