@@ -4,4 +4,4 @@
 
 # Pi CM5 configuration for cluster nodes - compute nodes without storage requirements
 # PCIe disabled for maximum power savings on compute nodes
-pi_pcie_enabled: false  # No M.2 storage needed for compute nodes
+pi_cm5_config_pcie_enabled: false  # No M.2 storage needed for compute nodes

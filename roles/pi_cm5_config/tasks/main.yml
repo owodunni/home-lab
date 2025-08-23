@@ -4,21 +4,21 @@
 
 - name: Backup original config.txt if backup enabled
   ansible.builtin.copy:
-    src: "{{ pi_config_file }}"
-    dest: "{{ pi_config_file }}.backup-{{ ansible_date_time.epoch }}"
+    src: "{{ pi_cm5_config_config_file }}"
+    dest: "{{ pi_cm5_config_config_file }}.backup-{{ ansible_date_time.epoch }}"
     remote_src: true
     mode: "0644"
   when:
-    - pi_backup_enabled | default(true)
+    - pi_cm5_config_backup_enabled | default(true)
     - not ansible_check_mode
-  register: pi_backup_result
+  register: pi_cm5_config_backup_result
   tags:
     - pi-cm5-config
     - backup
 
 - name: Configure base Pi CM5 settings in config.txt
   ansible.builtin.lineinfile:
-    dest: "{{ pi_config_file }}"
+    dest: "{{ pi_cm5_config_config_file }}"
     regexp: "{{ item.regexp }}"
     line: "{{ item.line }}"
     insertafter: EOF
@@ -26,7 +26,7 @@
     create: true
     # Note: Intentionally not setting mode to preserve RPi OS default permissions
     # ansible-lint risky-file-permissions can be ignored here
-  with_items: "{{ pi_base_config }}"
+  with_items: "{{ pi_cm5_config_base_config }}"
   notify: reboot required
   tags:
     - pi-cm5-config
@@ -34,12 +34,12 @@
 
 - name: Configure Pi CM5 power optimization settings
   ansible.builtin.lineinfile:
-    dest: "{{ pi_config_file }}"
+    dest: "{{ pi_cm5_config_config_file }}"
     regexp: "{{ item.regexp }}"
     line: "{{ item.line }}"
     insertafter: EOF
     state: present
-  with_items: "{{ pi_power_config }}"
+  with_items: "{{ pi_cm5_config_power_config }}"
   notify: reboot required
   tags:
     - pi-cm5-config
@@ -47,12 +47,12 @@
 
 - name: Configure Pi CM5 PCIe settings
   ansible.builtin.lineinfile:
-    dest: "{{ pi_config_file }}"
+    dest: "{{ pi_cm5_config_config_file }}"
     regexp: "{{ item.regexp }}"
     line: "{{ item.line }}"
     insertafter: EOF
     state: present
-  with_items: "{{ pi_pcie_config }}"
+  with_items: "{{ pi_cm5_config_pcie_config }}"
   notify: reboot required
   tags:
     - pi-cm5-config
@@ -60,12 +60,12 @@
 
 - name: Configure Pi CM5 POE settings
   ansible.builtin.lineinfile:
-    dest: "{{ pi_config_file }}"
+    dest: "{{ pi_cm5_config_config_file }}"
     regexp: "{{ item.regexp }}"
     line: "{{ item.line }}"
     insertafter: EOF
     state: present
-  with_items: "{{ pi_poe_config }}"
+  with_items: "{{ pi_cm5_config_poe_config }}"
   notify: reboot required
   tags:
     - pi-cm5-config

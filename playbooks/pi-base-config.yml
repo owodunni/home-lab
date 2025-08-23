@@ -17,8 +17,8 @@
           Pi CM5 configuration applied:
           - Base settings: 64-bit mode, minimal GPU memory, disabled camera/display detection
           - Power optimization: WiFi/Bluetooth/HDMI audio disabled (~200mW savings)
-          - PCIe: {{ 'Enabled' if pi_pcie_enabled else 'Disabled' }}
-            ({{ 'NAS mode' if pi_pcie_enabled else 'power saving' }})
+          - PCIe: {{ 'Enabled' if pi_cm5_config_pcie_enabled else 'Disabled' }}
+            ({{ 'NAS mode' if pi_cm5_config_pcie_enabled else 'power saving' }})
 
           Reboot required to apply changes.
       tags:

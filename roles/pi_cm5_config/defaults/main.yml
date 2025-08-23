@@ -3,7 +3,7 @@
 # Uses variable arrays with regexp/line pattern for flexible config management
 
 # Base Pi CM5 settings for headless operation
-pi_base_config:
+pi_cm5_config_base_config:
   # Enable 64-bit mode (essential for CM5)
   - regexp: "^#?arm_64bit"
     line: "arm_64bit=1"
@@ -18,7 +18,7 @@ pi_base_config:
     line: "display_auto_detect=0"
 
 # Power optimization settings - can save ~200mW+ total
-pi_power_config:
+pi_cm5_config_power_config:
   # Disable WiFi (~183mW power reduction)
   - regexp: "^dtoverlay=disable-wifi"
     line: "dtoverlay=disable-wifi"
@@ -29,21 +29,21 @@ pi_power_config:
   - regexp: "^dtoverlay=vc4-kms-v3d.*"
     line: "dtoverlay=vc4-kms-v3d,noaudio"
 
-# PCIe configuration (controlled by pi_pcie_enabled variable)
+# PCIe configuration (controlled by pi_cm5_config_pcie_enabled variable)
 # Uses conditional config array - only applies PCIe settings when enabled
-pi_pcie_config: "{{ pi_pcie_config_enabled if pi_pcie_enabled | default(false) else [] }}"
+pi_cm5_config_pcie_config: "{{ pi_cm5_config_pcie_config_enabled if pi_cm5_config_pcie_enabled | default(false) else [] }}"
 
 # PCIe settings when enabled (NAS nodes)
 # Includes Pi 5/CM5 compatibility fixes for PCIe controller issues
 # Reference: https://forums.raspberrypi.com/viewtopic.php?t=363682
 # Reference: https://github.com/raspberrypi/linux/issues/6214
-pi_pcie_config_enabled:
+pi_cm5_config_pcie_config_enabled:
   # Enable PCIe connector
   - regexp: "^dtparam=pciex1$"
     line: "dtparam=pciex1"
   # Set PCIe generation speed (2=Gen2, 3=Gen3)
   - regexp: "^dtparam=pciex1_gen"
-    line: "dtparam=pciex1_gen={{ pi_pcie_generation | default(2) }}"
+    line: "dtparam=pciex1_gen={{ pi_cm5_config_pcie_generation | default(2) }}"
   # Pi 5/CM5 PCIe compatibility fix - resolves controller detection issues
   - regexp: "^dtoverlay=pciex1-compat-pi5"
     line: "dtoverlay=pciex1-compat-pi5,no-mip"
@@ -52,27 +52,27 @@ pi_pcie_config_enabled:
     line: "dtoverlay=pcie-32bit-dma-pi5"
 
 # Pi CM5 config file location (updated path for Pi 5/CM5)
-pi_config_file: "/boot/firmware/config.txt"
+pi_cm5_config_config_file: "/boot/firmware/config.txt"
 
 # Default PCIe setting (disabled for power savings)
-pi_pcie_enabled: false
+pi_cm5_config_pcie_enabled: false
 
 # Default PCIe generation (2=certified, 3=faster but may be unstable)
-pi_pcie_generation: 2
+pi_cm5_config_pcie_generation: 2
 
-# POE configuration (controlled by pi_poe_enabled variable)
+# POE configuration (controlled by pi_cm5_config_poe_enabled variable)
 # Uses conditional config array - only applies POE settings when enabled
-pi_poe_config: "{{ pi_poe_config_enabled if pi_poe_enabled | default(false) else [] }}"
+pi_cm5_config_poe_config: "{{ pi_cm5_config_poe_config_enabled if pi_cm5_config_poe_enabled | default(false) else [] }}"
 
 # POE settings when enabled (NAS nodes with Waveshare PoE HAT)
 # Reference: https://www.waveshare.com/wiki/PoE_HAT_(G)#How_to_Install
-pi_poe_config_enabled:
+pi_cm5_config_poe_config_enabled:
   # Enable USB max current to prevent limit warnings with PoE power
   - regexp: "^usb_max_current_enable"
     line: "usb_max_current_enable=1"
 
 # Default POE setting (disabled for cluster nodes on Turing Pi 2)
-pi_poe_enabled: false
+pi_cm5_config_poe_enabled: false
 
 # Create backup before making changes
-pi_backup_enabled: true
+pi_cm5_config_backup_enabled: true
