@@ -1,6 +1,7 @@
 ---
 # Configure Raspberry Pi CM5 storage and PCIe settings for NAS nodes
 # Enables PCIe with compatibility fixes for M.2 SATA controller support
+# Prepares disks for MinIO installation with XFS formatting and persistent mounts
 
 - name: Configure Pi CM5 storage and PCIe settings
   hosts: nas
@@ -10,16 +11,52 @@
   roles:
     - pi_cm5_config
 
+  tasks:
+    - name: Reboot to apply Pi CM5 PCIe configuration
+      ansible.builtin.reboot:
+        msg: "Rebooting to activate PCIe for M.2 drive access"
+        reboot_timeout: 300
+      tags:
+        - reboot
+
+    - name: Install XFS utilities
+      ansible.builtin.package:
+        name: xfsprogs
+        state: present
+      tags:
+        - disk-setup
+
+    - name: Create XFS filesystem on MinIO drives
+      community.general.filesystem:
+        dev: "{{ item.device }}"
+        fstype: "{{ item.filesystem }}"
+        opts: "-L {{ item.label }}"
+      loop: "{{ minio_storage_drives }}"
+      tags:
+        - disk-setup
+
+    - name: Mount MinIO drives
+      ansible.posix.mount:
+        path: "{{ item.mount_point }}"
+        src: "LABEL={{ item.label }}"
+        fstype: "{{ item.filesystem }}"
+        opts: "{{ minio_mount_options }}"
+        state: mounted
+      loop: "{{ minio_storage_drives }}"
+      tags:
+        - disk-setup
+
   post_tasks:
-    - name: Display configuration summary
+    - name: Display setup summary
       ansible.builtin.debug:
         msg: |
-          Pi CM5 configuration applied:
-          - Base settings: 64-bit mode, minimal GPU memory, disabled camera/display detection
-          - Power optimization: WiFi/Bluetooth/HDMI audio disabled (~200mW savings)
-          - PCIe: {{ 'Enabled' if pi_pcie_enabled else 'Disabled' }}
-            ({{ 'NAS mode' if pi_pcie_enabled else 'power saving' }})
+          Pi CM5 NAS setup complete:
+          - PCIe enabled and active
+          - MinIO drives formatted and mounted:
+          {% for drive in minio_storage_drives %}
+            {{ drive.device }} → {{ drive.mount_point }}
+          {% endfor %}
 
-          Reboot required to apply changes.
+          Ready for MinIO installation.
       tags:
         - summary

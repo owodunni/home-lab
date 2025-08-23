@@ -33,6 +33,7 @@ This document outlines the step-by-step plan to build a complete home lab infras
 - [x] System upgrades and security updates
 - [x] Master orchestration playbook (`site.yml`)
 - [x] Makefile automation
+- [x] **Phase 4a: NAS Disk Preparation** - XFS formatted, mounted, ready for MinIO
 
 ## Execution Steps
 
@@ -93,21 +94,43 @@ This document outlines the step-by-step plan to build a complete home lab infras
 
 ---
 
-### Phase 4: MinIO S3 Backup Service (FUTURE)
+### Phase 4a: NAS Disk Preparation ✅
+
+**Status:** COMPLETED
+
+**What was accomplished:**
+- XFS filesystems created on both 2TB drives using WWN identifiers
+- Persistent mounts configured at `/mnt/minio-drive1` and `/mnt/minio-drive2`
+- PCIe controller activated and M.2 SATA drives accessible
+- Storage ready for MinIO installation
+
+**Validation:**
+- [x] Both drives (3.8TB total) mounted and accessible
+- [x] XFS filesystems with MINIODRIVE1/MINIODRIVE2 labels
+- [x] Persistent `/etc/fstab` entries using stable disk labels
+- [x] PCIe SATA controller detected and operational
+
+---
+
+### Phase 4b: MinIO S3 Backup Service (NEXT)
 
 **Playbook to Create:** `minio-setup.yml`
 
+**External Role:** `ricsanfre.minio` (to be added to requirements.yml)
+
 **What it will do:**
-1. Setup disks, formatting, mounting, based on group_vars for MiniIO
-1. Install MinIO on NAS node (pi-cm5-4)
-2. Configure S3 buckets for Longhorn backups
-3. Set up access keys and policies
+1. Install MinIO using the ricsanfre.minio Ansible role
+2. Configure MinIO with prepared storage paths:
+   - `/mnt/minio-drive1/data`
+   - `/mnt/minio-drive2/data`
+3. Set up S3 buckets for Longhorn backups
+4. Configure access keys and policies
 
 **Test Requirements:**
-- [ ] MinIO console accessible
+- [ ] MinIO console accessible (web UI)
 - [ ] S3 API responding to requests
 - [ ] Backup bucket created with proper policies
-- [ ] Test backup/restore cycle
+- [ ] Test S3 operations (put/get objects)
 
 ---
 

@@ -15,3 +15,26 @@ pi_pcie_generation: 3
 # Enable POE support for Waveshare PoE HAT (G) - not needed for cluster on Turing Pi 2
 # Reference: https://www.waveshare.com/wiki/PoE_HAT_(G)#How_to_Install
 pi_poe_enabled: true
+
+# MinIO storage configuration for NAS node
+# Uses persistent disk identifiers (WWN) to avoid device name changes
+# Defines the drives to be prepared and used for MinIO data storage
+minio_storage_drives:
+  - device: /dev/disk/by-id/wwn-0x5000c5008a1a78df
+    label: MINIODRIVE1
+    mount_point: /mnt/minio-drive1
+    filesystem: xfs
+  - device: /dev/disk/by-id/wwn-0x5000c5008a1a7d0f
+    label: MINIODRIVE2
+    mount_point: /mnt/minio-drive2
+    filesystem: xfs
+
+# MinIO data directories - used by ricsanfre.minio role
+# These paths will be created on the mounted drives
+minio_server_datadirs:
+  - /mnt/minio-drive1/data
+  - /mnt/minio-drive2/data
+
+# MinIO mount options for /etc/fstab
+# noatime = performance optimization for object storage workloads
+minio_mount_options: "defaults,noatime"
