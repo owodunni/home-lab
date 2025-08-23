@@ -39,7 +39,7 @@ pi_pcie_config: "{{ pi_pcie_config_enabled if pi_pcie_enabled | default(false) e
 # Reference: https://github.com/raspberrypi/linux/issues/6214
 pi_pcie_config_enabled:
   # Enable PCIe connector
-  - regexp: "^dtparam=pciex1"
+  - regexp: "^dtparam=pciex1$"
     line: "dtparam=pciex1"
   # Set PCIe generation speed (2=Gen2, 3=Gen3)
   - regexp: "^dtparam=pciex1_gen"

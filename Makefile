@@ -1,7 +1,7 @@
 # Development and deployment automation for Pi cluster home lab
 ANSIBLE_PLAYBOOK = ANSIBLE_ROLES_PATH=$(CURDIR)/roles  uv run ansible-playbook
 
-.PHONY: help setup lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config pi-full-config
+.PHONY: help setup lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site
 
 help:
 	@echo "Available commands:"
@@ -39,3 +39,11 @@ pi-base-config:
 pi-storage-config:
 	@echo "Configuring Pi CM5 storage settings..."
 	$(ANSIBLE_PLAYBOOK) playbooks/pi-storage-config.yml --diff
+
+site-check: ## Run full infrastructure setup in dry-run mode with diff
+	@echo "Running full infrastructure setup (dry-run with diff)..."
+	$(ANSIBLE_PLAYBOOK) site.yml --check --diff
+
+site: ## Run full infrastructure setup
+	@echo "Running full infrastructure setup..."
+	$(ANSIBLE_PLAYBOOK) site.yml

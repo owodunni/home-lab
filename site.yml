@@ -1,0 +1,66 @@
+---
+# Master orchestration playbook for home lab infrastructure
+# Executes base configuration in the correct order for full cluster setup
+
+- name: Home Lab Infrastructure Setup
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Display setup overview
+      ansible.builtin.debug:
+        msg: |
+          Home Lab Infrastructure Setup
+          ============================
+
+          Target Infrastructure:
+          - K3s Cluster: pi-cm5-1 (control), pi-cm5-2,3 (workers), Beelink (storage worker)
+          - NAS: pi-cm5-4 (MinIO S3 backup server)
+
+          Execution Order:
+          1. Base Pi CM5 configuration (all Pi nodes)
+          2. Storage configuration (NAS node only)
+          3. System upgrades and security updates
+
+          Future Steps (see TODO.md):
+          - K3s cluster installation
+          - Longhorn distributed storage
+          - MinIO S3 backup service
+          - Integration and monitoring
+
+# Phase 1: Base Configuration for all Pi CM5 nodes
+- name: Phase 1 - Base Pi CM5 Configuration
+  import_playbook: playbooks/pi-base-config.yml
+
+# Phase 2: Storage-specific configuration for NAS node
+- name: Phase 2 - Storage Configuration
+  import_playbook: playbooks/pi-storage-config.yml
+
+# Phase 3: System maintenance
+- name: Phase 3a - System Upgrades
+  import_playbook: playbooks/upgrade.yml
+- name: Phase 3b - Unattended Upgrades Setup
+  import_playbook: playbooks/unattended-upgrades.yml
+
+# Final status summary
+- name: Setup Complete
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Display completion status
+      ansible.builtin.debug:
+        msg: |
+          Infrastructure Setup Complete!
+          =============================
+
+          ✓ Base Pi CM5 configuration applied
+          ✓ Storage configuration applied to NAS
+          ✓ System updates completed
+          ✓ Unattended upgrades configured
+
+          Next Steps:
+          1. Reboot all nodes to apply configuration changes
+          2. Follow TODO.md for K3s cluster setup
+          3. Install Longhorn for distributed storage
+          4. Configure MinIO for S3 backups
+
+          Run 'make site-check' to preview changes before execution.

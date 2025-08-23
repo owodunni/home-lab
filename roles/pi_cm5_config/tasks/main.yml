@@ -8,7 +8,9 @@
     dest: "{{ pi_config_file }}.backup-{{ ansible_date_time.epoch }}"
     remote_src: true
     mode: "0644"
-  when: pi_backup_enabled | default(true)
+  when:
+    - pi_backup_enabled | default(true)
+    - not ansible_check_mode
   register: pi_backup_result
   tags:
     - pi-cm5-config
@@ -22,6 +24,8 @@
     insertafter: EOF
     state: present
     create: true
+    # Note: Intentionally not setting mode to preserve RPi OS default permissions
+    # ansible-lint risky-file-permissions can be ignored here
   with_items: "{{ pi_base_config }}"
   notify: reboot required
   tags:
