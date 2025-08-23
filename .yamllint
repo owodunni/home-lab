@@ -19,3 +19,4 @@ ignore: |
   **/stale.yml
   .venv/
   uv.lock
+  .ansible/

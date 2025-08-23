@@ -1,5 +1,6 @@
 # Development and deployment automation for Pi cluster home lab
-ANSIBLE_PLAYBOOK = ANSIBLE_ROLES_PATH=$(CURDIR)/roles  uv run ansible-playbook
+# Fix macOS fork safety issue with Python 3.13 + Ansible multiprocessing
+ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
 .PHONY: help setup lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site
 
@@ -47,3 +48,7 @@ site-check: ## Run full infrastructure setup in dry-run mode with diff
 site: ## Run full infrastructure setup
 	@echo "Running full infrastructure setup..."
 	$(ANSIBLE_PLAYBOOK) site.yml
+
+minio-setup: ## Install and configure MinIO S3 storage on NAS
+	@echo "Installing MinIO S3 storage on NAS..."
+	$(ANSIBLE_PLAYBOOK) playbooks/minio-setup.yml --check --diff

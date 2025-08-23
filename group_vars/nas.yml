@@ -38,3 +38,33 @@ minio_server_datadirs:
 # MinIO mount options for /etc/fstab
 # noatime = performance optimization for object storage workloads
 minio_mount_options: "defaults,noatime"
+
+# MinIO server configuration for ricsanfre.minio role
+minio_root_user: "miniosuperuser"
+minio_root_password: "{{ vault_minio_root_password | default('changeme123') }}"
+minio_server_port: 9000
+minio_console_port: 9001
+
+# MinIO buckets for different use cases
+minio_buckets:
+  - name: longhorn-backups
+    policy: private
+    # Object locking for backup integrity
+    object_locking: true
+  - name: cluster-logs
+    policy: private
+  - name: media-storage
+    policy: read-write
+
+# MinIO users for service accounts
+minio_users:
+  - name: longhorn-backup
+    password: "{{ vault_longhorn_backup_password | default('longhorn123') }}"
+    buckets_acl:
+      - name: longhorn-backups
+        policy: read-write
+  - name: readonly-user
+    password: "{{ vault_readonly_user_password | default('readonly123') }}"
+    buckets_acl:
+      - name: media-storage
+        policy: read-only

@@ -2,3 +2,7 @@
 collections:
   - name: hifis.toolkit
     version: ">=1.0.0"
+
+roles:
+  - src: https://github.com/ricsanfre/ansible-role-minio
+    name: ricsanfre.minio
