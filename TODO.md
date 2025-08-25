@@ -2,315 +2,286 @@
 
 ## Overview
 
-This document outlines the step-by-step plan to build a complete home lab infrastructure with K3s cluster, Longhorn distributed storage, and MinIO backup service.
+Complete home lab infrastructure with K3s Kubernetes cluster, Longhorn distributed storage, and MinIO S3 backup service with secure remote access.
 
 ## Target Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ K3s Cluster                                                     │
+│ K3s Cluster (Tailscale Mesh)                                   │
 │ ├── Control Plane (pi-cm5-1)                                   │
 │ ├── Workers (pi-cm5-2, pi-cm5-3)                              │
-│ └── Storage Worker (Beelink ME mini N150)                      │
+│ └── Storage Worker (Beelink ME mini N150 - future)            │
 │     ├── K3s Worker Node                                        │
 │     ├── Longhorn Storage Provider                              │
 │     └── 6x M.2 SSD slots (up to 24TB)                         │
 └─────────────────────────────────────────────────────────────────┘
-           │
-           │ (S3 backups via Longhorn)
+           │ (Encrypted S3 backups via Tailscale VPN)
            ▼
-┌─────────────────────────────────────────┐
-│ NAS Node (pi-cm5-4) - Outside Cluster  │
-│ ├── MinIO S3 Service                   │
-│ └── 2TB Storage for backups            │
-└─────────────────────────────────────────┘
+┌─────────────────────────────────────┐
+│ Offsite NAS (pi-cm5-4)             │
+│ ├── MinIO S3 (HTTPS + SSE)         │
+│ ├── 2TB XFS Storage                │
+│ └── Tailscale VPN Access           │
+└─────────────────────────────────────┘
 ```
 
-## Current Status ✓
+## Completed Infrastructure ✅
 
-- [x] Base Pi CM5 configuration (`pi-base-config.yml`)
-- [x] Storage configuration for NAS (`pi-storage-config.yml`)
-- [x] System upgrades and security updates
-- [x] Master orchestration playbook (`site.yml`)
-- [x] Makefile automation
-- [x] **Phase 4a: NAS Disk Preparation** - XFS formatted, mounted, ready for MinIO
+### Phase 1: Base Configuration
+- **Status:** ✅ Complete
+- **Command:** `make site`
+- **Accomplished:** Pi CM5 base config, PCIe/storage settings, system updates, unattended upgrades
 
-## Execution Steps
+### Phase 4a: NAS Storage Preparation
+- **Status:** ✅ Complete
+- **Accomplished:** XFS filesystems on 2TB drives, persistent mounts, PCIe SATA controller active
 
-### Phase 1: Current Infrastructure Setup ✓
+### Phase 4b: MinIO S3 Service
+- **Status:** ✅ Complete
+- **Command:** `make minio-setup`
+- **Accomplished:** MinIO deployed with buckets (longhorn-backups, cluster-logs, media-storage)
+- **Access:** http://pi-cm5-4.local:9001 (console), http://pi-cm5-4.local:9000 (API)
+- **Usage Guide:** See `docs/minio-usage.md`
 
-**Command:** `make site-check` (dry-run) then `make site`
+---
 
-**What it does:**
-1. Applies base Pi CM5 configuration to all Pi nodes
-2. Configures PCIe/storage settings on NAS node
-3. Updates all systems and configures unattended upgrades
+## Remaining Phases
+
+### Phase 5a: Ansible Vault Setup
+
+**Purpose:** Secure credential management for infrastructure secrets
+
+**Implementation:**
+- Create vault files for MinIO credentials, Cloudflare API tokens, SSL keys
+- Update existing group_vars to use encrypted vault variables
+- Configure vault password files with proper permissions (600)
+
+**Files to Create:**
+- `group_vars/nas/vault.yml` - MinIO encrypted credentials
+- `group_vars/all/vault.yml` - Global encrypted variables
+- `vault_passwords/` directory - Password files (gitignored)
 
 **Test Requirements:**
-- [ ] All Pi nodes respond to SSH
-- [ ] PCIe enabled on NAS node: `lspci` shows devices
-- [ ] System updates applied: `apt list --upgradable` shows no pending updates
-- [ ] Unattended upgrades configured: Check `/etc/apt/apt.conf.d/50unattended-upgrades`
+- [ ] Vault files encrypted with AES256
+- [ ] Existing playbooks work with vault variables
+- [ ] Git repository contains no plaintext credentials
 
-**Post-Phase 1:** Reboot all nodes to apply configuration changes
+**Dependencies:** None - foundational security requirement
 
 ---
 
-### Phase 2: K3s Cluster Setup (FUTURE)
+### Phase 5b: SSL/TLS Certificates (Certbot + Cloudflare)
 
-**Planned Approach:** Adapt Jeff Geerlingguy's pi-cluster repository
-- Reference: https://github.com/geerlingguy/pi-cluster
+**Purpose:** Automated HTTPS certificates for MinIO using Let's Encrypt + DNS-01 challenges
 
-**Playbook to Create:** `k3s-cluster.yml`
+**Implementation:**
+- Install certbot and certbot-dns-cloudflare plugin
+- Configure Cloudflare API token for DNS automation
+- Generate certificates for MinIO domains (minio.domain.com, console.domain.com)
+- Set up automatic renewal via systemd timers
+- Update MinIO configuration for TLS
 
-**What it will do:**
-1. Install K3s on control plane (pi-cm5-1)
-2. Join worker nodes (pi-cm5-2, pi-cm5-3, Beelink) to cluster
-3. Configure kubeconfig access
+**Files to Create:**
+- `playbooks/ssl-certificates.yml` - Certificate management playbook
+- `group_vars/nas/ssl.yml` - SSL configuration
+- Update MinIO service config for HTTPS
 
 **Test Requirements:**
-- [ ] `kubectl get nodes` shows all 4 nodes Ready
-- [ ] `kubectl get pods -A` shows system pods running
-- [ ] Control plane accessible from management machine
-- [ ] All nodes have proper taints/labels
+- [ ] SSL certificates generated for MinIO domains
+- [ ] MinIO console/API accessible via HTTPS
+- [ ] Certificate renewal timer active
+- [ ] DNS-01 challenges working automatically
+
+**Dependencies:** Phase 5a (Vault for API tokens)
+
+**Links:**
+- [Certbot DNS Cloudflare Plugin](https://certbot-dns-cloudflare.readthedocs.io/)
+- [Let's Encrypt DNS Validation](https://letsencrypt.org/docs/challenge-types/#dns-01-challenge)
 
 ---
 
-### Phase 3: Longhorn Distributed Storage (FUTURE)
+### Phase 5c: MinIO Server-Side Encryption (SSE)
 
-**Playbook to Create:** `longhorn-storage.yml`
+**Purpose:** Enable MinIO native encryption for sensitive buckets
 
-**What it will do:**
-1. Install Longhorn via Helm/kubectl on K3s cluster
-2. Configure storage classes and replica settings
-3. Set up backup target (MinIO S3)
+**Implementation:**
+- Configure MinIO Key Encryption Service (KES)
+- Enable SSE-KMS for longhorn-backups and cluster-logs buckets
+- Set up encryption key management and rotation
+- Keep media-storage unencrypted for performance
+
+**Files to Create:**
+- `playbooks/minio-encryption.yml` - SSE configuration
+- `group_vars/nas/encryption.yml` - Encryption settings
+- KES configuration and key storage
 
 **Test Requirements:**
-- [ ] Longhorn UI accessible
-- [ ] All nodes show as storage nodes with available space
-- [ ] Test PVC creation and mounting
-- [ ] Volume replicas distributed across nodes
-- [ ] Backup destination configured
+- [ ] KES service configured and running
+- [ ] Sensitive buckets encrypted with SSE-KMS
+- [ ] Encrypted/unencrypted bucket operations functional
+- [ ] Encryption keys secured in vault
+
+**Dependencies:** Phase 5b (SSL required for MinIO SSE)
+
+**Links:**
+- [MinIO Server-Side Encryption](https://min.io/docs/minio/linux/operations/server-side-encryption.html)
+- [MinIO KES Documentation](https://github.com/minio/kes)
 
 ---
 
-### Phase 4a: NAS Disk Preparation ✅
+### Phase 5d: Tailscale VPN Network
 
-**Status:** COMPLETED
+**Purpose:** Secure remote access to offsite NAS without port forwarding
 
-**What was accomplished:**
-- XFS filesystems created on both 2TB drives using WWN identifiers
-- Persistent mounts configured at `/mnt/minio-drive1` and `/mnt/minio-drive2`
-- PCIe controller activated and M.2 SATA drives accessible
-- Storage ready for MinIO installation
+**Implementation:**
+- Install Tailscale on all Pi nodes (cluster + NAS)
+- Configure auth keys and Access Control Lists (ACLs)
+- Set up subnet routing for cluster network access
+- Integrate with existing services (MinIO, SSH, future K3s)
 
-**Validation:**
-- [x] Both drives (3.8TB total) mounted and accessible
-- [x] XFS filesystems with MINIODRIVE1/MINIODRIVE2 labels
-- [x] Persistent `/etc/fstab` entries using stable disk labels
-- [x] PCIe SATA controller detected and operational
+**Network Architecture:**
+```
+Management Device → Tailscale Mesh → [Cluster Nodes + Offsite NAS]
+```
 
----
-
-### Phase 4b: MinIO S3 Backup Service ✅
-
-**Status:** READY FOR EXECUTION
-
-**Implementation Complete:**
-- ✅ `requirements.yml` updated with `ricsanfre.minio` role
-- ✅ `group_vars/nas.yml` configured with MinIO settings
-- ✅ `playbooks/minio-setup.yml` created with verification
-- ✅ `Makefile` updated with `minio-setup` target
-
-**Command:** `make minio-setup`
-
-**What it does:**
-1. Verifies storage preparation is complete (Phase 4a)
-2. Installs MinIO using the ricsanfre.minio Ansible role
-3. Configures MinIO with prepared storage paths:
-   - `/mnt/minio-drive1/data` (2TB XFS)
-   - `/mnt/minio-drive2/data` (2TB XFS)
-4. Creates S3 buckets:
-   - `longhorn-backups` (private, object locking enabled)
-   - `cluster-logs` (private)
-   - `media-storage` (read-write)
-5. Creates service accounts:
-   - `longhorn-backup` (read-write access to longhorn-backups bucket)
-   - `readonly-user` (read-only access to media-storage bucket)
-6. Performs health checks and displays setup summary
+**Files to Create:**
+- `playbooks/tailscale-setup.yml` - Installation and configuration
+- `group_vars/all/tailscale.yml` - Network configuration
+- `templates/tailscale-acl.json.j2` - Access control template
 
 **Test Requirements:**
-- [ ] MinIO console accessible at `http://pi-cm5-4.local:9001`
-- [ ] MinIO API responding at `http://pi-cm5-4.local:9000`
-- [ ] All 3 buckets created with correct policies
-- [ ] Service accounts functional
-- [ ] Test S3 operations (put/get objects)
+- [ ] All Pi nodes connected to Tailscale mesh
+- [ ] MinIO accessible via Tailscale IPs/DNS
+- [ ] ACLs restricting access appropriately
+- [ ] Management device can access all services
 
-**Access Information:**
-- **Console URL:** http://pi-cm5-4.local:9001
-- **API URL:** http://pi-cm5-4.local:9000
-- **Root User:** miniosuperuser
-- **Root Password:** Set via `vault_minio_root_password` (defaults to 'changeme123')
+**Dependencies:** Phase 5a (Vault for auth keys)
 
-## MinIO Usage Guide
-
-### Web Console Access
-```bash
-# Access via browser
-open http://pi-cm5-4.local:9001
-# Login: miniosuperuser / [vault_minio_root_password]
-```
-
-### MinIO Client (mc) Setup
-```bash
-# Install MinIO client
-brew install minio/stable/mc  # macOS
-# or: wget https://dl.min.io/client/mc/release/linux-amd64/mc
-
-# Configure alias
-mc alias set homelab http://pi-cm5-4.local:9000 miniosuperuser [password]
-
-# Test connection
-mc admin info homelab
-```
-
-### Basic S3 Operations
-```bash
-# List buckets
-mc ls homelab
-
-# Upload file to bucket
-mc cp /path/to/file.txt homelab/media-storage/
-
-# Download file
-mc cp homelab/media-storage/file.txt ./downloaded-file.txt
-
-# Sync directory
-mc mirror /local/directory homelab/media-storage/backup/
-
-# List objects in bucket
-mc ls homelab/longhorn-backups --recursive
-```
-
-### Python boto3 Example
-```python
-import boto3
-from botocore.client import Config
-
-# Configure S3 client
-s3_client = boto3.client(
-    's3',
-    endpoint_url='http://pi-cm5-4.local:9000',
-    aws_access_key_id='longhorn-backup',
-    aws_secret_access_key='[longhorn_backup_password]',
-    config=Config(signature_version='s3v4'),
-    region_name='us-east-1'  # MinIO default
-)
-
-# Upload file
-with open('test.txt', 'wb') as f:
-    f.write(b'Hello MinIO!')
-
-s3_client.upload_file('test.txt', 'longhorn-backups', 'test/test.txt')
-
-# Download file
-s3_client.download_file('longhorn-backups', 'test/test.txt', 'downloaded.txt')
-```
-
-### Longhorn Integration (Future Phase 3)
-```yaml
-# Longhorn backup target configuration
-apiVersion: longhorn.io/v1beta1
-kind: Setting
-metadata:
-  name: backup-target
-spec:
-  value: s3://longhorn-backups@us-east-1/
----
-apiVersion: longhorn.io/v1beta1
-kind: Setting
-metadata:
-  name: backup-target-credential-secret
-spec:
-  value: minio-credentials
-
-# Kubernetes secret for MinIO access
-apiVersion: v1
-kind: Secret
-metadata:
-  name: minio-credentials
-  namespace: longhorn-system
-data:
-  AWS_ACCESS_KEY_ID: [base64_encoded_longhorn_backup_user]
-  AWS_SECRET_ACCESS_KEY: [base64_encoded_longhorn_backup_password]
-  AWS_ENDPOINTS: aHR0cDovL3BpLWNtNS00LmxvY2FsOjkwMDA=  # http://pi-cm5-4.local:9000
-```
-
-### Monitoring & Maintenance
-```bash
-# Check MinIO service status
-ansible nas -m systemd -a "name=minio state=started" -b
-
-# View MinIO logs
-ansible nas -m shell -a "journalctl -u minio --since '1 hour ago'" -b
-
-# Check storage usage
-mc admin info homelab
-```
+**Links:**
+- [Tailscale Documentation](https://tailscale.com/kb/)
+- [K3s Tailscale Integration](https://docs.k3s.io/networking/distributed-multicloud)
 
 ---
 
-### Phase 5: Integration & Monitoring (FUTURE)
+### Phase 5e: UFW Firewall Configuration
 
-**Playbook to Create:** `cluster-integration.yml`
+**Purpose:** Defense-in-depth network security for all nodes
 
-**What it will do:**
-1. Configure Longhorn → MinIO backup integration
-2. Set up scheduled backups
-3. Configure monitoring and alerting
-4. Deploy sample applications for testing
+**Implementation:**
+- Install UFW on all Pi nodes with node-specific rules
+- Configure SSH rate limiting and Tailscale mesh allowance
+- Set up K3s networking ports (API, etcd, Flannel VXLAN)
+- Enable logging and security monitoring
+
+**⚠️ K3s Firewall Considerations:**
+K3s recommends disabling firewalls due to networking complexity. We maintain firewalls for security but require careful configuration of Flannel VXLAN (UDP 8472) and pod/service networks (10.42.0.0/16, 10.43.0.0/16).
+
+**Files to Create:**
+- `playbooks/firewall-config.yml` - UFW configuration
+- `group_vars/cluster/firewall.yml` - K3s firewall rules
+- `group_vars/nas/firewall.yml` - MinIO firewall rules
 
 **Test Requirements:**
-- [ ] Scheduled backups working
-- [ ] Sample app can use persistent storage
-- [ ] Monitoring dashboards showing cluster health
-- [ ] Disaster recovery test successful
+- [ ] UFW active with SSH rate limiting functional
+- [ ] Tailscale mesh traffic allowed
+- [ ] K3s ports configured for future cluster setup
+- [ ] Flannel VXLAN (UDP 8472) connectivity verified
+
+**Dependencies:** Phase 5d (Tailscale must be configured first)
+
+**Links:**
+- [K3s Firewall Troubleshooting](docs/k3s-firewall-troubleshooting.md) ← Already created
 
 ---
 
-## Current Infrastructure Commands
+### Phase 6: K3s Cluster Setup
 
+**Purpose:** Kubernetes cluster with Tailscale mesh networking
+
+**Implementation:**
+- Install K3s on control plane (pi-cm5-1) with Tailscale integration
+- Join worker nodes via Tailscale mesh network
+- Configure cross-site communication for offsite nodes
+- Set up kubeconfig access over secure network
+
+**Files to Create:**
+- `playbooks/k3s-cluster.yml` - Cluster installation
+- `group_vars/cluster/k3s.yml` - K3s configuration
+
+**Test Requirements:**
+- [ ] All cluster nodes show Ready status
+- [ ] System pods running across all nodes
+- [ ] kubectl access via Tailscale network
+- [ ] Cross-site pod communication functional
+
+**Dependencies:** Phase 5e (Firewall must allow K3s traffic)
+
+**Links:**
+- [Jeff Geerlingguy pi-cluster](https://github.com/geerlingguy/pi-cluster)
+- [K3s Installation Guide](https://docs.k3s.io/quick-start)
+
+---
+
+### Phase 7: Longhorn Distributed Storage
+
+**Purpose:** Distributed block storage with encrypted MinIO backups
+
+**Implementation:**
+- Install Longhorn via Helm on K3s cluster
+- Configure storage classes and replica settings
+- Set up encrypted backup target (MinIO S3 with SSE)
+- Configure backup schedules and retention policies
+
+**Files to Create:**
+- `playbooks/longhorn-storage.yml` - Longhorn installation
+- Longhorn backup configuration for encrypted MinIO
+
+**Test Requirements:**
+- [ ] Longhorn UI accessible via K3s ingress
+- [ ] All nodes registered as storage nodes
+- [ ] PVC creation and mounting functional
+- [ ] Encrypted backups to MinIO working
+
+**Dependencies:** Phase 6 (K3s cluster), Phase 5c (MinIO encryption)
+
+**Links:**
+- [Longhorn Documentation](https://longhorn.io/docs/)
+- [Longhorn S3 Backup Setup](https://longhorn.io/docs/latest/snapshots-and-backups/backup-and-restore/set-backup-target/)
+
+---
+
+## Quick Reference
+
+### Current Commands
 ```bash
-# Preview all changes
-make site-check
+# Infrastructure management
+make site-check         # Preview all changes
+make site               # Apply base infrastructure
+make minio-setup        # Deploy MinIO S3 service
+make upgrade            # System updates
 
-# Apply full infrastructure setup
-make site
-
-# Individual playbook testing
-make pi-base-config    # Dry-run base config
-make pi-storage-config # Apply storage config
-make upgrade           # System updates
+# Development
+make setup              # Install dependencies
+make lint               # Run linting and syntax checks
+make precommit          # Pre-commit hooks
 ```
 
-## Hardware Configuration
-
-### Current Devices
+### Hardware Configuration
 - **pi-cm5-1**: K3s control plane
-- **pi-cm5-2**: K3s worker
-- **pi-cm5-3**: K3s worker
-- **pi-cm5-4**: MinIO NAS (2TB storage)
+- **pi-cm5-2, pi-cm5-3**: K3s workers
+- **pi-cm5-4**: MinIO NAS (2TB XFS storage, offsite via Tailscale)
+- **Beelink ME mini N150** (future): K3s storage worker with Longhorn (6x M.2, up to 24TB)
 
-### Future Device
-- **Beelink ME mini N150**: K3s storage worker
-  - 6x M.2 SSD slots (up to 24TB)
-  - Dual 2.5G networking
-  - Will run both K3s worker + Longhorn storage
+### Phase Dependencies
+```
+5a (Vault) → 5b (SSL) → 5c (MinIO Encryption)
+            ↓
+5d (Tailscale) → 5e (Firewall) → 6 (K3s) → 7 (Longhorn)
+```
 
-## Notes
-
-- All Pi CM5 devices configured for headless operation with power optimization
-- NAS node has PCIe enabled for M.2 SATA controller support
-- Cluster nodes have PCIe disabled for power savings
-- Security updates configured for automatic installation with 2AM reboot window
-- Using UV for Python dependency management and Ansible collections
+### Key Resources
+- **Project Structure:** `docs/project-structure.md`
+- **Git Guidelines:** `docs/git-commit-guidelines.md`
+- **MinIO Usage:** `docs/minio-usage.md`
+- **K3s Firewall:** `docs/k3s-firewall-troubleshooting.md`
