@@ -1,0 +1,12 @@
+---
+# Host-specific configuration for pi-cm5-3
+# Third control plane node - restarts last to maintain quorum
+
+# Staggered restart for HA - Third node restarts 1hr after first
+unattended_automatic_reboot_time: "03:00"
+
+# K3s role designation
+k3s_control_node: true
+
+# Use embedded etcd datastore for HA cluster
+k3s_etcd_datastore: true

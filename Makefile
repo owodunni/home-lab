@@ -2,16 +2,17 @@
 # Fix macOS fork safety issue with Python 3.13 + Ansible multiprocessing
 ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
-.PHONY: help setup lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site
+.PHONY: help setup lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site k3s-cluster k3s-cluster-check k3s-uninstall
 
 help:
 	@echo "Available commands:"
 	@echo ""
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
-setup: ## Install all dependencies (Python + Ansible collections)
+setup: ## Install all dependencies (Python + Ansible collections + roles)
 	uv sync
 	uv run ansible-galaxy collection install -r requirements.yml
+	uv run ansible-galaxy role install -r requirements.yml
 
 lint: ## Run all linting and syntax checks
 	@echo "Running yamllint..."
@@ -35,7 +36,7 @@ unattended-upgrades:
 
 pi-base-config:
 	@echo "Configuring Pi CM5 base settings and power optimization..."
-	$(ANSIBLE_PLAYBOOK) playbooks/pi-base-config.yml --check --diff
+	$(ANSIBLE_PLAYBOOK) playbooks/pi-base-config.yml --diff
 
 pi-storage-config:
 	@echo "Configuring Pi CM5 storage settings..."
@@ -51,4 +52,20 @@ site: ## Run full infrastructure setup
 
 minio-setup: ## Install and configure MinIO S3 storage on NAS
 	@echo "Installing MinIO S3 storage on NAS..."
-	$(ANSIBLE_PLAYBOOK) playbooks/minio-setup.yml --check --diff
+	$(ANSIBLE_PLAYBOOK) playbooks/minio-setup.yml --diff
+
+k3s-cluster: ## Deploy K3s HA cluster on Pi nodes
+	@echo "Deploying K3s HA cluster..."
+	$(ANSIBLE_PLAYBOOK) playbooks/k3s-cluster.yml --diff
+
+k3s-cluster-sequential: ## Deploy K3s HA cluster with proper initialization sequence
+	@echo "Deploying K3s HA cluster with sequential initialization..."
+	$(ANSIBLE_PLAYBOOK) playbooks/k3s-cluster-sequential.yml --diff
+
+k3s-cluster-check: ## Check K3s cluster deployment (dry-run)
+	@echo "Checking K3s cluster deployment (dry-run)..."
+	$(ANSIBLE_PLAYBOOK) playbooks/k3s-cluster.yml --check --diff
+
+k3s-uninstall: ## Completely uninstall K3s from all cluster nodes
+	@echo "Uninstalling K3s from all cluster nodes..."
+	$(ANSIBLE_PLAYBOOK) playbooks/k3s-uninstall.yml

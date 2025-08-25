@@ -68,3 +68,6 @@ minio_users:
     buckets_acl:
       - name: media-storage
         policy: read-only
+
+# Disable cgroups for NAS
+pi_cm5_config_cgroup_enabled: false

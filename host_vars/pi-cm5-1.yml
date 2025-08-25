@@ -1,0 +1,15 @@
+---
+# Host-specific configuration for pi-cm5-1
+# First control plane node - restarts first to establish cluster leadership
+
+# Staggered restart for HA - Control plane lead node restarts first
+unattended_automatic_reboot_time: "02:00"
+
+# K3s role designation
+k3s_control_node: true
+
+# Use embedded etcd datastore for HA cluster
+k3s_etcd_datastore: true
+
+# K3s server configuration for first node - only node-specific settings here
+# Global k3s_server settings are defined in group_vars/cluster/k3s.yml

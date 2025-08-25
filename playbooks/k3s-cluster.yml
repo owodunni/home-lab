@@ -1,0 +1,93 @@
+---
+# K3s High Availability Cluster Setup
+# Configures 3-node HA cluster with embedded etcd on Pi CM5 nodes
+# Includes Pi-specific optimizations for ARM64 and eMMC storage
+
+- name: Install additional kernel modules for K3s (if needed)
+  hosts: cluster
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Check if running on Raspberry Pi
+      ansible.builtin.set_fact:
+        is_raspberry_pi: "{{ ansible_facts['board'] is defined and 'Raspberry Pi' in ansible_facts['board'] }}"
+
+    - name: Install additional kernel modules for Ubuntu on Pi
+      ansible.builtin.package:
+        name: linux-modules-extra-raspi
+        state: present
+      when:
+        - is_raspberry_pi
+        - ansible_facts['distribution'] == 'Ubuntu'
+        - ansible_facts['distribution_major_version'] | int >= 21
+      tags:
+        - kernel-modules
+
+- name: Deploy K3s HA cluster
+  hosts: cluster
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: xanmanning.k3s
+
+  post_tasks:
+    - name: Create .kube directory for root
+      ansible.builtin.file:
+        path: /root/.kube
+        state: directory
+        mode: '0755'
+      tags:
+        - kubeconfig
+
+    - name: Copy kubeconfig for root access
+      ansible.builtin.copy:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: /root/.kube/config
+        remote_src: true
+        mode: '0600'
+      tags:
+        - kubeconfig
+
+    - name: Wait for K3s to be ready
+      ansible.builtin.wait_for:
+        port: 6443
+        host: "{{ ansible_default_ipv4.address }}"
+        timeout: 300
+      tags:
+        - verification
+
+    - name: Verify cluster nodes
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Node
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: cluster_nodes
+      when: inventory_hostname == groups['cluster'][0]
+      tags:
+        - verification
+
+    - name: Display cluster status
+      ansible.builtin.debug:
+        msg: |
+          K3s HA cluster deployed successfully!
+
+          Cluster nodes ({{ cluster_nodes.resources | length }}):
+          {% for node in cluster_nodes.resources %}
+          - {{ node.metadata.name }}: {{ node.status.conditions |
+            selectattr('type', 'equalto', 'Ready') | map(attribute='status') | first }}
+          {% endfor %}
+
+          Control plane endpoints:
+          {% for host in groups['cluster'] %}
+          - https://{{ hostvars[host]['ansible_default_ipv4']['address'] }}:6443
+          {% endfor %}
+
+          To access the cluster from your local machine:
+          1. Copy /etc/rancher/k3s/k3s.yaml from any server node
+          2. Update server URL to point to any control plane node
+          3. kubectl get nodes
+      when: inventory_hostname == groups['cluster'][0]
+      tags:
+        - verification

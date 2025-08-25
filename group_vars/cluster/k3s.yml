@@ -1,0 +1,79 @@
+---
+# K3s HA Cluster Configuration for Pi CM5 nodes
+# Configures embedded etcd HA with 3 server nodes
+
+# K3s version and configuration - use latest stable release
+k3s_release_version: v1.31.3+k3s1
+k3s_become: true
+
+# HA Configuration - Control node setting now handled per-host in inventory
+k3s_server_manifests_templates: []
+
+# HA etcd configuration - handled per-node in host_vars
+
+# Cluster token for secure communication
+k3s_control_token: "homelab-k3s-cluster-token-change-this"
+
+# Main K3s server configuration
+k3s_server:
+
+  # Network configuration
+  cluster-cidr: "10.42.0.0/16"
+  service-cidr: "10.43.0.0/16"
+  flannel-backend: "vxlan"
+
+  # Disable components we don't need initially
+  disable:
+    - traefik  # We'll use a different ingress controller later
+    - servicelb  # We'll use MetalLB later
+
+  # Node labels
+  node-label:
+    - "node.kubernetes.io/instance-type=pi-cm5"
+    - "topology.kubernetes.io/zone=homelab"
+
+  # Built-in storage class
+  default-local-storage-path: "/var/lib/rancher/k3s/storage"
+
+  # Logging configuration
+  log: "/var/log/k3s.log"
+  alsologtostderr: false
+  v: 1  # Minimal logging to save disk space
+
+  # ARM64 and API server optimizations
+  # Note: LocalStorageCapacityIsolation feature gate removed in K8s 1.31
+  # Basic etcd settings (complex optimizations commented out for initial setup)
+  # etcd-arg:
+  #   - "quota-backend-bytes=2147483648"      # 2GB quota for etcd
+  #   - "auto-compaction-mode=periodic"       # Compaction mode
+  #   - "auto-compaction-retention=1h"        # Compact every hour
+  #   - "max-request-bytes=33554432"          # 32MB max request
+  #   - "heartbeat-interval=500"              # 500ms heartbeat
+  #   - "election-timeout=2500"               # 2.5s election timeout
+
+# Worker node configuration (server nodes can also run workloads)
+k3s_agent:
+  node-label:
+    - "node.kubernetes.io/instance-type=pi-cm5"
+    - "topology.kubernetes.io/zone=homelab"
+
+# Resource limits for Pi nodes via kubelet configuration
+k3s_server_config_yaml: |
+  kubelet-arg:
+    - "max-pods=50"  # Conservative pod limit for Pi nodes
+    - "image-gc-low-threshold=70"  # Aggressive image cleanup for limited storage
+    - "image-gc-high-threshold=80"
+    - "eviction-hard=memory.available<256Mi"  # Conservative memory eviction
+    - "system-reserved=memory=256Mi,cpu=100m"  # Reserve resources for system
+
+# Additional K3s settings
+k3s_use_experimental: false
+k3s_config_file: /etc/rancher/k3s/config.yaml
+k3s_data_dir: /var/lib/rancher/k3s
+
+# Pi CM5 configuration for K3s cluster nodes
+# PCIe disabled for maximum power savings on compute nodes
+pi_cm5_config_pcie_enabled: false  # No M.2 storage needed for compute nodes
+
+# Enable cgroups for K3s cluster nodes (required for Kubernetes)
+pi_cm5_config_cgroup_enabled: true

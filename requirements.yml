@@ -2,7 +2,10 @@
 collections:
   - name: hifis.toolkit
     version: ">=1.0.0"
+  - name: kubernetes.core
+    version: ">=2.4.0"
 
 roles:
   - src: https://github.com/ricsanfre/ansible-role-minio
     name: ricsanfre.minio
+  - name: xanmanning.k3s

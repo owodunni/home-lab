@@ -1,0 +1,12 @@
+---
+# Host-specific configuration for pi-cm5-2
+# Second control plane node - restarts after pi-cm5-1 returns
+
+# Staggered restart for HA - Second node restarts 30min after first
+unattended_automatic_reboot_time: "02:30"
+
+# K3s role designation
+k3s_control_node: true
+
+# Use embedded etcd datastore for HA cluster
+k3s_etcd_datastore: true

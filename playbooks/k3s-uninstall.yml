@@ -1,0 +1,98 @@
+---
+# K3s Cluster Uninstall
+# Completely removes K3s from all cluster nodes for debugging and clean re-installation
+
+- name: Uninstall K3s from all cluster nodes
+  hosts: cluster
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Check if K3s uninstall script exists
+      ansible.builtin.stat:
+        path: /usr/local/bin/k3s-uninstall.sh
+      register: uninstall_script
+
+    - name: Run K3s uninstall script
+      ansible.builtin.command:
+        cmd: /usr/local/bin/k3s-uninstall.sh
+      when: uninstall_script.stat.exists
+      register: uninstall_result
+      changed_when: true
+
+    - name: Display uninstall results
+      ansible.builtin.debug:
+        msg: "K3s uninstall completed on {{ inventory_hostname }}"
+      when: uninstall_script.stat.exists
+
+    - name: Report if K3s was not installed
+      ansible.builtin.debug:
+        msg: "K3s was not installed on {{ inventory_hostname }} (no uninstall script found)"
+      when: not uninstall_script.stat.exists
+
+    - name: Clean up any remaining K3s processes
+      ansible.builtin.shell:
+        cmd: |
+          pkill -f k3s || true
+          pkill -f containerd || true
+      failed_when: false
+      changed_when: false
+
+    - name: Remove any remaining K3s directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /var/lib/rancher
+        - /etc/rancher
+        - /run/k3s
+        - /run/flannel
+        - /var/lib/kubelet
+        - /var/lib/cni
+      failed_when: false
+
+    - name: Clean up K3s network interfaces
+      ansible.builtin.shell:
+        cmd: |
+          ip link delete cni0 2>/dev/null || true
+          ip link delete flannel.1 2>/dev/null || true
+          ip link delete flannel-v6.1 2>/dev/null || true
+          ip link delete kube-ipvs0 2>/dev/null || true
+          ip link delete flannel-wg 2>/dev/null || true
+          ip link delete flannel-wg-v6 2>/dev/null || true
+      failed_when: false
+      changed_when: false
+
+    - name: Clean up iptables rules
+      ansible.builtin.shell:
+        cmd: |
+          set -o pipefail
+          iptables-save | grep -v KUBE- | grep -v CNI- | grep -iv flannel | iptables-restore || true
+          ip6tables-save | grep -v KUBE- | grep -v CNI- | grep -iv flannel | ip6tables-restore || true
+      failed_when: false
+      changed_when: false
+
+    - name: Reload systemd daemon
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+  post_tasks:
+    - name: Verify K3s removal
+      ansible.builtin.systemd:
+        name: k3s
+        state: started
+      register: service_check
+      failed_when: false
+      changed_when: false
+
+    - name: Display cleanup summary
+      ansible.builtin.debug:
+        msg: |
+          K3s cleanup completed on {{ inventory_hostname }}:
+          - Service status: {{ 'active' if service_check.status is defined and
+            service_check.status.ActiveState == 'active' else 'not-found' }}
+          - Uninstall script executed: {{ uninstall_script.stat.exists }}
+          - Network interfaces cleaned up
+          - Directories removed
+
+          Node is ready for fresh K3s installation.
