@@ -47,6 +47,7 @@
         dest: /root/.kube/config
         remote_src: true
         mode: '0600'
+      when: not ansible_check_mode
       tags:
         - kubeconfig
 
@@ -55,16 +56,28 @@
         port: 6443
         host: "{{ ansible_default_ipv4.address }}"
         timeout: 300
+      when: not ansible_check_mode
       tags:
         - verification
 
     - name: Verify cluster nodes
-      kubernetes.core.k8s_info:
-        api_version: v1
-        kind: Node
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-      register: cluster_nodes
-      when: inventory_hostname == groups['cluster'][0]
+      ansible.builtin.command:
+        cmd: kubectl get nodes -o json --kubeconfig /etc/rancher/k3s/k3s.yaml
+      register: cluster_nodes_raw
+      when:
+        - inventory_hostname == groups['cluster'][0]
+        - not ansible_check_mode
+      tags:
+        - verification
+      changed_when: false
+
+    - name: Parse cluster nodes information
+      ansible.builtin.set_fact:
+        cluster_nodes: "{{ cluster_nodes_raw.stdout | from_json }}"
+      when:
+        - inventory_hostname == groups['cluster'][0]
+        - not ansible_check_mode
+        - cluster_nodes_raw.stdout is defined
       tags:
         - verification
 
@@ -73,8 +86,8 @@
         msg: |
           K3s HA cluster deployed successfully!
 
-          Cluster nodes ({{ cluster_nodes.resources | length }}):
-          {% for node in cluster_nodes.resources %}
+          Cluster nodes ({{ cluster_nodes.items | length }}):
+          {% for node in cluster_nodes.items %}
           - {{ node.metadata.name }}: {{ node.status.conditions |
             selectattr('type', 'equalto', 'Ready') | map(attribute='status') | first }}
           {% endfor %}
@@ -88,6 +101,41 @@
           1. Copy /etc/rancher/k3s/k3s.yaml from any server node
           2. Update server URL to point to any control plane node
           3. kubectl get nodes
-      when: inventory_hostname == groups['cluster'][0]
+      when:
+        - inventory_hostname == groups['cluster'][0]
+        - not ansible_check_mode
+        - cluster_nodes is defined
+      tags:
+        - verification
+
+    - name: Display check mode information
+      ansible.builtin.debug:
+        msg: |
+          K3s HA Cluster Deployment Preview (Check Mode)
+          ============================================
+
+          This dry-run shows what would be deployed:
+
+          Target Infrastructure:
+          {% for host in groups['cluster'] %}
+          - {{ host }}: K3s server node with embedded etcd
+          {% endfor %}
+
+          Configuration Summary:
+          - K3s Version: {{ k3s_release_version }}
+          - Network: Flannel VXLAN backend
+          - Cluster CIDR: {{ k3s_server['cluster-cidr'] }}
+          - Service CIDR: {{ k3s_server['service-cidr'] }}
+          - Disabled Components: {{ k3s_server.disable | join(', ') }}
+
+          Control Plane Endpoints (after deployment):
+          {% for host in groups['cluster'] %}
+          - https://{{ hostvars[host]['ansible_default_ipv4']['address'] }}:6443
+          {% endfor %}
+
+          To actually deploy the cluster, run: make k3s-cluster
+      when:
+        - inventory_hostname == groups['cluster'][0]
+        - ansible_check_mode
       tags:
         - verification
