@@ -21,9 +21,9 @@
           2. System upgrades and security updates
           3. Storage configuration (NAS node disk preparation)
           4. MinIO S3 backup service installation
+          5. K3s cluster installation (3-node HA with embedded etcd)
 
           Future Steps (see TODO.md):
-          - K3s cluster installation
           - Longhorn distributed storage
           - Integration and monitoring
 
@@ -45,6 +45,10 @@
 - name: Phase 4 - MinIO S3 Installation
   import_playbook: playbooks/minio-setup.yml
 
+# Phase 5: K3s cluster installation
+- name: Phase 5 - K3s HA Cluster Installation
+  import_playbook: playbooks/k3s-cluster.yml
+
 # Final status summary
 - name: Setup Complete
   hosts: localhost
@@ -61,16 +65,18 @@
           ✓ Unattended upgrades configured
           ✓ Storage configuration applied to NAS (4TB XFS ready)
           ✓ MinIO S3 backup service installed and configured
+          ✓ K3s HA cluster deployed (3-node with embedded etcd)
 
-          MinIO Access:
-          - Console: http://pi-cm5-4.local:9001
-          - API: http://pi-cm5-4.local:9000
-          - Buckets: longhorn-backups, cluster-logs, media-storage
+          Service Access:
+          - MinIO Console: http://pi-cm5-4.local:9001
+          - MinIO API: http://pi-cm5-4.local:9000
+          - K3s API: https://pi-cm5-1:6443 (or pi-cm5-2, pi-cm5-3)
+          - MinIO Buckets: longhorn-backups, cluster-logs, media-storage
 
           Next Steps:
-          1. Test MinIO installation (see TODO.md usage guide)
-          2. Follow TODO.md for K3s cluster setup
-          3. Install Longhorn with MinIO backup integration
+          1. Test K3s cluster: kubectl get nodes
+          2. Install Longhorn distributed storage with MinIO backup
+          3. Set up application workloads and monitoring
 
           Note: System reboots handled automatically during upgrade phase.
 
