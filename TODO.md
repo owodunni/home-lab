@@ -44,6 +44,17 @@ Complete home lab infrastructure with K3s Kubernetes cluster, Longhorn distribut
 - **Access:** http://pi-cm5-4.local:9001 (console), http://pi-cm5-4.local:9000 (API)
 - **Usage Guide:** See `docs/minio-usage.md`
 
+### Phase 6: K3s Cluster Setup
+- **Status:** ✅ Complete
+- **Command:** `make k3s-cluster`
+- **Accomplished:**
+  - 3-node HA K3s cluster with embedded etcd consensus
+  - Staggered maintenance schedules for zero-downtime updates (02:00, 02:30, 03:00)
+  - Production-ready configuration with proper networking (Flannel VXLAN)
+  - Comprehensive uninstall playbook for debugging and clean reinstalls
+- **Access:** kubectl via any cluster node (pi-cm5-1, pi-cm5-2, pi-cm5-3)
+- **Documentation:** See `docs/k3s-cluster-setup.md`, `docs/k3s-maintenance-guide.md`
+
 ---
 
 ## Remaining Phases
@@ -195,33 +206,6 @@ K3s recommends disabling firewalls due to networking complexity. We maintain fir
 
 ---
 
-### Phase 6: K3s Cluster Setup
-
-**Purpose:** Kubernetes cluster with Tailscale mesh networking
-
-**Implementation:**
-- Install K3s on control plane (pi-cm5-1) with Tailscale integration
-- Join worker nodes via Tailscale mesh network
-- Configure cross-site communication for offsite nodes
-- Set up kubeconfig access over secure network
-
-**Files to Create:**
-- `playbooks/k3s-cluster.yml` - Cluster installation
-- `group_vars/cluster/k3s.yml` - K3s configuration
-
-**Test Requirements:**
-- [ ] All cluster nodes show Ready status
-- [ ] System pods running across all nodes
-- [ ] kubectl access via Tailscale network
-- [ ] Cross-site pod communication functional
-
-**Dependencies:** Phase 5e (Firewall must allow K3s traffic)
-
-**Links:**
-- [Jeff Geerlingguy pi-cluster](https://github.com/geerlingguy/pi-cluster)
-- [K3s Installation Guide](https://docs.k3s.io/quick-start)
-
----
 
 ### Phase 7: Longhorn Distributed Storage
 
@@ -243,7 +227,7 @@ K3s recommends disabling firewalls due to networking complexity. We maintain fir
 - [ ] PVC creation and mounting functional
 - [ ] Encrypted backups to MinIO working
 
-**Dependencies:** Phase 6 (K3s cluster), Phase 5c (MinIO encryption)
+**Dependencies:** Phase 6 ✅ (K3s cluster - Complete), Phase 5c (MinIO encryption)
 
 **Links:**
 - [Longhorn Documentation](https://longhorn.io/docs/)
@@ -259,6 +243,8 @@ K3s recommends disabling firewalls due to networking complexity. We maintain fir
 make site-check         # Preview all changes
 make site               # Apply base infrastructure
 make minio-setup        # Deploy MinIO S3 service
+make k3s-cluster        # Deploy K3s HA cluster
+make k3s-uninstall      # Uninstall K3s for debugging
 make upgrade            # System updates
 
 # Development
@@ -268,20 +254,22 @@ make precommit          # Pre-commit hooks
 ```
 
 ### Hardware Configuration
-- **pi-cm5-1**: K3s control plane
-- **pi-cm5-2, pi-cm5-3**: K3s workers
-- **pi-cm5-4**: MinIO NAS (2TB XFS storage, offsite via Tailscale)
+- **pi-cm5-1**: K3s control plane ✅ (HA cluster running)
+- **pi-cm5-2, pi-cm5-3**: K3s workers ✅ (HA cluster running)
+- **pi-cm5-4**: MinIO NAS ✅ (2TB XFS storage, offsite via Tailscale)
 - **Beelink ME mini N150** (future): K3s storage worker with Longhorn (6x M.2, up to 24TB)
 
 ### Phase Dependencies
 ```
 5a (Vault) → 5b (SSL) → 5c (MinIO Encryption)
             ↓
-5d (Tailscale) → 5e (Firewall) → 6 (K3s) → 7 (Longhorn)
+5d (Tailscale) → 5e (Firewall) → 6 (K3s) ✅ → 7 (Longhorn)
 ```
 
 ### Key Resources
 - **Project Structure:** `docs/project-structure.md`
 - **Git Guidelines:** `docs/git-commit-guidelines.md`
 - **MinIO Usage:** `docs/minio-usage.md`
+- **K3s Setup:** `docs/k3s-cluster-setup.md`
+- **K3s Maintenance:** `docs/k3s-maintenance-guide.md`
 - **K3s Firewall:** `docs/k3s-firewall-troubleshooting.md`
