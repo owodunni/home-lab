@@ -76,3 +76,9 @@ pi_cm5_config_poe_enabled: false
 
 # Create backup before making changes
 pi_cm5_config_backup_enabled: true
+
+# K3s cgroup configuration for cmdline.txt
+pi_cm5_config_cmdline_file: "/boot/firmware/cmdline.txt"
+
+# cgroup settings needed for Kubernetes (disabled by default, enabled per group_vars)
+pi_cm5_config_cgroup_enabled: false

@@ -70,3 +70,28 @@
   tags:
     - pi-cm5-config
     - poe-settings
+
+- name: Create manual backup of cmdline.txt before cgroup changes
+  ansible.builtin.copy:
+    src: "{{ pi_cm5_config_cmdline_file }}"
+    dest: "{{ pi_cm5_config_cmdline_file }}.backup-{{ ansible_date_time.epoch }}"
+    remote_src: true
+    mode: preserve
+  when:
+    - pi_cm5_config_cgroup_enabled | default(false)
+    - not ansible_check_mode
+  tags:
+    - pi-cm5-config
+    - cgroup-settings
+
+- name: Enable cgroups for Kubernetes in cmdline.txt
+  ansible.builtin.replace:
+    path: "{{ pi_cm5_config_cmdline_file }}"
+    regexp: '^((?!.*cgroup_memory=1)(?!.*cgroup_enable=memory).*)$'
+    replace: '\1 cgroup_memory=1 cgroup_enable=memory'
+    backup: false
+  when: pi_cm5_config_cgroup_enabled | default(false)
+  notify: reboot required
+  tags:
+    - pi-cm5-config
+    - cgroup-settings
