@@ -12,7 +12,7 @@ k3s_server_manifests_templates: []
 # HA etcd configuration - handled per-node in host_vars
 
 # Cluster token for secure communication
-k3s_control_token: "homelab-k3s-cluster-token-change-this"
+k3s_control_token: "{{ vault_k3s_control_token }}"
 
 # Main K3s server configuration
 k3s_server:

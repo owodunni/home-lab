@@ -77,7 +77,6 @@
       ansible.builtin.file:
         path: /etc/minio
         state: absent
-        recurse: true
       tags:
         - cleanup
 

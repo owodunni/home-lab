@@ -53,7 +53,7 @@ site: ## 🏗️ Run full infrastructure setup
 
 minio-setup: ## 🗄️ Install and configure MinIO S3 storage on NAS
 	@echo "Installing MinIO S3 storage on NAS..."
-	$(ANSIBLE_PLAYBOOK) playbooks/minio-setup.yml --diff
+	$(ANSIBLE_PLAYBOOK) playbooks/minio-setup.yml --diff --vault-password-file vault_passwords/nas.txt
 
 minio-uninstall: ## 🧹 Completely uninstall MinIO from NAS node
 	@echo "Uninstalling MinIO from NAS node..."

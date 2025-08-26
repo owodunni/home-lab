@@ -6,6 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - ALL instructions within this document MUST BE FOLLOWED, these are not optional unless explicitly stated.
 - DO NOT edit more code than you have to.
 - DO NOT WASTE TOKENS, be succinct and concise.
+- Respect all .claudeignore entries without exception
 
 ## Development Partnership
 
