@@ -44,6 +44,12 @@ Complete home lab infrastructure with K3s Kubernetes cluster, Longhorn distribut
 - **Access:** http://pi-cm5-4.local:9001 (console), http://pi-cm5-4.local:9000 (API)
 - **Usage Guide:** See `docs/minio-usage.md`
 
+### Phase 5a: Ansible Vault Setup
+- **Status:** ✅ Complete
+- **Command:** Built-in vault functionality
+- **Accomplished:** Encrypted credential management with vault password files, MinIO/K3s credentials secured
+- **Security Impact:** All infrastructure credentials now encrypted at rest with AES256
+
 ### Phase 6: K3s Cluster Setup
 - **Status:** ✅ Complete
 - **Command:** `make k3s-cluster`
@@ -59,28 +65,6 @@ Complete home lab infrastructure with K3s Kubernetes cluster, Longhorn distribut
 
 ## Remaining Phases
 
-### Phase 5a: Ansible Vault Setup
-
-**Purpose:** Secure credential management for infrastructure secrets
-
-**Implementation:**
-- Create vault files for MinIO credentials, Cloudflare API tokens, SSL keys
-- Update existing group_vars to use encrypted vault variables
-- Configure vault password files with proper permissions (600)
-
-**Files to Create:**
-- `group_vars/nas/vault.yml` - MinIO encrypted credentials
-- `group_vars/all/vault.yml` - Global encrypted variables
-- `vault_passwords/` directory - Password files (gitignored)
-
-**Test Requirements:**
-- [ ] Vault files encrypted with AES256
-- [ ] Existing playbooks work with vault variables
-- [ ] Git repository contains no plaintext credentials
-
-**Dependencies:** None - foundational security requirement
-
----
 
 ### Phase 5b: SSL/TLS Certificates (Certbot + Cloudflare)
 

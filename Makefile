@@ -19,7 +19,7 @@ lint: ## 🔍 Run all linting and syntax checks
 	@echo "Running yamllint..."
 	uv run yamllint .
 	@echo "Running ansible-lint..."
-	uv run ansible-lint
+	ANSIBLE_VAULT_PASSWORD_FILE=vault_passwords/all.txt uv run ansible-lint
 	@echo "Checking Ansible syntax..."
 	$(ANSIBLE_PLAYBOOK) --syntax-check playbooks/*.yml
 
@@ -53,7 +53,7 @@ site: ## 🏗️ Run full infrastructure setup
 
 minio-setup: ## 🗄️ Install and configure MinIO S3 storage on NAS
 	@echo "Installing MinIO S3 storage on NAS..."
-	$(ANSIBLE_PLAYBOOK) playbooks/minio-setup.yml --diff --vault-password-file vault_passwords/nas.txt
+	$(ANSIBLE_PLAYBOOK) playbooks/minio-setup.yml --diff
 
 minio-uninstall: ## 🧹 Completely uninstall MinIO from NAS node
 	@echo "Uninstalling MinIO from NAS node..."

@@ -20,3 +20,4 @@ ignore: |
   .venv/
   uv.lock
   .ansible/
+  **/vault.yml

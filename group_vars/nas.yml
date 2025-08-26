@@ -41,7 +41,7 @@ minio_mount_options: "defaults,noatime"
 
 # MinIO server configuration for ricsanfre.minio role
 minio_root_user: "miniosuperuser"
-minio_root_password: "{{ vault_minio_root_password | default('changeme123') }}"
+minio_root_password: "{{ vault_minio_root_password }}"
 minio_server_port: 9000
 minio_console_port: 9001
 
@@ -59,12 +59,12 @@ minio_buckets:
 # MinIO users for service accounts
 minio_users:
   - name: longhorn-backup
-    password: "{{ vault_longhorn_backup_password | default('longhorn123') }}"
+    password: "{{ vault_longhorn_backup_password }}"
     buckets_acl:
       - name: longhorn-backups
         policy: read-write
   - name: readonly-user
-    password: "{{ vault_readonly_user_password | default('readonly123') }}"
+    password: "{{ vault_readonly_user_password }}"
     buckets_acl:
       - name: media-storage
         policy: read-only

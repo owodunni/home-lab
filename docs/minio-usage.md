@@ -9,7 +9,7 @@ MinIO is deployed on pi-cm5-4 with 2TB XFS storage providing S3-compatible objec
 - **Console URL:** http://pi-cm5-4.local:9001
 - **API URL:** http://pi-cm5-4.local:9000
 - **Root User:** miniosuperuser
-- **Root Password:** Set via `vault_minio_root_password` (defaults to 'changeme123')
+- **Root Password:** Set via `vault_minio_root_password` (encrypted in vault)
 
 ## Buckets and Service Accounts
 

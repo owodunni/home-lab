@@ -3,7 +3,3 @@
 
 # Pi CM5 config.txt permissions: Intentionally preserving RPi OS defaults
 roles/pi_cm5_config/tasks/main.yml risky-file-permissions
-
-# Vault files: Document start not required for encrypted files
-group_vars/all/vault.yml yaml[document-start]
-group_vars/nas/vault.yml yaml[document-start]

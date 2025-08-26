@@ -79,7 +79,7 @@
           - MinIO Console: http://{{ inventory_hostname }}:{{ minio_console_port }}
           - MinIO API: http://{{ inventory_hostname }}:{{ minio_server_port }}
           - Root Username: {{ minio_root_user }}
-          - Root Password: [check vault or defaults]
+          - Root Password: [stored in vault]
 
           Created Buckets:
           {% for bucket in minio_buckets %}
