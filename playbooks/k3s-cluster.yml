@@ -70,14 +70,20 @@
       tags:
         - verification
       changed_when: false
+      failed_when: false
+      retries: 3
+      delay: 10
 
     - name: Parse cluster nodes information
       ansible.builtin.set_fact:
-        cluster_nodes: "{{ cluster_nodes_raw.stdout | from_json }}"
+        k3s_cluster_status: "{{ cluster_nodes_raw.stdout | from_json }}"
       when:
         - inventory_hostname == groups['cluster'][0]
         - not ansible_check_mode
+        - cluster_nodes_raw is defined
+        - cluster_nodes_raw.rc == 0
         - cluster_nodes_raw.stdout is defined
+        - cluster_nodes_raw.stdout | length > 0
       tags:
         - verification
 
@@ -86,15 +92,15 @@
         msg: |
           K3s HA cluster deployed successfully!
 
-          Cluster nodes ({{ cluster_nodes.items | length }}):
-          {% for node in cluster_nodes.items %}
+          Cluster nodes ({{ k3s_cluster_status['items'] | length }}):
+          {% for node in k3s_cluster_status['items'] %}
           - {{ node.metadata.name }}: {{ node.status.conditions |
             selectattr('type', 'equalto', 'Ready') | map(attribute='status') | first }}
           {% endfor %}
 
           Control plane endpoints:
-          {% for host in groups['cluster'] %}
-          - https://{{ hostvars[host]['ansible_default_ipv4']['address'] }}:6443
+          {% for node in k3s_cluster_status['items'] %}
+          - https://{{ node.status.addresses | selectattr('type', 'equalto', 'InternalIP') | map(attribute='address') | first }}:6443
           {% endfor %}
 
           To access the cluster from your local machine:
@@ -104,7 +110,39 @@
       when:
         - inventory_hostname == groups['cluster'][0]
         - not ansible_check_mode
-        - cluster_nodes is defined
+        - k3s_cluster_status is defined
+        - k3s_cluster_status is mapping
+        - k3s_cluster_status['items'] is defined
+        - k3s_cluster_status['items'] is sequence
+        - k3s_cluster_status['items'] | length > 0
+      tags:
+        - verification
+
+
+    - name: Display cluster verification failure
+      ansible.builtin.debug:
+        msg: |
+          Warning: Cluster verification failed!
+
+          The kubectl command to verify cluster nodes failed.
+          This might indicate:
+          - K3s is still starting up (wait a few minutes and check manually)
+          - There was an error during cluster deployment
+          - Network connectivity issues
+
+          Manual verification steps:
+          1. SSH to {{ groups['cluster'][0] }}
+          2. Run: sudo kubectl get nodes --kubeconfig /etc/rancher/k3s/k3s.yaml
+          3. Check K3s service: sudo systemctl status k3s
+          4. Check logs: sudo journalctl -u k3s -f
+
+          Raw kubectl output: {{ cluster_nodes_raw.stdout | default('No output') }}
+          Error: {{ cluster_nodes_raw.stderr | default('No error message') }}
+      when:
+        - inventory_hostname == groups['cluster'][0]
+        - not ansible_check_mode
+        - cluster_nodes_raw is defined
+        - (cluster_nodes_raw.rc != 0 or cluster_nodes_raw.stdout is not defined or cluster_nodes_raw.stdout | length == 0)
       tags:
         - verification
 
