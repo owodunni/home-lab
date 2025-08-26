@@ -1,0 +1,135 @@
+---
+# Uninstall MinIO S3 storage service from NAS node
+# Removes service, users, and buckets while preserving data directories
+
+- name: Uninstall MinIO S3 storage service
+  hosts: nas
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Display pre-uninstall status
+      ansible.builtin.debug:
+        msg: |
+          MinIO uninstallation starting:
+          - Target host: {{ inventory_hostname }}
+          - Service will be stopped and removed
+          - Data directories will be preserved: {{ minio_server_datadirs | default(['/mnt/minio-drive1/data', '/mnt/minio-drive2/data']) }}
+          - All users and buckets will be removed
+      tags:
+        - info
+
+    - name: Check if MinIO service exists
+      ansible.builtin.systemd:
+        name: minio
+      register: minio_service_status
+      failed_when: false
+      tags:
+        - check
+
+  tasks:
+    - name: Stop MinIO service
+      ansible.builtin.systemd:
+        name: minio
+        state: stopped
+        enabled: false
+      when: minio_service_status.status is defined and minio_service_status.status.LoadState == "loaded"
+      tags:
+        - stop
+
+    - name: Remove MinIO service file
+      ansible.builtin.file:
+        path: /etc/systemd/system/minio.service
+        state: absent
+      tags:
+        - cleanup
+
+    - name: Remove MinIO environment file
+      ansible.builtin.file:
+        path: /etc/default/minio
+        state: absent
+      tags:
+        - cleanup
+
+    - name: Remove MinIO binary
+      ansible.builtin.file:
+        path: /usr/local/bin/minio
+        state: absent
+      tags:
+        - cleanup
+
+    - name: Remove MinIO user
+      ansible.builtin.user:
+        name: minio
+        state: absent
+        remove: true
+      tags:
+        - cleanup
+
+    - name: Remove MinIO group
+      ansible.builtin.group:
+        name: minio
+        state: absent
+      tags:
+        - cleanup
+
+    - name: Remove MinIO configuration directory
+      ansible.builtin.file:
+        path: /etc/minio
+        state: absent
+        recurse: true
+      tags:
+        - cleanup
+
+    - name: Remove MinIO client (mc) if present
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /usr/local/bin/mc
+        - /root/.mcli
+      tags:
+        - cleanup
+
+    - name: Reload systemd daemon
+      ansible.builtin.systemd:
+        daemon_reload: true
+      tags:
+        - cleanup
+
+    - name: Verify MinIO service is removed
+      ansible.builtin.systemd:
+        name: minio
+      register: final_service_check
+      failed_when: false
+      tags:
+        - verification
+
+    - name: Display uninstall summary
+      ansible.builtin.debug:
+        msg: |
+          MinIO uninstallation complete!
+          =============================
+
+          Removed Components:
+          - MinIO service and systemd unit
+          - MinIO binary (/usr/local/bin/minio)
+          - MinIO user and group
+          - MinIO configuration directory
+          - MinIO client (mc) if present
+
+          Preserved Components:
+          - Data directories: {{ minio_server_datadirs | default(['/mnt/minio-drive1/data', '/mnt/minio-drive2/data']) | join(', ') }}
+          - Storage mount points (unchanged)
+          - Network configuration (unchanged)
+
+          Service Status: {{ 'Removed' if final_service_check.status is not defined or
+            final_service_check.status.LoadState == 'not-found' else
+            'Still present (manual cleanup needed)' }}
+
+          Next Steps:
+          1. Data directories are preserved for reinstallation
+          2. Run 'make minio-setup' to reinstall with new configuration
+          3. All buckets and users will need to be recreated
+      tags:
+        - summary

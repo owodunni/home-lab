@@ -2,7 +2,7 @@
 # Fix macOS fork safety issue with Python 3.13 + Ansible multiprocessing
 ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
-.PHONY: help setup lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio-setup k3s-cluster k3s-cluster-check k3s-uninstall
+.PHONY: help setup lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio-setup minio-uninstall k3s-cluster k3s-cluster-check k3s-uninstall
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -54,6 +54,10 @@ site: ## 🏗️ Run full infrastructure setup
 minio-setup: ## 🗄️ Install and configure MinIO S3 storage on NAS
 	@echo "Installing MinIO S3 storage on NAS..."
 	$(ANSIBLE_PLAYBOOK) playbooks/minio-setup.yml --diff
+
+minio-uninstall: ## 🧹 Completely uninstall MinIO from NAS node
+	@echo "Uninstalling MinIO from NAS node..."
+	$(ANSIBLE_PLAYBOOK) playbooks/minio-uninstall.yml
 
 k3s-cluster: ## ⚡ Deploy K3s HA cluster on Pi nodes
 	@echo "Deploying K3s HA cluster..."
