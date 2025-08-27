@@ -41,13 +41,17 @@
 - name: Phase 3 - Storage Configuration
   import_playbook: playbooks/pi-storage-config.yml
 
-# Phase 4: MinIO S3 backup service installation
-- name: Phase 4 - MinIO S3 Installation
-  import_playbook: playbooks/minio-setup.yml
+# Phase 4: Complete MinIO S3 backup service with SSL certificates
+- name: Phase 4 - Complete MinIO Installation with SSL
+  import_playbook: playbooks/minio-complete.yml
 
 # Phase 5: K3s cluster installation
 - name: Phase 5 - K3s HA Cluster Installation
   import_playbook: playbooks/k3s-cluster.yml
+
+# Phase 6: Kubernetes applications deployment
+- name: Phase 6 - Kubernetes Applications Deployment
+  import_playbook: playbooks/k8s-applications.yml
 
 # Final status summary
 - name: Setup Complete
@@ -64,19 +68,26 @@
           ✓ System updates completed on clean base
           ✓ Unattended upgrades configured
           ✓ Storage configuration applied to NAS (4TB XFS ready)
-          ✓ MinIO S3 backup service installed and configured
+          ✓ MinIO S3 backup service with SSL certificates installed
           ✓ K3s HA cluster deployed (3-node with embedded etcd)
+          ✓ Kubernetes applications deployed (cert-manager)
 
           Service Access:
-          - MinIO Console: http://pi-cm5-4.local:9001
-          - MinIO API: http://pi-cm5-4.local:9000
+          - MinIO Console (HTTPS): https://minio.jardoole.xyz:9001
+          - MinIO API (HTTPS): https://minio.jardoole.xyz/
           - K3s API: https://pi-cm5-1:6443 (or pi-cm5-2, pi-cm5-3)
           - MinIO Buckets: longhorn-backups, cluster-logs, media-storage
 
+          Certificate Management:
+          - MinIO: Let's Encrypt certificates via Cloudflare DNS-01 (direct certbot)
+          - cert-manager deployed for K8s certificate automation
+          - All SSL certificates configured with automatic renewal
+
           Next Steps:
           1. Test K3s cluster: kubectl get nodes
-          2. Install Longhorn distributed storage with MinIO backup
-          3. Set up application workloads and monitoring
+          2. Verify MinIO HTTPS access: curl -I https://minio.jardoole.xyz:9001
+          3. Install Longhorn distributed storage with MinIO backup
+          4. Set up application workloads and monitoring
 
           Note: System reboots handled automatically during upgrade phase.
 

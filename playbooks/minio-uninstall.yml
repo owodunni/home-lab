@@ -80,6 +80,44 @@
       tags:
         - cleanup
 
+    - name: Remove MinIO systemd service overrides
+      ansible.builtin.file:
+        path: /etc/systemd/system/minio.service.d
+        state: absent
+      tags:
+        - cleanup
+
+    - name: Remove SSL certificate renewal script
+      ansible.builtin.file:
+        path: /usr/local/bin/renew-minio-certs.sh
+        state: absent
+      tags:
+        - cleanup
+
+    - name: Remove certificate renewal cron job
+      ansible.builtin.cron:
+        name: "Renew MinIO SSL certificates"
+        state: absent
+        user: root
+      tags:
+        - cleanup
+
+    - name: Remove SSL certificates for MinIO domain
+      ansible.builtin.command:
+        cmd: certbot delete --cert-name {{ minio_internal_domain | default('minio.jardoole.xyz') }}
+      register: certbot_delete_result
+      failed_when: false
+      changed_when: certbot_delete_result.rc == 0
+      tags:
+        - cleanup
+
+    - name: Remove Cloudflare credentials file
+      ansible.builtin.file:
+        path: /etc/letsencrypt/cloudflare.ini
+        state: absent
+      tags:
+        - cleanup
+
     - name: Remove MinIO client (mc) if present
       ansible.builtin.file:
         path: "{{ item }}"
@@ -125,10 +163,12 @@
           Service Status: {{ 'Removed' if final_service_check.status is not defined or
             final_service_check.status.LoadState == 'not-found' else
             'Still present (manual cleanup needed)' }}
+          SSL Certificates: {{ 'Removed' if certbot_delete_result.rc == 0 else 'Not found or cleanup failed' }}
 
           Next Steps:
           1. Data directories are preserved for reinstallation
-          2. Run 'make minio-setup' to reinstall with new configuration
+          2. Run 'make nas-ssl' to reinstall with SSL configuration
           3. All buckets and users will need to be recreated
+          4. DNS configuration remains unchanged
       tags:
         - summary
