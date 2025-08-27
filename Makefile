@@ -2,7 +2,7 @@
 # Fix macOS fork safety issue with Python 3.13 + Ansible multiprocessing
 ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
-.PHONY: help setup lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio-setup minio-uninstall k3s-cluster k3s-cluster-check k3s-uninstall
+.PHONY: help setup lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio-setup minio-uninstall nas-ssl k3s-cluster k3s-cluster-check k3s-uninstall k8s-apps k8s-apps-check
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -70,3 +70,15 @@ k3s-cluster-check: ## 🔍 Check K3s cluster deployment (dry-run)
 k3s-uninstall: ## 🧹 Completely uninstall K3s from all cluster nodes
 	@echo "Uninstalling K3s from all cluster nodes..."
 	$(ANSIBLE_PLAYBOOK) playbooks/k3s-uninstall.yml
+
+k8s-apps: ## 🚀 Deploy Kubernetes applications (cert-manager + MinIO SSL)
+	@echo "Deploying Kubernetes applications..."
+	$(ANSIBLE_PLAYBOOK) playbooks/k8s-applications.yml --diff
+
+k8s-apps-check: ## 🔍 Check Kubernetes applications deployment (dry-run)
+	@echo "Checking Kubernetes applications deployment (dry-run)..."
+	$(ANSIBLE_PLAYBOOK) playbooks/k8s-applications.yml --check --diff
+
+nas-ssl: ## 🔒 Setup SSL certificates and HTTPS for NAS services (port 443)
+	@echo "Setting up SSL certificates and HTTPS for NAS services..."
+	$(ANSIBLE_PLAYBOOK) playbooks/nas-ssl-setup.yml --diff

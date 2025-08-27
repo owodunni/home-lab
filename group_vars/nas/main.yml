@@ -71,3 +71,18 @@ minio_users:
 
 # Disable cgroups for NAS
 pi_cm5_config_cgroup_enabled: false
+
+# SSL Certificate configuration for NAS services
+# Domain for internal MinIO access with SSL
+minio_internal_domain: "minio.jardoole.xyz"
+
+# Let's Encrypt configuration
+letsencrypt_email: "{{ vault_letsencrypt_email }}"
+
+# Certificate deployment paths
+minio_cert_path: "/etc/minio/certs"
+minio_user: "minio"
+
+# Cloudflare API configuration for DNS-01 challenges
+# This is the same token used by other services
+cloudflare_api_token: "{{ vault_cloudflare_api_token }}"

@@ -1,0 +1,29 @@
+[Unit]
+Description=MinIO Object Storage Server (with HTTPS on port 443)
+Documentation=https://docs.min.io
+Wants=network-online.target
+After=network-online.target
+AssertFileIsExecutable={{ minio_binary_path.stdout | default('/usr/local/bin/minio') }}
+
+[Service]
+# Allow MinIO to bind to privileged ports
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+# Security settings (keep existing user/group)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths={{ minio_cert_path }} /mnt/minio-drive1 /mnt/minio-drive2
+
+# Network settings
+RestartSec=5
+LimitNOFILE=65536
+TasksMax=infinity
+
+# Restart policy
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

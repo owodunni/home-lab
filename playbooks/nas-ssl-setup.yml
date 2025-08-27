@@ -1,0 +1,249 @@
+---
+# Setup SSL certificates for NAS services using certbot
+# Direct certificate management on NAS node without Kubernetes dependency
+
+- name: Configure SSL certificates for NAS services
+  hosts: nas
+  become: true
+  gather_facts: true
+
+  vars:
+    certbot_domains:
+      - "{{ minio_internal_domain }}"
+    certbot_email: "{{ letsencrypt_email }}"
+    cloudflare_config_path: "/etc/letsencrypt/cloudflare.ini"
+    minio_https_port: 443
+
+  tasks:
+    - name: Update package cache
+      ansible.builtin.package:
+        update_cache: true
+
+    - name: Install certbot and required packages
+      ansible.builtin.package:
+        name:
+          - certbot
+          - python3-certbot-dns-cloudflare
+          - libcap2-bin  # For setcap functionality
+        state: present
+
+    - name: Create letsencrypt configuration directory
+      ansible.builtin.file:
+        path: /etc/letsencrypt
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Create Cloudflare credentials file
+      ansible.builtin.template:
+        src: cloudflare.ini.j2
+        dest: "{{ cloudflare_config_path }}"
+        owner: root
+        group: root
+        mode: '0600'
+        backup: true
+
+    - name: Request SSL certificate using DNS-01 challenge
+      ansible.builtin.command:
+        cmd: >
+          certbot certonly
+          --non-interactive
+          --agree-tos
+          --email {{ certbot_email }}
+          --dns-cloudflare
+          --dns-cloudflare-credentials {{ cloudflare_config_path }}
+          --dns-cloudflare-propagation-seconds 60
+          -d {{ certbot_domains | join(' -d ') }}
+        creates: "/etc/letsencrypt/live/{{ minio_internal_domain }}/fullchain.pem"
+      register: certbot_result
+
+    - name: Display certificate request result
+      ansible.builtin.debug:
+        var: certbot_result
+      when: certbot_result.changed
+
+    - name: Check if MinIO service exists
+      ansible.builtin.systemd:
+        name: minio
+      register: minio_service_status
+      failed_when: false
+
+    - name: Stop MinIO service temporarily
+      ansible.builtin.systemd:
+        name: minio
+        state: stopped
+      when: minio_service_status.status.LoadState == "loaded"
+
+    - name: Find MinIO binary location
+      ansible.builtin.command:
+        cmd: which minio
+      register: minio_binary_path
+      changed_when: false
+
+    - name: Grant capability to bind to privileged ports
+      ansible.builtin.command:
+        cmd: setcap 'cap_net_bind_service=+ep' {{ minio_binary_path.stdout }}
+      register: setcap_result
+      changed_when: setcap_result.rc == 0
+
+    - name: Verify capability was set
+      ansible.builtin.command:
+        cmd: getcap {{ minio_binary_path.stdout }}
+      register: getcap_result
+      changed_when: false
+
+    - name: Ensure MinIO certificate directory exists
+      ansible.builtin.file:
+        path: "{{ minio_cert_path }}"
+        state: directory
+        owner: "{{ minio_user }}"
+        group: "{{ minio_user }}"
+        mode: '0755'
+
+    - name: Link certificates to MinIO directory
+      ansible.builtin.file:
+        src: "/etc/letsencrypt/live/{{ minio_internal_domain }}/{{ item.src }}"
+        dest: "{{ minio_cert_path }}/{{ item.dest }}"
+        state: link
+        owner: "{{ minio_user }}"
+        group: "{{ minio_user }}"
+        force: true
+      loop:
+        - { src: 'fullchain.pem', dest: 'public.crt' }
+        - { src: 'privkey.pem', dest: 'private.key' }
+      notify: restart minio
+
+    - name: Update MinIO configuration for HTTPS on port 443
+      ansible.builtin.lineinfile:
+        path: /etc/minio/minio.conf
+        regexp: '^MINIO_OPTS='
+        line: 'MINIO_OPTS="--address :{{ minio_https_port }} --console-address :{{ minio_console_port }} --certs-dir {{ minio_cert_path }}"'
+        backup: true
+      notify: restart minio
+
+    - name: Create MinIO systemd service override directory
+      ansible.builtin.file:
+        path: /etc/systemd/system/minio.service.d
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Create systemd service override for capabilities
+      ansible.builtin.template:
+        src: minio-service-override.conf.j2
+        dest: /etc/systemd/system/minio.service.d/privileges.conf
+        owner: root
+        group: root
+        mode: '0644'
+        backup: true
+      notify:
+        - reload systemd
+        - restart minio
+
+    - name: Create certificate renewal script
+      ansible.builtin.template:
+        src: renew-minio-certs.sh.j2
+        dest: /usr/local/bin/renew-minio-certs.sh
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Setup automatic certificate renewal
+      ansible.builtin.cron:
+        name: "Renew MinIO SSL certificates"
+        minute: "0"
+        hour: "3"
+        day: "1,15"  # Run twice monthly
+        job: "/usr/local/bin/renew-minio-certs.sh >> /var/log/certbot-renewal.log 2>&1"
+        user: root
+
+    - name: Test certificate renewal (dry run)
+      ansible.builtin.command:
+        cmd: certbot renew --dry-run --dns-cloudflare --dns-cloudflare-credentials {{ cloudflare_config_path }}
+      register: renewal_test
+      failed_when: false
+      changed_when: false
+
+    - name: Display renewal test results
+      ansible.builtin.debug:
+        msg: |
+          Certificate renewal test: {{ 'PASSED' if renewal_test.rc == 0 else 'FAILED' }}
+
+          {% if renewal_test.rc != 0 %}
+          Error: {{ renewal_test.stderr }}
+          {% endif %}
+
+  handlers:
+    - name: reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: restart minio
+      ansible.builtin.systemd:
+        name: minio
+        state: restarted
+        daemon_reload: true
+
+    - name: wait for minio
+      ansible.builtin.wait_for:
+        port: "{{ minio_https_port }}"
+        host: "{{ inventory_hostname }}"
+        delay: 10
+        timeout: 60
+      listen: restart minio
+
+  post_tasks:
+    - name: Verify MinIO is running on port 443
+      ansible.builtin.wait_for:
+        port: "{{ minio_https_port }}"
+        host: "{{ ansible_default_ipv4.address }}"
+        timeout: 30
+      register: port_443_ready
+      failed_when: false
+
+    - name: Test HTTPS access
+      ansible.builtin.uri:
+        url: "https://{{ minio_internal_domain }}/"
+        method: GET
+        status_code: [200, 403]  # MinIO may return 403 for root path
+        validate_certs: true
+        timeout: 30
+      register: minio_https_test
+      failed_when: false
+
+    - name: Display SSL certificate information
+      ansible.builtin.command:
+        cmd: "certbot certificates"
+      register: cert_info
+      changed_when: false
+
+    - name: Display final status
+      ansible.builtin.debug:
+        msg: |
+          NAS SSL Configuration Complete!
+          ===============================
+
+          ✓ SSL certificate obtained for {{ minio_internal_domain }}
+          ✓ MinIO configured for HTTPS on port 443
+          ✓ Console accessible on port {{ minio_console_port }}
+          ✓ Certificate renewal automated (twice monthly)
+
+          Binary Capabilities: {{ getcap_result.stdout }}
+
+          Access URLs:
+          - MinIO S3 API: https://{{ minio_internal_domain }}/
+          - MinIO Console: https://{{ minio_internal_domain }}:{{ minio_console_port }}
+
+          Port 443 Status: {{ 'Ready ✓' if port_443_ready.failed == false else 'Check required ⚠️' }}
+          HTTPS Test: {{ 'Working ✓' if minio_https_test.status in [200, 403] else 'Failed ⚠️' }}
+          Renewal Test: {{ 'PASSED ✓' if renewal_test.rc == 0 else 'FAILED ⚠️' }}
+
+          Certificate Details:
+          {{ cert_info.stdout }}
+
+          Next Steps:
+          1. Update DNS: {{ minio_internal_domain }} → {{ ansible_default_ipv4.address }}
+          2. Access MinIO without port: https://{{ minio_internal_domain }}/
+          3. Monitor renewal: tail -f /var/log/certbot-renewal.log
