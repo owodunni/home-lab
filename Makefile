@@ -2,7 +2,7 @@
 # Fix macOS fork safety issue with Python 3.13 + Ansible multiprocessing
 ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
-.PHONY: help setup lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio minio-setup minio-uninstall minio-teardown nas-ssl k3s-cluster k3s-cluster-check k3s-uninstall k8s-apps k8s-apps-check pfsense-system pfsense-haproxy pfsense-acme pfsense-firewall pfsense-check pfsense-full pfsense-validate
+.PHONY: help setup lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio minio-uninstall minio-teardown k3s-cluster k3s-cluster-check k3s-uninstall k8s-apps k8s-apps-check pfsense-system pfsense-haproxy pfsense-acme pfsense-firewall pfsense-check pfsense-full pfsense-validate
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -55,10 +55,6 @@ minio: ## 🗄️ Complete MinIO installation with SSL certificates (HTTPS on po
 	@echo "Installing MinIO with SSL certificates..."
 	$(ANSIBLE_PLAYBOOK) playbooks/minio-complete.yml --diff
 
-minio-setup: ## 🗄️ Install and configure MinIO S3 storage on NAS (HTTP only - legacy)
-	@echo "Installing MinIO S3 storage on NAS..."
-	$(ANSIBLE_PLAYBOOK) playbooks/minio-setup.yml --diff
-
 minio-uninstall: ## 🧹 Completely uninstall MinIO from NAS node
 	@echo "Uninstalling MinIO from NAS node..."
 	$(ANSIBLE_PLAYBOOK) playbooks/minio-uninstall.yml
@@ -66,7 +62,7 @@ minio-uninstall: ## 🧹 Completely uninstall MinIO from NAS node
 minio-teardown: ## 💣 Complete MinIO teardown (uninstall + SSL cleanup)
 	@echo "Performing complete MinIO teardown..."
 	$(ANSIBLE_PLAYBOOK) playbooks/minio-uninstall.yml
-	@echo "MinIO teardown complete. Ready for fresh installation with 'make nas-ssl'"
+	@echo "MinIO teardown complete. Ready for fresh installation with 'make minio'"
 
 k3s-cluster: ## ⚡ Deploy K3s HA cluster on Pi nodes
 	@echo "Deploying K3s HA cluster..."
@@ -87,10 +83,6 @@ k8s-apps: ## 🚀 Deploy Kubernetes applications (cert-manager + MinIO SSL)
 k8s-apps-check: ## 🔍 Check Kubernetes applications deployment (dry-run)
 	@echo "Checking Kubernetes applications deployment (dry-run)..."
 	$(ANSIBLE_PLAYBOOK) playbooks/k8s-applications.yml --check --diff
-
-nas-ssl: ## 🔒 Setup SSL certificates and HTTPS for NAS services (requires minio-setup first)
-	@echo "Setting up SSL certificates and HTTPS for NAS services..."
-	$(ANSIBLE_PLAYBOOK) playbooks/nas-ssl-setup.yml --diff
 
 pfsense-system: ## 🔧 Configure pfSense system settings and network interfaces
 	@echo "Configuring pfSense system settings..."
