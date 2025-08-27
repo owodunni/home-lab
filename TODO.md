@@ -66,33 +66,78 @@ Complete home lab infrastructure with K3s Kubernetes cluster, Longhorn distribut
 ## Remaining Phases
 
 
-### Phase 5b: SSL/TLS Certificates (Certbot + Cloudflare)
+### Phase 5b: Load Balancer Infrastructure & SSL/TLS Certificates
 
-**Purpose:** Automated HTTPS certificates for MinIO using Let's Encrypt + DNS-01 challenges
+**Purpose:** Enable external access and automated HTTPS certificates for both K3s cluster and MinIO
 
-**Implementation:**
-- Install certbot and certbot-dns-cloudflare plugin
-- Configure Cloudflare API token for DNS automation
-- Generate certificates for MinIO domains (minio.domain.com, console.domain.com)
-- Set up automatic renewal via systemd timers
-- Update MinIO configuration for TLS
+**Why This Is Essential:**
+- **External Access**: Currently no way to reach services from outside the home network - need port forwarding + load balancer
+- **Certificate Management**: Manual certificate renewal leads to service outages when certs expire
+- **Production Security**: HTTPS required for secure remote access and API operations
+- **DNS-01 Advantages**: Allows certificates for internal services that aren't publicly accessible
+- **Wildcard Certificates**: Single cert covers multiple subdomains, reduces management overhead
+
+**Implementation Strategy:**
+
+**Step 1: Port Forwarding Setup (Router Configuration)**
+*Why First:* Need external connectivity to test certificate validation and service access
+- Forward port 443 (HTTPS) from router to K3s cluster load balancer IP
+- Forward port 80 (HTTP) for Let's Encrypt HTTP-01 challenges as fallback
+- Document router-specific steps for future reference
+
+**Step 2: K3s Load Balancer Infrastructure**
+*Why Needed:* K3s has Traefik and ServiceLB disabled - need alternatives for external access
+- Deploy **MetalLB** for LoadBalancer services (provides external IPs within home network)
+- Deploy **NGINX Ingress Controller** for HTTP/HTTPS routing and SSL termination
+- Configure MetalLB IP pool from available 192.168.0.x subnet range
+- Enables multiple services to share port 443 with host-based routing
+
+**Step 3: Certificate Management (cert-manager + Cloudflare)**
+*Why cert-manager over certbot:* Native K8s integration, automatic renewal, better secret management
+- Deploy **cert-manager** on K3s cluster for automated certificate lifecycle
+- Configure **Cloudflare DNS-01 issuer** with API token for DNS challenges
+- Generate certificates for:
+  - `minio.jardoole.xyz` (MinIO console access)
+  - `api.jardoole.xyz` (MinIO API endpoint)
+  - `*.jardoole.xyz` (wildcard for future services - Longhorn UI, monitoring, etc.)
+
+**Step 4: MinIO HTTPS Configuration**
+*Why Separate:* MinIO runs on NAS node outside K3s cluster, needs direct TLS configuration
+- Update MinIO service configuration for HTTPS endpoints
+- Configure certificate paths and automatic renewal integration
+- Maintain backward compatibility with existing bucket configurations
 
 **Files to Create:**
-- `playbooks/ssl-certificates.yml` - Certificate management playbook
-- `group_vars/nas/ssl.yml` - SSL configuration
-- Update MinIO service config for HTTPS
+- `playbooks/port-forwarding-guide.yml` - Documentation and validation
+- `playbooks/load-balancer-setup.yml` - MetalLB + NGINX ingress
+- `playbooks/ssl-certificates.yml` - cert-manager + Cloudflare configuration
+- `group_vars/cluster/metallb.yml` - IP pools and MetalLB config
+- `group_vars/cluster/nginx-ingress.yml` - Ingress controller settings
+- `group_vars/cluster/cert-manager.yml` - Certificate issuers and policies
+- `group_vars/nas/ssl.yml` - MinIO SSL configuration
 
 **Test Requirements:**
-- [ ] SSL certificates generated for MinIO domains
-- [ ] MinIO console/API accessible via HTTPS
-- [ ] Certificate renewal timer active
-- [ ] DNS-01 challenges working automatically
+- [ ] External port forwarding functional (443 → cluster)
+- [ ] MetalLB assigns external IPs to LoadBalancer services
+- [ ] NGINX ingress routes traffic based on hostnames
+- [ ] cert-manager creates certificates via Cloudflare DNS-01
+- [ ] Wildcard certificate *.jardoole.xyz issued and renewable
+- [ ] MinIO console accessible via https://minio.jardoole.xyz
+- [ ] MinIO API accessible via https://api.jardoole.xyz
+- [ ] Certificate auto-renewal working (test with short-lived staging certs)
 
-**Dependencies:** Phase 5a (Vault for API tokens)
+**Security Benefits:**
+- **Internal Service Certificates**: DNS-01 enables HTTPS for services not exposed to internet
+- **Wildcard Coverage**: Future services (Longhorn, monitoring) automatically secured
+- **Automated Renewal**: Eliminates certificate expiration outages
+- **API Token Security**: Cloudflare token stored in Ansible Vault, not plaintext
+
+**Dependencies:** Phase 5a ✅ (Vault for API tokens)
 
 **Links:**
-- [Certbot DNS Cloudflare Plugin](https://certbot-dns-cloudflare.readthedocs.io/)
-- [Let's Encrypt DNS Validation](https://letsencrypt.org/docs/challenge-types/#dns-01-challenge)
+- [cert-manager Cloudflare Issuer](https://cert-manager.io/docs/configuration/acme/dns01/cloudflare/)
+- [MetalLB Configuration](https://metallb.universe.tf/configuration/)
+- [NGINX Ingress Controller](https://kubernetes.github.io/ingress-nginx/)
 
 ---
 

@@ -32,8 +32,12 @@ home-lab/
 │   └── pi_validate_config/     # Pi CM5 configuration validation
 └── group_vars/                 # Variable configuration
     ├── all.yml                 # Variables for all hosts
-    ├── cluster.yml             # Cluster-specific variables
-    └── nas.yml                 # NAS-specific variables
+    ├── all/                    # All hosts directory structure
+    │   └── vault.yml           # Encrypted variables for all hosts
+    ├── cluster/                # Cluster-specific directory structure
+    │   └── k3s.yml            # K3s cluster configuration variables
+    └── nas/                    # NAS-specific directory structure
+        └── main.yml            # NAS-specific variables
 ```
 
 ## Infrastructure Overview
