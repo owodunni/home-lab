@@ -394,7 +394,7 @@
           - Binary Capabilities: {{ getcap_result.stdout }}
 
           Status Checks:
-          - Port 443 Status: {{ 'Ready ✓' if port_443_ready.failed == false else 'Check required ⚠️' }}
+          - Port 443 Status: {{ 'Ready ✓' if not port_443_ready.failed else 'Check required ⚠️' }}
           - HTTPS Test: {{ 'Working ✓' if minio_https_test.status in [200, 400, 403] else 'Failed ⚠️' }}
           - Certificate Renewal Test: {{ 'PASSED ✓' if renewal_test.rc == 0 else 'FAILED ⚠️' }}
 
@@ -409,5 +409,6 @@
 
           DNS Configuration Required:
           - Ensure {{ minio_internal_domain }} resolves to {{ ansible_default_ipv4.address }}
+      when: not ansible_check_mode
       tags:
         - summary
