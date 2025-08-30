@@ -37,12 +37,20 @@ Complete home lab infrastructure with K3s Kubernetes cluster, Longhorn distribut
 - **Status:** ✅ Complete
 - **Accomplished:** XFS filesystems on 2TB drives, persistent mounts, PCIe SATA controller active
 
-### Phase 4b: MinIO S3 Service
-- **Status:** ✅ Complete
-- **Command:** `make minio-setup`
-- **Accomplished:** MinIO deployed with buckets (longhorn-backups, cluster-logs, media-storage)
+### Phase 4b: MinIO S3 Service ✅ **MAJOR BREAKTHROUGH**
+- **Status:** ✅ Complete - **Modular Architecture Working**
+- **Command:** `make minio` (robust uninstall/reinstall cycle working)
+- **Breakthrough:** Complete modular 5-phase installation system:
+  - **Phase 1**: SSL certificate generation (Let's Encrypt + Cloudflare DNS-01)
+  - **Phase 2**: MinIO binary installation and basic setup
+  - **Phase 3**: Basic HTTP configuration (tested after reinstall)
+  - **Phase 4**: SSL integration with HTTPS (reusable for cert changes)
+  - **Phase 5**: MinIO client, buckets, users configuration
+- **Certificate Renewal:** ✅ Automatic renewal (cron) + manual fallback (Phase 4 rerun)
+- **SSL Management:** ✅ Robust certificate permission handling
 - **Access:** http://pi-cm5-4.local:9001 (console), http://pi-cm5-4.local:9000 (API)
 - **Usage Guide:** See `docs/minio-usage.md`
+- **Architecture:** Handles role conflicts, uninstall/reinstall, permission resets
 
 ### Phase 5a: Ansible Vault Setup
 - **Status:** ✅ Complete
@@ -160,28 +168,33 @@ Internet → pfSense HAProxy → K3s Nodes (HTTP internal)
 
 ---
 
-### Phase 5c: MinIO Server-Side Encryption (SSE)
+### Phase 5c: MinIO Server-Side Encryption (SSE) **NEXT PRIORITY**
 
 **Purpose:** Enable MinIO native encryption for sensitive buckets
 
-**Implementation:**
+**Status:** 🚧 **Ready to implement** - MinIO modular system complete
+
+**Implementation Strategy:**
+- **Phase 6**: Server-side encryption configuration (new modular phase)
 - Configure MinIO Key Encryption Service (KES)
 - Enable SSE-KMS for longhorn-backups and cluster-logs buckets
 - Set up encryption key management and rotation
 - Keep media-storage unencrypted for performance
 
 **Files to Create:**
-- `playbooks/minio-encryption.yml` - SSE configuration
-- `group_vars/nas/encryption.yml` - Encryption settings
-- KES configuration and key storage
+- `playbooks/minio/06-minio-encryption.yml` - Server-side encryption phase
+- `playbooks/minio/templates/kes-config.yml.j2` - KES configuration
+- `group_vars/nas/encryption.yml` - Encryption settings and keys
+- KES certificate and key storage in vault
 
 **Test Requirements:**
-- [ ] KES service configured and running
+- [ ] KES service configured and running alongside MinIO
 - [ ] Sensitive buckets encrypted with SSE-KMS
 - [ ] Encrypted/unencrypted bucket operations functional
-- [ ] Encryption keys secured in vault
+- [ ] Encryption keys secured in ansible vault
+- [ ] Phase 6 integrates with existing modular architecture
 
-**Dependencies:** Phase 5b (SSL required for MinIO SSE)
+**Dependencies:** Phase 4b ✅ (MinIO modular system complete)
 
 **Links:**
 - [MinIO Server-Side Encryption](https://min.io/docs/minio/linux/operations/server-side-encryption.html)
