@@ -35,12 +35,13 @@
         recurse: true
       loop: "{{ minio_server_datadirs }}"
 
-    - name: Configure MinIO service (basic configuration)
+    - name: Configure MinIO environment file (basic configuration)
       ansible.builtin.include_role:
         name: ricsanfre.minio
-        tasks_from: configure_systemd
+        tasks_from: install_server
       vars:
         minio_enable_tls: false
+        minio_install_client: false
 
     - name: Verify MinIO can access data directories
       ansible.builtin.command:

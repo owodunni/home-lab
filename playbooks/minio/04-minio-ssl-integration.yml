@@ -83,9 +83,10 @@
     - name: Update MinIO configuration for HTTPS
       ansible.builtin.include_role:
         name: ricsanfre.minio
-        tasks_from: configure_systemd
+        tasks_from: install_server
       vars:
         minio_enable_tls: true
+        minio_install_client: false
 
     - name: Trigger MinIO restart with SSL
       ansible.builtin.meta: flush_handlers
