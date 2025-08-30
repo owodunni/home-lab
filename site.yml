@@ -60,6 +60,7 @@
       async: 1800  # 30 minutes timeout
       poll: 0
       register: minio_job
+      changed_when: true  # This always makes changes (installation)
       environment:
         ANSIBLE_ROLES_PATH: "{{ playbook_dir }}/roles:~/.ansible/roles"
         OBJC_DISABLE_INITIALIZE_FORK_SAFETY: "YES"
@@ -71,6 +72,7 @@
       async: 1800  # 30 minutes timeout
       poll: 0
       register: k3s_job
+      changed_when: true  # This always makes changes (installation)
       environment:
         ANSIBLE_ROLES_PATH: "{{ playbook_dir }}/roles:~/.ansible/roles"
         OBJC_DISABLE_INITIALIZE_FORK_SAFETY: "YES"
@@ -115,7 +117,7 @@
       ansible.builtin.set_fact:
         _end_time: "{{ parallel_end_time | to_datetime('%Y-%m-%dT%H:%M:%SZ') }}"
         _start_time: "{{ parallel_start_time | to_datetime('%Y-%m-%dT%H:%M:%SZ') }}"
-        
+
     - name: Set deployment duration
       ansible.builtin.set_fact:
         deployment_duration: "{{ ((_end_time - _start_time).total_seconds()) | int }}"
@@ -129,8 +131,8 @@
           End Time: {{ parallel_end_time }}
           Total Duration: {{ (deployment_duration | int) // 60 }}m {{ (deployment_duration | int) % 60 }}s
 
-          MinIO Status: {{ 'SUCCESS ✓' if minio_result.rc == 0 else 'FAILED ✗ (RC: ' + minio_result.rc|string + ')' }}
-          K3s Status: {{ 'SUCCESS ✓' if k3s_result.rc == 0 else 'FAILED ✗ (RC: ' + k3s_result.rc|string + ')' }}
+          MinIO Status: {{ 'SUCCESS ✓' if minio_result.rc == 0 else 'FAILED ✗ (RC: ' + minio_result.rc | string + ')' }}
+          K3s Status: {{ 'SUCCESS ✓' if k3s_result.rc == 0 else 'FAILED ✗ (RC: ' + k3s_result.rc | string + ')' }}
 
           Both services are now ready for Kubernetes applications deployment.
           🎯 Parallel execution saved time by running MinIO and K3s simultaneously!
@@ -139,8 +141,8 @@
       ansible.builtin.fail:
         msg: |
           Parallel deployment failed:
-          MinIO: {{ 'OK' if minio_result.rc == 0 else 'FAILED (RC: ' + minio_result.rc|string + ')' }}
-          K3s: {{ 'OK' if k3s_result.rc == 0 else 'FAILED (RC: ' + k3s_result.rc|string + ')' }}
+          MinIO: {{ 'OK' if minio_result.rc == 0 else 'FAILED (RC: ' + minio_result.rc | string + ')' }}
+          K3s: {{ 'OK' if k3s_result.rc == 0 else 'FAILED (RC: ' + k3s_result.rc | string + ')' }}
       when: minio_result.rc != 0 or k3s_result.rc != 0
 
 # Phase 5: Kubernetes applications deployment
