@@ -87,6 +87,8 @@
       vars:
         minio_enable_tls: true
         minio_install_client: false
+        minio_server_port: 9000      # HTTPS port with certs
+        minio_console_port: 443      # HTTPS console port (privileged)
 
     - name: Trigger MinIO restart with SSL
       ansible.builtin.meta: flush_handlers

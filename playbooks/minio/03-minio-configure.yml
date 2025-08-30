@@ -42,6 +42,8 @@
       vars:
         minio_enable_tls: false
         minio_install_client: false
+        minio_server_port: 9000      # HTTP port for basic config
+        minio_console_port: 9001     # HTTP console port
 
     - name: Verify MinIO can access data directories
       ansible.builtin.command:
