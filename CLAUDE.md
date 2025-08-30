@@ -87,6 +87,22 @@ Your redirects prevent over-engineering. When uncertain about implementation, st
 - **Static analysis**: `make precommit` runs linters and syntax checks
 - **Dry runs**: Test playbook logic before execution
 
+## ⚠️ CRITICAL: Ansible Execution Restrictions
+
+**NEVER run playbooks or make tasks except `make precommit`** - they consume tokens rapidly and can burn through your budget in minutes.
+
+**Approved commands only:**
+- `make precommit` - Static analysis and linting
+- `uv run ansible [host] -a "[command]"` - Single host checks (like `systemctl status`, `ls`, etc.)
+
+**FORBIDDEN commands (token burning):**
+- `make site`, `make minio`, `make k3s-cluster` - Full infrastructure deployment
+- `make teardown` - Infrastructure removal
+- Any `ansible-playbook` execution
+- Any make target that runs playbooks
+
+**Why this matters:** Ansible playbooks with multiple hosts and complex tasks can consume 10k+ tokens per run. Always ask user to run these commands manually.
+
 ## Core Files
 
 To understand the project structure read

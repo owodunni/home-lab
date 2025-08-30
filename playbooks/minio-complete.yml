@@ -100,7 +100,7 @@
           ====================================
           SSL certificates are now ready. Installing MinIO with:
           - Console Port: {{ minio_console_port }} (HTTPS)
-          - API Port: {{ minio_server_port }} (HTTPS) 
+          - API Port: {{ minio_server_port }} (HTTPS)
           - Certificate Directory: {{ minio_cert_path }}
       tags:
         - minio-install
@@ -162,7 +162,7 @@
           ✓ HTTPS Console available on port {{ minio_console_port }}
           ✓ HTTPS API available on port {{ minio_server_port }}
           ✓ Buckets and users configured
-          
+
           Ready for final verification...
       tags:
         - minio-install

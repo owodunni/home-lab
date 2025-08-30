@@ -22,10 +22,10 @@ k3s_server:
   service-cidr: "10.43.0.0/16"
   flannel-backend: "vxlan"
 
-  # Disable components we don't need initially
-  disable:
-    - traefik  # We'll use a different ingress controller later
-    - servicelb  # We'll use MetalLB later
+  # Enable built-in components for pfSense integration
+  # Traefik handles internal routing, pfSense HAProxy handles external access
+  # ServiceLB provides internal load balancing, pfSense handles external load balancing
+  disable: []  # Re-enable all built-in components
 
   # Node labels
   node-label:

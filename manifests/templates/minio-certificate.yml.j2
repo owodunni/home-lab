@@ -1,0 +1,174 @@
+---
+# MinIO Certificate for Internal HTTPS Access
+# Uses DNS-01 challenge to create certificate for internal MinIO service
+
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ minio_certificate_name }}
+  namespace: cert-manager
+  labels:
+    app.kubernetes.io/name: minio-certificate
+    app.kubernetes.io/component: ssl-certificate
+    app.kubernetes.io/part-of: home-lab-infrastructure
+    service: minio
+spec:
+  # Certificate details
+  secretName: {{ minio_certificate_secret_name }}
+
+  # Certificate issuer (ClusterIssuer)
+  issuerRef:
+    name: letsencrypt-dns01
+    kind: ClusterIssuer
+    group: cert-manager.io
+
+  # Certificate subject
+  subject:
+    organizationalUnits:
+    - "Home Lab"
+    organizations:
+    - "{{ organization_name | default('Home Lab Infrastructure') }}"
+    countries:
+    - "{{ country_code | default('US') }}"
+
+  # Common name and subject alternative names
+  commonName: {{ minio_internal_domain }}
+  dnsNames:
+  - {{ minio_internal_domain }}
+{% if minio_additional_domains is defined %}
+{% for domain in minio_additional_domains %}
+  - {{ domain }}
+{% endfor %}
+{% endif %}
+
+  # Certificate duration and renewal
+  duration: 2160h  # 90 days
+  renewBefore: 360h  # 15 days before expiration
+
+  # Key algorithm and size
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    rotationPolicy: Always
+
+  # Certificate usage
+  usages:
+  - digital signature
+  - key encipherment
+  - server auth
+
+  # Additional certificate options
+  emailAddresses:
+  - {{ letsencrypt_email }}
+
+---
+# ConfigMap to expose certificate data for external access
+# This allows Ansible to read the certificate without SSH
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ minio_certificate_name }}-info
+  namespace: cert-manager
+  labels:
+    app.kubernetes.io/name: minio-certificate-info
+    app.kubernetes.io/component: certificate-export
+    app.kubernetes.io/part-of: home-lab-infrastructure
+    service: minio
+data:
+  certificate-ready: "false"  # Will be updated by cert-manager
+
+---
+# Service to expose certificate secret for external access
+# Alternative approach: Use kubectl from Ansible instead of SSH
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ minio_certificate_name }}-export
+  namespace: cert-manager
+  labels:
+    app.kubernetes.io/name: minio-certificate-export
+    app.kubernetes.io/component: certificate-service
+    app.kubernetes.io/part-of: home-lab-infrastructure
+    service: minio
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: http
+  selector:
+    app: minio-certificate-exporter
+
+---
+# Simple pod to expose certificate files via HTTP
+# Eliminates need for SSH access to MinIO server
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ minio_certificate_name }}-exporter
+  namespace: cert-manager
+  labels:
+    app.kubernetes.io/name: minio-certificate-exporter
+    app.kubernetes.io/component: certificate-export
+    app.kubernetes.io/part-of: home-lab-infrastructure
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minio-certificate-exporter
+  template:
+    metadata:
+      labels:
+        app: minio-certificate-exporter
+    spec:
+      containers:
+      - name: certificate-server
+        image: nginx:alpine
+        ports:
+        - containerPort: 8080
+        volumeMounts:
+        - name: certificate
+          mountPath: /usr/share/nginx/html/certs
+          readOnly: true
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d
+        env:
+        - name: NGINX_PORT
+          value: "8080"
+
+      volumes:
+      - name: certificate
+        secret:
+          secretName: {{ minio_certificate_secret_name }}
+      - name: nginx-config
+        configMap:
+          name: {{ minio_certificate_name }}-nginx-config
+
+---
+# NGINX configuration for certificate server
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ minio_certificate_name }}-nginx-config
+  namespace: cert-manager
+data:
+  default.conf: |
+    server {
+        listen 8080;
+        server_name localhost;
+
+        location /health {
+            access_log off;
+            return 200 "healthy\n";
+            add_header Content-Type text/plain;
+        }
+
+        location /certs/ {
+            root /usr/share/nginx/html;
+            autoindex on;
+            add_header Content-Type text/plain;
+        }
+    }

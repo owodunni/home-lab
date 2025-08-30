@@ -52,7 +52,7 @@ Complete home lab infrastructure with K3s Kubernetes cluster, Longhorn distribut
 
 ### Phase 6: K3s Cluster Setup
 - **Status:** ✅ Complete
-- **Command:** `make k3s-cluster`
+- **Command:** `make k3s-cluster` or included in `make site`
 - **Accomplished:**
   - 3-node HA K3s cluster with embedded etcd consensus
   - Staggered maintenance schedules for zero-downtime updates (02:00, 02:30, 03:00)
@@ -61,83 +61,102 @@ Complete home lab infrastructure with K3s Kubernetes cluster, Longhorn distribut
 - **Access:** kubectl via any cluster node (pi-cm5-1, pi-cm5-2, pi-cm5-3)
 - **Documentation:** See `docs/k3s-cluster-setup.md`, `docs/k3s-maintenance-guide.md`
 
+### Phase 6b: Kubernetes Applications (NEEDS WORK)
+- **Status:** ⚠️ Problematic - Currently commented out of site.yml
+- **Issue:** k8s-applications playbook has issues and needs debugging/testing
+- **Command:** `make k8s-apps` (when fixed)
+- **Note:** Excluded from `make site` until properly tested and verified
+
 ---
 
 ## Remaining Phases
 
 
-### Phase 5b: Load Balancer Infrastructure & SSL/TLS Certificates
+### Phase 5b: pfSense HAProxy Load Balancer & SSL/TLS Certificates
 
-**Purpose:** Enable external access and automated HTTPS certificates for both K3s cluster and MinIO
+**Purpose:** Enable external access and automated HTTPS certificates using pfSense HAProxy, dramatically simplifying K3s cluster architecture
 
-**Why This Is Essential:**
-- **External Access**: Currently no way to reach services from outside the home network - need port forwarding + load balancer
-- **Certificate Management**: Manual certificate renewal leads to service outages when certs expire
-- **Production Security**: HTTPS required for secure remote access and API operations
-- **DNS-01 Advantages**: Allows certificates for internal services that aren't publicly accessible
-- **Wildcard Certificates**: Single cert covers multiple subdomains, reduces management overhead
+**Why pfSense-Centric Approach:**
+- **Simplified K3s**: Re-enable Traefik and ServiceLB for internal routing only
+- **Enterprise-Grade HA**: HAProxy monitors all 3 K3s nodes with health checks
+- **Centralized SSL**: ACME package handles Let's Encrypt certificates at router level
+- **No Single Point of Failure**: Unlike MetalLB approach, pfSense distributes across all nodes
+- **Performance**: SSL termination at network edge reduces K3s resource usage
+
+**Architecture:**
+```
+Internet → pfSense HAProxy → K3s Nodes (HTTP internal)
+           ├── SSL Termination (Let's Encrypt ACME)
+           ├── Load Balancing (All 3 nodes)
+           ├── Health Checks (/healthz)
+           └── Host-based Routing
+```
 
 **Implementation Strategy:**
 
-**Step 1: Port Forwarding Setup (Router Configuration)**
-*Why First:* Need external connectivity to test certificate validation and service access
-- Forward port 443 (HTTPS) from router to K3s cluster load balancer IP
-- Forward port 80 (HTTP) for Let's Encrypt HTTP-01 challenges as fallback
-- Document router-specific steps for future reference
+**Step 1: pfSense Package Installation**
+- Install **HAProxy package** for load balancing and SSL termination
+- Install **ACME package** for automated Let's Encrypt certificate management
+- Configure global settings and enable stats monitoring
 
-**Step 2: K3s Load Balancer Infrastructure**
-*Why Needed:* K3s has Traefik and ServiceLB disabled - need alternatives for external access
-- Deploy **MetalLB** for LoadBalancer services (provides external IPs within home network)
-- Deploy **NGINX Ingress Controller** for HTTP/HTTPS routing and SSL termination
-- Configure MetalLB IP pool from available 192.168.0.x subnet range
-- Enables multiple services to share port 443 with host-based routing
+**Step 2: Certificate Management (pfSense ACME + Cloudflare)**
+- Configure ACME account with Let's Encrypt production
+- Set up Cloudflare DNS-01 validation with API token
+- Generate wildcard certificate `*.jardoole.xyz` with auto-renewal
 
-**Step 3: Certificate Management (cert-manager + Cloudflare)**
-*Why cert-manager over certbot:* Native K8s integration, automatic renewal, better secret management
-- Deploy **cert-manager** on K3s cluster for automated certificate lifecycle
-- Configure **Cloudflare DNS-01 issuer** with API token for DNS challenges
-- Generate certificates for:
-  - `minio.jardoole.xyz` (MinIO console access)
-  - `api.jardoole.xyz` (MinIO API endpoint)
-  - `*.jardoole.xyz` (wildcard for future services - Longhorn UI, monitoring, etc.)
+**Step 3: HAProxy Backend Configuration**
+- Create **K3s cluster backend** with all 3 nodes (pi-cm5-1,2,3:80)
+- Create **MinIO backend** with NAS node (pi-cm5-4:9001)
+- Configure HTTP health checks using `/healthz` endpoint
+- Set up round-robin load balancing with automatic failover
 
-**Step 4: MinIO HTTPS Configuration**
-*Why Separate:* MinIO runs on NAS node outside K3s cluster, needs direct TLS configuration
-- Update MinIO service configuration for HTTPS endpoints
-- Configure certificate paths and automatic renewal integration
-- Maintain backward compatibility with existing bucket configurations
+**Step 4: HAProxy Frontend Configuration**
+- Configure HTTPS frontend (port 443) with SSL termination
+- Set up host-based routing:
+  - `minio.jardoole.xyz` → MinIO backend
+  - `api.jardoole.xyz` → MinIO backend
+  - Default → K3s cluster backend
+- Configure HTTP→HTTPS redirect (port 80)
+
+**Step 5: K3s Cluster Simplification**
+- **Re-enable Traefik** in K3s configuration (remove from disable list)
+- **Re-enable ServiceLB** in K3s configuration (remove from disable list)
+- Keep internal routing simple with built-in components
 
 **Files to Create:**
-- `playbooks/port-forwarding-guide.yml` - Documentation and validation
-- `playbooks/load-balancer-setup.yml` - MetalLB + NGINX ingress
-- `playbooks/ssl-certificates.yml` - cert-manager + Cloudflare configuration
-- `group_vars/cluster/metallb.yml` - IP pools and MetalLB config
-- `group_vars/cluster/nginx-ingress.yml` - Ingress controller settings
-- `group_vars/cluster/cert-manager.yml` - Certificate issuers and policies
-- `group_vars/nas/ssl.yml` - MinIO SSL configuration
+- ✅ `docs/pfsense-haproxy-setup.md` - Complete pfSense configuration guide
+- `docs/pfsense-integration-architecture.md` - Architecture documentation
+- ✅ `group_vars/cluster/k3s.yml` - Updated to re-enable Traefik/ServiceLB
+- `playbooks/k3s-reconfigure.yml` - Apply simplified K3s configuration
 
 **Test Requirements:**
-- [ ] External port forwarding functional (443 → cluster)
-- [ ] MetalLB assigns external IPs to LoadBalancer services
-- [ ] NGINX ingress routes traffic based on hostnames
-- [ ] cert-manager creates certificates via Cloudflare DNS-01
-- [ ] Wildcard certificate *.jardoole.xyz issued and renewable
+- [ ] pfSense HAProxy package installed and configured
+- [ ] ACME wildcard certificate `*.jardoole.xyz` issued and renewable
+- [ ] HAProxy health checks showing all K3s nodes as UP
+- [ ] Load balancing functional across all 3 K3s nodes
+- [ ] SSL termination working at pfSense level
 - [ ] MinIO console accessible via https://minio.jardoole.xyz
 - [ ] MinIO API accessible via https://api.jardoole.xyz
-- [ ] Certificate auto-renewal working (test with short-lived staging certs)
+- [ ] Automatic failover when K3s nodes go down
+- [ ] K3s Traefik dashboard accessible internally
+
+**Eliminated Components:**
+- ❌ **MetalLB** - pfSense HAProxy handles external load balancing
+- ❌ **NGINX Ingress** - pfSense HAProxy does SSL termination
+- ❌ **cert-manager** - pfSense ACME handles certificates
 
 **Security Benefits:**
-- **Internal Service Certificates**: DNS-01 enables HTTPS for services not exposed to internet
-- **Wildcard Coverage**: Future services (Longhorn, monitoring) automatically secured
-- **Automated Renewal**: Eliminates certificate expiration outages
-- **API Token Security**: Cloudflare token stored in Ansible Vault, not plaintext
+- **SSL termination at network edge** - Better security boundary
+- **Automatic certificate renewal** - No expiration outages
+- **Health monitoring** - Automatic failover on node failure
+- **Centralized certificate management** - Single point of control
 
-**Dependencies:** Phase 5a ✅ (Vault for API tokens)
+**Dependencies:** Phase 5a ✅ (Vault for Cloudflare API token)
 
 **Links:**
-- [cert-manager Cloudflare Issuer](https://cert-manager.io/docs/configuration/acme/dns01/cloudflare/)
-- [MetalLB Configuration](https://metallb.universe.tf/configuration/)
-- [NGINX Ingress Controller](https://kubernetes.github.io/ingress-nginx/)
+- ✅ [pfSense HAProxy Setup Guide](docs/pfsense-haproxy-setup.md)
+- [pfSense ACME Documentation](https://docs.netgate.com/pfsense/en/latest/packages/acme/)
+- [HAProxy Health Checks](https://www.haproxy.com/documentation/haproxy-configuration-tutorials/reliability/health-checks/)
 
 ---
 
@@ -270,10 +289,11 @@ K3s recommends disabling firewalls due to networking complexity. We maintain fir
 ```bash
 # Infrastructure management
 make site-check         # Preview all changes
-make site               # Apply base infrastructure
-make minio-setup        # Deploy MinIO S3 service
-make k3s-cluster        # Deploy K3s HA cluster
+make site               # Apply base infrastructure (includes MinIO + K3s parallel)
+make minio              # Deploy MinIO S3 service standalone
+make k3s-cluster        # Deploy K3s HA cluster standalone
 make k3s-uninstall      # Uninstall K3s for debugging
+make teardown           # Complete infrastructure removal
 make upgrade            # System updates
 
 # Development

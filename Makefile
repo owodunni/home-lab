@@ -2,7 +2,7 @@
 # Fix macOS fork safety issue with Python 3.13 + Ansible multiprocessing
 ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
-.PHONY: help setup lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio minio-uninstall k3s-cluster k3s-cluster-check k3s-uninstall k8s-apps k8s-apps-check test-certbot ssl-certificates teardown teardown-check
+.PHONY: help setup lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio minio-uninstall k3s-cluster k3s-cluster-check k3s-uninstall k8s-apps k8s-apps-check teardown teardown-check
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -79,13 +79,6 @@ k8s-apps-check: ## 🔍 Check Kubernetes applications deployment (dry-run)
 	@echo "Checking Kubernetes applications deployment (dry-run)..."
 	$(ANSIBLE_PLAYBOOK) playbooks/k8s-applications.yml --check --diff
 
-test-certbot: ## 🧪 Test Certbot DNS challenge in isolation (for debugging)
-	@echo "Testing Certbot DNS challenge with Cloudflare..."
-	$(ANSIBLE_PLAYBOOK) playbooks/test-certbot-dns.yml
-
-ssl-certificates: ## 🔒 Request SSL certificates for configured domains
-	@echo "Requesting SSL certificates using Let's Encrypt + Cloudflare DNS..."
-	$(ANSIBLE_PLAYBOOK) playbooks/ssl-certificates.yml
 
 teardown-check: ## 🔍 Preview infrastructure teardown (dry-run with diff)
 	@echo "⚠️ PREVIEW: Infrastructure Teardown (dry-run)"

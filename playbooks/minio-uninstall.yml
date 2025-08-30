@@ -66,6 +66,17 @@
       tags:
         - cleanup
 
+    - name: Reset data directory ownership to root before removing user
+      ansible.builtin.file:
+        path: "{{ item }}"
+        owner: root
+        group: root
+        recurse: true
+      loop: "{{ minio_server_datadirs | default(['/mnt/minio-drive1/data', '/mnt/minio-drive2/data']) }}"
+      failed_when: false
+      tags:
+        - cleanup
+
     - name: Remove MinIO group
       ansible.builtin.group:
         name: minio

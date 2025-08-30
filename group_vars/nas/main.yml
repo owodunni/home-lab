@@ -83,7 +83,7 @@ pi_cm5_config_cgroup_enabled: false
 
 # SSL Certificate configuration for NAS services
 # Domain for internal MinIO access with SSL
-minio_internal_domain: "nas.jardoole.xyz"
+minio_internal_domain: "minio-test.jardoole.xyz"
 
 # Let's Encrypt configuration
 letsencrypt_email: "{{ vault_letsencrypt_email }}"

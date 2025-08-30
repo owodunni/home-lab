@@ -1,0 +1,83 @@
+---
+# cert-manager Helm Chart Values
+# Customized for Pi CM5 home lab deployment
+
+# Global configuration
+global:
+  leaderElection:
+    namespace: cert-manager
+
+# Main cert-manager controller
+installCRDs: true
+
+replicaCount: 1  # Single replica suitable for home lab
+
+# Resource limits optimized for Pi CM5 hardware
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    cpu: 100m
+    memory: 128Mi
+
+# Node selector for Pi CM5 nodes
+nodeSelector:
+  node.kubernetes.io/instance-type: pi-cm5
+
+# Webhook configuration
+webhook:
+  replicaCount: 1
+
+  # Resource limits for webhook
+  resources:
+    requests:
+      cpu: 5m
+      memory: 16Mi
+    limits:
+      cpu: 50m
+      memory: 64Mi
+
+  # Webhook timeout for slower Pi hardware
+  timeoutSeconds: 30
+
+  # Node selector
+  nodeSelector:
+    node.kubernetes.io/instance-type: pi-cm5
+
+# CA Injector configuration
+cainjector:
+  replicaCount: 1
+
+  # Resource limits for CA injector
+  resources:
+    requests:
+      cpu: 5m
+      memory: 16Mi
+    limits:
+      cpu: 50m
+      memory: 64Mi
+
+  # Node selector
+  nodeSelector:
+    node.kubernetes.io/instance-type: pi-cm5
+
+# Startup API check - disabled for home lab simplicity
+startupapicheck:
+  enabled: false
+
+# Security context for Pi deployment
+securityContext:
+  fsGroup: 1001
+  runAsNonRoot: true
+  runAsUser: 1001
+
+# Monitoring and observability
+prometheus:
+  enabled: false  # Disable for initial deployment, can enable later
+
+# Logging configuration
+logLevel: 2  # Info level, can increase for debugging
+
+# Feature gates - enable DNS01 nameserver validation
+featureGates: "ExperimentalCertificateSigningRequestControllers=true"

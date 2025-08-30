@@ -1,0 +1,86 @@
+---
+# Kubernetes Applications Configuration
+# Variables for managing applications deployed to K3s cluster
+
+# Helm repositories configuration
+k8s_helm_repositories:
+  - name: jetstack
+    url: https://charts.jetstack.io
+  - name: prometheus-community
+    url: https://prometheus-community.github.io/helm-charts
+  - name: grafana
+    url: https://grafana.github.io/helm-charts
+
+# Let's Encrypt configuration
+letsencrypt_email: "{{ vault_letsencrypt_email }}"
+
+# Cloudflare API configuration for DNS-01 challenges
+cloudflare_api_token_b64: "{{ vault_cloudflare_api_token | b64encode }}"
+
+# Organization information for certificates
+organization_name: "Home Lab Infrastructure"
+country_code: "US"
+
+# MinIO certificate configuration
+minio_certificate_name: "minio-internal-tls"
+minio_certificate_secret_name: "minio-internal-tls-secret"
+
+# MinIO internal domain configuration
+minio_internal_domain: "minio-internal.jardoole.xyz"
+minio_additional_domains:
+  - "minio-nas.jardoole.xyz"
+  - "s3-internal.jardoole.xyz"
+
+# MinIO server configuration
+minio_server_host: "pi-cm5-4.local"
+minio_console_port: 443
+minio_api_port: 9000
+
+# Certificate deployment paths on MinIO server
+minio_cert_path: "/etc/minio/certs"
+minio_user: "minio-user"
+
+# Certificate deployment configuration (no SSH required)
+# Certificates are retrieved using kubectl from the control node
+
+# cert-manager specific configuration
+cert_manager_namespace: "cert-manager"
+cert_manager_timeout: 300
+
+# DNS configuration for internal services
+internal_dns_domain: "jardoole.xyz"
+internal_services_subdomain: "internal"
+
+# Future service configurations (commented out for initial deployment)
+# grafana_certificate_name: "grafana-internal-tls"
+# prometheus_certificate_name: "prometheus-internal-tls"
+# longhorn_certificate_name: "longhorn-internal-tls"
+
+# Kubernetes cluster resource limits for home lab
+k8s_default_resources:
+  requests:
+    cpu: "10m"
+    memory: "32Mi"
+  limits:
+    cpu: "100m"
+    memory: "128Mi"
+
+# Node selector for Pi CM5 nodes
+k8s_node_selector:
+  node.kubernetes.io/instance-type: "pi-cm5"
+
+# Tolerations for Pi hardware limitations
+k8s_tolerations:
+  - key: "node.kubernetes.io/disk-pressure"
+    operator: "Exists"
+    effect: "NoSchedule"
+  - key: "node.kubernetes.io/memory-pressure"
+    operator: "Exists"
+    effect: "NoSchedule"
+
+# Security context for containers
+k8s_security_context:
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
