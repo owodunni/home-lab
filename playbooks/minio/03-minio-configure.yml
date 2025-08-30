@@ -36,14 +36,20 @@
       loop: "{{ minio_server_datadirs }}"
 
     - name: Configure MinIO environment file (basic configuration)
-      ansible.builtin.include_role:
-        name: ricsanfre.minio
-        tasks_from: install_server
-      vars:
-        minio_enable_tls: false
-        minio_install_client: false
-        minio_server_port: 9000      # HTTP port for basic config
-        minio_console_port: 9001     # HTTP console port
+      block:
+        - name: Include ricsanfre.minio role for basic configuration
+          ansible.builtin.include_role:
+            name: ricsanfre.minio
+            tasks_from: install_server
+          vars:
+            minio_enable_tls: false
+            minio_install_client: false
+            minio_server_port: 9000      # HTTP port for basic config
+            minio_console_port: 9001     # HTTP console port
+      rescue:
+        - name: Note that role restart failed - will handle manually
+          ansible.builtin.debug:
+            msg: "Role restart failed as expected - will handle restart after SSL cleanup"
 
     - name: Remove SSL directory to force HTTP-only mode (after role runs)
       ansible.builtin.file:
@@ -55,7 +61,12 @@
         path: /etc/minio/minio.conf
         regexp: '--certs-dir /etc/minio/ssl\s*'
         replace: ''
-      notify: Restart minio service
+
+    - name: Restart MinIO service after HTTP-only cleanup
+      ansible.builtin.systemd:
+        name: minio
+        state: restarted
+        daemon_reload: true
 
     - name: Verify MinIO can access data directories
       ansible.builtin.command:
