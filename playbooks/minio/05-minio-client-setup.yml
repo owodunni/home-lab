@@ -33,20 +33,16 @@
     - name: Configure MinIO client alias
       ansible.builtin.command:
         cmd: >-
-          /usr/local/bin/mc alias set myminio
+          sudo -u minio /usr/local/bin/mc alias set myminio
           https://{{ minio_internal_domain }}:{{ minio_server_port }}
           {{ minio_root_user }}
           {{ minio_root_password }}
-      become: true
-      become_user: minio
       register: mc_alias_result
       changed_when: mc_alias_result.rc == 0
 
     - name: Test MinIO client connection
       ansible.builtin.command:
-        cmd: /usr/local/bin/mc admin info myminio
-      become: true
-      become_user: minio
+        cmd: sudo -u minio /usr/local/bin/mc admin info myminio
       changed_when: false
       register: mc_info
 
@@ -63,9 +59,7 @@
 
     - name: Verify buckets were created
       ansible.builtin.command:
-        cmd: /usr/local/bin/mc ls myminio
-      become: true
-      become_user: minio
+        cmd: sudo -u minio /usr/local/bin/mc ls myminio
       changed_when: false
       register: bucket_list
 
