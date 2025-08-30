@@ -1,0 +1,83 @@
+---
+# Complete MinIO installation with SSL certificates - MODULAR APPROACH
+# Orchestrates all MinIO installation phases in correct order
+# Each phase can be run independently for testing and debugging
+
+- name: Complete MinIO Installation Overview
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Display modular installation plan
+      ansible.builtin.debug:
+        msg: |
+          🏗️ Complete MinIO Installation - Modular Approach
+          =================================================
+
+          Phase 1: SSL Certificate Generation
+          Phase 2: MinIO Binary Installation
+          Phase 3: Basic Configuration
+          Phase 4: SSL Integration (REUSABLE)
+          Phase 5: Client Setup and Buckets
+
+          Each phase can be run independently:
+          - ansible-playbook playbooks/minio/01-ssl-certificates.yml
+          - ansible-playbook playbooks/minio/02-minio-install.yml
+          - ansible-playbook playbooks/minio/03-minio-configure.yml
+          - ansible-playbook playbooks/minio/04-minio-ssl-integration.yml
+          - ansible-playbook playbooks/minio/05-minio-client-setup.yml
+
+          Benefits:
+          - Independent testing of each component
+          - Easier debugging when issues occur
+          - Reusable SSL integration when certificates change
+          - Automatic permission management via Ansible
+
+# Phase 1: SSL Certificate Setup
+- name: Phase 1 - SSL Certificate Setup
+  import_playbook: 01-ssl-certificates.yml
+
+# Phase 2: MinIO Binary Installation
+- name: Phase 2 - MinIO Binary Installation
+  import_playbook: 02-minio-install.yml
+
+# Phase 3: Basic Configuration
+- name: Phase 3 - MinIO Basic Configuration
+  import_playbook: 03-minio-configure.yml
+
+# Phase 4: SSL Integration (the reusable one!)
+- name: Phase 4 - MinIO SSL Integration
+  import_playbook: 04-minio-ssl-integration.yml
+
+# Phase 5: Client Setup and Buckets
+- name: Phase 5 - MinIO Client Setup
+  import_playbook: 05-minio-client-setup.yml
+
+# Final summary
+- name: Complete MinIO Installation Summary
+  hosts: nas
+  gather_facts: true
+  tasks:
+    - name: Display final installation summary
+      ansible.builtin.debug:
+        msg: |
+          ✅ Complete MinIO Installation Successful!
+          =========================================
+
+          All phases completed successfully:
+          ✓ Phase 1: SSL certificates generated
+          ✓ Phase 2: MinIO binary installed
+          ✓ Phase 3: Basic configuration applied
+          ✓ Phase 4: SSL integration completed
+          ✓ Phase 5: Client and buckets configured
+
+          MinIO Access:
+          - Console: https://{{ minio_internal_domain }}:{{ minio_console_port }}
+          - API: https://{{ minio_internal_domain }}:{{ minio_server_port }}
+
+          Troubleshooting:
+          - Certificate issues: Run Phase 4 independently
+          - Permission issues: Run Phase 4 independently
+          - Client issues: Run Phase 5 independently
+
+          Next time certificates change, just run:
+          ansible-playbook playbooks/minio/04-minio-ssl-integration.yml

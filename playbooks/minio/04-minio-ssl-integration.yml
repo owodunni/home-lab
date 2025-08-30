@@ -1,0 +1,131 @@
+---
+# Phase 4: MinIO SSL Integration
+# REUSABLE playbook that handles SSL certificate integration and permission fixes
+# Can be run independently when certificates change
+
+- name: Phase 4 - MinIO SSL Integration
+  hosts: nas
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Display Phase 4 overview
+      ansible.builtin.debug:
+        msg: |
+          Phase 4: MinIO SSL Integration (REUSABLE)
+          ==========================================
+          This playbook handles SSL certificate integration and is designed
+          to be run independently when certificates change or permissions break.
+
+          Actions:
+          - Create SSL certificate directory
+          - Link Let's Encrypt certificates
+          - Fix certificate permissions for MinIO user
+          - Enable privileged port binding (443)
+          - Update MinIO configuration for HTTPS
+          - Restart MinIO service with SSL
+
+    - name: Ensure MinIO certificate directory exists
+      ansible.builtin.file:
+        path: "{{ minio_cert_path }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Fix Let's Encrypt directory permissions for MinIO access
+      ansible.builtin.file:
+        path: "{{ item }}"
+        mode: '0755'
+        owner: root
+        group: root
+      loop:
+        - /etc/letsencrypt/live
+        - /etc/letsencrypt/archive
+
+    - name: Remove existing certificate links (force refresh)
+      ansible.builtin.file:
+        path: "{{ minio_cert_path }}/{{ item }}"
+        state: absent
+      loop:
+        - public.crt
+        - private.key
+
+    - name: Link certificates to MinIO directory
+      ansible.builtin.command:
+        cmd: ln -sf "/etc/letsencrypt/live/{{ minio_internal_domain }}/{{ item.src }}" "{{ minio_cert_path }}/{{ item.dest }}"
+      loop:
+        - { src: 'fullchain.pem', dest: 'public.crt' }
+        - { src: 'privkey.pem', dest: 'private.key' }
+      changed_when: true  # Symlinks always get updated
+
+    - name: Fix Let's Encrypt private key permissions for MinIO access
+      ansible.builtin.file:
+        path: "/etc/letsencrypt/archive/{{ minio_internal_domain }}/privkey1.pem"
+        group: minio
+        mode: '0640'
+      register: privkey_perms
+
+    - name: Verify MinIO can read certificates
+      ansible.builtin.command:
+        cmd: sudo -u minio test -r "{{ minio_cert_path }}/{{ item }}"
+      loop:
+        - public.crt
+        - private.key
+      changed_when: false
+
+    - name: Enable MinIO binary to bind to privileged ports (443)
+      ansible.builtin.command:
+        cmd: setcap cap_net_bind_service=+ep /usr/local/bin/minio
+      register: setcap_result
+      changed_when: setcap_result.rc == 0
+
+    - name: Update MinIO configuration for HTTPS
+      ansible.builtin.template:
+        src: minio-env-ssl.conf.j2
+        dest: /etc/minio/minio.conf
+        owner: root
+        group: minio
+        mode: '0640'
+      notify:
+        - Restart minio with SSL
+        - Wait for MinIO HTTPS
+
+    - name: Add localhost resolution for MinIO domain
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        line: "127.0.0.1 {{ minio_internal_domain }}"
+        regexp: "^127\\.0\\.0\\.1.*{{ minio_internal_domain }}"
+        state: present
+
+    - name: Display Phase 4 completion
+      ansible.builtin.debug:
+        msg: |
+          Phase 4 Complete: MinIO SSL Integration
+          =======================================
+          ✓ Certificate directory: {{ minio_cert_path }}
+          ✓ Certificate links: public.crt, private.key
+          ✓ Private key permissions: minio group access
+          ✓ Privileged port binding: enabled
+          ✓ HTTPS configuration: updated
+          ✓ MinIO restarted: with SSL enabled
+
+          MinIO should now be available on:
+          - HTTPS Console: https://{{ minio_internal_domain }}:{{ minio_console_port }}
+          - HTTPS API: https://{{ minio_internal_domain }}:{{ minio_server_port }}
+
+          This playbook can be re-run anytime certificates change.
+
+  handlers:
+    - name: Restart minio with SSL
+      ansible.builtin.systemd:
+        name: minio
+        state: restarted
+        daemon_reload: true
+
+    - name: Wait for MinIO HTTPS
+      ansible.builtin.wait_for:
+        port: "{{ minio_server_port }}"
+        host: "{{ ansible_default_ipv4.address }}"
+        delay: 10
+        timeout: 60

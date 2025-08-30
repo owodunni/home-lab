@@ -1,0 +1,95 @@
+---
+# Phase 5: MinIO Client Setup and Bucket Configuration
+# Sets up MC client, creates buckets, and configures users
+
+- name: Phase 5 - MinIO Client Setup and Bucket Configuration
+  hosts: nas
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Display Phase 5 overview
+      ansible.builtin.debug:
+        msg: |
+          Phase 5: MinIO Client Setup
+          ===========================
+          - Install MinIO client (MC)
+          - Configure MinIO client alias
+          - Create buckets: {{ minio_buckets | map(attribute='name') | join(', ') }}
+          - Create users: {{ minio_users | map(attribute='name') | join(', ') }}
+          - Set up bucket policies
+
+    - name: Wait for MinIO to be ready
+      ansible.builtin.wait_for:
+        port: "{{ minio_server_port }}"
+        host: "{{ ansible_default_ipv4.address }}"
+        timeout: 30
+
+    - name: Install MinIO client using ricsanfre.minio role
+      ansible.builtin.include_role:
+        name: ricsanfre.minio
+        tasks_from: install_client
+
+    - name: Configure MinIO client alias
+      ansible.builtin.command:
+        cmd: >-
+          /usr/local/bin/mc alias set myminio
+          https://{{ minio_internal_domain }}:{{ minio_server_port }}
+          {{ minio_root_user }}
+          {{ minio_root_password }}
+      become: true
+      become_user: minio
+      register: mc_alias_result
+      changed_when: mc_alias_result.rc == 0
+
+    - name: Test MinIO client connection
+      ansible.builtin.command:
+        cmd: /usr/local/bin/mc admin info myminio
+      become: true
+      become_user: minio
+      changed_when: false
+      register: mc_info
+
+    - name: Display MinIO server info
+      ansible.builtin.debug:
+        var: mc_info.stdout_lines
+
+    - name: Configure server using ricsanfre.minio role
+      ansible.builtin.include_role:
+        name: ricsanfre.minio
+        tasks_from: configure_server
+      vars:
+        minio_url: "https://{{ minio_internal_domain }}:{{ minio_server_port }}"
+
+    - name: Verify buckets were created
+      ansible.builtin.command:
+        cmd: /usr/local/bin/mc ls myminio
+      become: true
+      become_user: minio
+      changed_when: false
+      register: bucket_list
+
+    - name: Display created buckets
+      ansible.builtin.debug:
+        msg: |
+          Created buckets:
+          {{ bucket_list.stdout }}
+
+    - name: Display Phase 5 completion
+      ansible.builtin.debug:
+        msg: |
+          Phase 5 Complete: MinIO Client Setup
+          ====================================
+          ✓ MinIO client (MC) installed
+          ✓ Client alias configured: myminio
+          ✓ Connection tested: SUCCESS
+          ✓ Buckets created: {{ minio_buckets | length }}
+          ✓ Users configured: {{ minio_users | length }}
+
+          MinIO is now fully operational!
+
+          Access URLs:
+          - Console: https://{{ minio_internal_domain }}:{{ minio_console_port }}
+          - API: https://{{ minio_internal_domain }}:{{ minio_server_port }}
+
+          Test command: mc ls myminio

@@ -1,0 +1,72 @@
+---
+# Phase 2: MinIO Binary Installation and Basic Setup
+# Downloads MinIO binary, creates user, sets up systemd service (no SSL, no buckets)
+
+- name: Phase 2 - MinIO Binary Installation and Basic Setup
+  hosts: nas
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Display Phase 2 overview
+      ansible.builtin.debug:
+        msg: |
+          Phase 2: MinIO Binary Installation
+          ===================================
+          - Download MinIO binary
+          - Create MinIO user and group
+          - Set up basic systemd service
+          - Configure data directories
+          - NO SSL configuration (Phase 4)
+          - NO client setup (Phase 5)
+
+    - name: Install MinIO prerequisites
+      ansible.builtin.package:
+        name:
+          - libcap2-bin  # For setcap functionality
+        state: present
+        update_cache: true
+
+    - name: Verify storage directories exist
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      register: storage_check
+      failed_when: not storage_check.stat.exists and not ansible_check_mode
+      loop: "{{ minio_server_datadirs }}"
+
+    - name: Install MinIO using ricsanfre.minio role (binary + user + service)
+      ansible.builtin.include_role:
+        name: ricsanfre.minio
+      vars:
+        # Override SSL settings - Phase 4 will handle SSL
+        minio_enable_ssl: false
+        minio_install_client: false  # Phase 5 handles client
+
+    - name: Verify MinIO binary installed
+      ansible.builtin.stat:
+        path: /usr/local/bin/minio
+      register: minio_binary
+      failed_when: not minio_binary.stat.exists
+
+    - name: Verify MinIO user created
+      ansible.builtin.user:
+        name: minio
+        state: present
+      check_mode: true
+      register: minio_user
+      failed_when: minio_user.changed
+
+    - name: Display Phase 2 completion
+      ansible.builtin.debug:
+        msg: |
+          Phase 2 Complete: MinIO Binary Installation
+          ==========================================
+          ✓ MinIO binary: /usr/local/bin/minio
+          ✓ MinIO user: {{ minio_user.name if minio_user is defined else 'minio' }}
+          ✓ Storage directories: {{ minio_server_datadirs | length }} configured
+          ✓ Systemd service: minio.service (not started yet)
+
+          Next phases:
+          - Phase 3: Basic configuration
+          - Phase 4: SSL integration
+          - Phase 5: Client setup and buckets

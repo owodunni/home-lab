@@ -1,0 +1,70 @@
+---
+# Phase 3: MinIO Basic Configuration
+# Sets up basic MinIO configuration without SSL complexity
+
+- name: Phase 3 - MinIO Basic Configuration
+  hosts: nas
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Display Phase 3 overview
+      ansible.builtin.debug:
+        msg: |
+          Phase 3: MinIO Basic Configuration
+          ==================================
+          - Configure MinIO environment file
+          - Set up basic ports and directories
+          - Fix data directory ownership
+          - NO SSL setup (handled in Phase 4)
+
+    - name: Ensure MinIO configuration directory exists
+      ansible.builtin.file:
+        path: /etc/minio
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Fix MinIO data directory ownership
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: minio
+        group: minio
+        recurse: true
+      loop: "{{ minio_server_datadirs }}"
+
+    - name: Configure MinIO environment file (basic - no SSL)
+      ansible.builtin.template:
+        src: minio-env-basic.conf.j2
+        dest: /etc/minio/minio.conf
+        owner: root
+        group: minio
+        mode: '0640'
+      notify: Restart minio service
+
+    - name: Verify MinIO can access data directories
+      ansible.builtin.command:
+        cmd: sudo -u minio test -w "{{ item }}"
+      loop: "{{ minio_server_datadirs }}"
+      changed_when: false
+
+    - name: Display Phase 3 completion
+      ansible.builtin.debug:
+        msg: |
+          Phase 3 Complete: MinIO Basic Configuration
+          ===========================================
+          ✓ Configuration directory: /etc/minio/
+          ✓ Data directories ownership: minio:minio
+          ✓ Environment file: /etc/minio/minio.conf
+          ✓ Directory permissions: verified
+
+          Configuration ready for SSL integration (Phase 4)
+
+  handlers:
+    - name: Restart minio service
+      ansible.builtin.systemd:
+        name: minio
+        state: restarted
+        daemon_reload: true
