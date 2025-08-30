@@ -1,0 +1,51 @@
+#!/bin/bash
+# MinIO Certificate Renewal Script
+# Automatically renews certificates and restarts MinIO if needed
+
+set -e
+
+LOGFILE="/var/log/certbot-renewal.log"
+MINIO_DOMAIN="{{ minio_internal_domain }}"
+CLOUDFLARE_CONFIG="{{ cloudflare_config_path | default('/etc/letsencrypt/cloudflare.ini') }}"
+
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOGFILE"
+}
+
+log "Starting certificate renewal process for $MINIO_DOMAIN"
+
+# Check if certificate needs renewal (within 30 days)
+if certbot certificates | grep -q "INVALID\|Certificate will expire"; then
+    log "Certificate needs renewal"
+
+    # Attempt to renew certificates
+    if certbot renew --dns-cloudflare --dns-cloudflare-credentials "$CLOUDFLARE_CONFIG" --quiet; then
+        log "Certificate renewed successfully"
+
+        # Check if MinIO service is running
+        if systemctl is-active --quiet minio; then
+            log "Restarting MinIO service to load new certificates"
+            systemctl restart minio
+
+            # Wait for MinIO to be ready
+            sleep 10
+
+            # Verify MinIO is responsive
+            if curl -k -s -f https://{{ minio_internal_domain }}:{{ minio_console_port | default('443') }}/ > /dev/null 2>&1; then
+                log "MinIO restarted successfully with new certificates"
+            else
+                log "ERROR: MinIO appears to be unresponsive after restart"
+                exit 1
+            fi
+        else
+            log "MinIO service not running, certificates updated but service not restarted"
+        fi
+    else
+        log "ERROR: Certificate renewal failed"
+        exit 1
+    fi
+else
+    log "Certificate is still valid, no renewal needed"
+fi
+
+log "Certificate renewal process completed"
