@@ -1,0 +1,189 @@
+---
+# Reusable SSL certificate management playbook using Let's Encrypt + Cloudflare DNS-01
+# Based on proven working approach from test-certbot-dns.yml
+
+- name: Request and configure SSL certificates via Let's Encrypt
+  hosts: "{{ ssl_target_hosts | default('nas') }}"
+  become: true
+  gather_facts: true
+
+  vars:
+    # Configuration paths - all other values from group_vars/nas/main.yml
+    cloudflare_config_path: "/etc/letsencrypt/cloudflare.ini"
+
+  tasks:
+    - name: Install Certbot and DNS Cloudflare plugin
+      ansible.builtin.package:
+        name:
+          - certbot
+          - python3-certbot-dns-cloudflare
+        state: present
+        update_cache: true
+      tags:
+        - ssl-install
+
+    - name: Display Certbot version for debugging
+      ansible.builtin.command:
+        cmd: certbot --version
+      register: certbot_version
+      changed_when: false
+      tags:
+        - ssl-info
+
+    - name: Show Certbot version
+      ansible.builtin.debug:
+        msg: "Certbot version: {{ certbot_version.stdout }}"
+      tags:
+        - ssl-info
+
+    - name: Create Let's Encrypt configuration directory
+      ansible.builtin.file:
+        path: /etc/letsencrypt
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      tags:
+        - ssl-setup
+
+    - name: Create Cloudflare credentials file
+      ansible.builtin.template:
+        src: cloudflare.ini.j2
+        dest: "{{ cloudflare_config_path }}"
+        owner: root
+        group: root
+        mode: '0600'
+        backup: true
+      tags:
+        - ssl-setup
+
+    - name: Test Cloudflare credentials (dry run)
+      ansible.builtin.command:
+        cmd: >
+          certbot certonly
+          --non-interactive
+          --agree-tos
+          --email {{ letsencrypt_email }}
+          --dns-cloudflare
+          --dns-cloudflare-credentials {{ cloudflare_config_path }}
+          --dns-cloudflare-propagation-seconds 60
+          -d {{ minio_internal_domain }}
+          --dry-run
+          -v
+      register: ssl_dry_run
+      failed_when: false
+      changed_when: false
+      tags:
+        - ssl-test
+
+    - name: Display dry run result
+      ansible.builtin.debug:
+        var: ssl_dry_run
+      when: ssl_dry_run.rc != 0
+      tags:
+        - ssl-test
+
+    - name: Fail if dry run failed
+      ansible.builtin.fail:
+        msg: "SSL certificate dry run failed. Check Cloudflare credentials and domain configuration."
+      when: ssl_dry_run.rc != 0
+      tags:
+        - ssl-test
+
+    - name: Request SSL certificate (real) - only if dry run succeeded
+      ansible.builtin.command:
+        cmd: >
+          certbot certonly
+          --non-interactive
+          --agree-tos
+          --email {{ letsencrypt_email }}
+          --dns-cloudflare
+          --dns-cloudflare-credentials {{ cloudflare_config_path }}
+          --dns-cloudflare-propagation-seconds 60
+          -d {{ minio_internal_domain }}
+          -v
+        creates: "/etc/letsencrypt/live/{{ minio_internal_domain }}/fullchain.pem"
+      register: ssl_cert_request
+      when: ssl_dry_run.rc == 0
+      tags:
+        - ssl-request
+
+    - name: Display certificate request result
+      ansible.builtin.debug:
+        var: ssl_cert_request
+      when: ssl_cert_request is defined and ssl_cert_request.changed
+      tags:
+        - ssl-request
+
+    - name: Set proper permissions on certificate archive files
+      ansible.builtin.file:
+        path: "/etc/letsencrypt/archive/{{ minio_internal_domain }}/{{ item.file }}"
+        owner: root
+        group: root
+        mode: "{{ item.mode }}"
+      loop:
+        - { file: 'fullchain1.pem', mode: '0644' }
+        - { file: 'privkey1.pem', mode: '0640' }
+        - { file: 'cert1.pem', mode: '0644' }
+        - { file: 'chain1.pem', mode: '0644' }
+      when: ssl_dry_run.rc == 0
+      tags:
+        - ssl-permissions
+
+    - name: Create certificate renewal script
+      ansible.builtin.template:
+        src: renew-minio-certs.sh.j2
+        dest: /usr/local/bin/renew-ssl-certs.sh
+        owner: root
+        group: root
+        mode: '0755'
+      tags:
+        - ssl-renewal
+
+    - name: Setup automatic certificate renewal
+      ansible.builtin.cron:
+        name: "Renew SSL certificates"
+        minute: "0"
+        hour: "3"
+        day: "1,15"  # Run twice monthly
+        job: "/usr/local/bin/renew-ssl-certs.sh >> /var/log/certbot-renewal.log 2>&1"
+        user: root
+      tags:
+        - ssl-renewal
+
+    - name: Test certificate renewal (dry run)
+      ansible.builtin.command:
+        cmd: certbot renew --dry-run --dns-cloudflare --dns-cloudflare-credentials {{ cloudflare_config_path }}
+      register: ssl_renewal_test
+      failed_when: false
+      changed_when: false
+      tags:
+        - ssl-test
+
+    - name: List certificates
+      ansible.builtin.command:
+        cmd: certbot certificates
+      register: ssl_cert_list
+      changed_when: false
+      tags:
+        - ssl-info
+
+    - name: Display SSL certificate summary
+      ansible.builtin.debug:
+        msg: |
+          SSL Certificate Configuration Complete
+          ====================================
+          Domain: {{ minio_internal_domain }}
+          Certificate path: /etc/letsencrypt/live/{{ minio_internal_domain }}/
+          Certbot version: {{ certbot_version.stdout }}
+          Renewal test: {{ 'PASSED ✓' if ssl_renewal_test.rc == 0 else 'FAILED ⚠️' }}
+
+          Certificate files:
+          - Full chain: /etc/letsencrypt/live/{{ minio_internal_domain }}/fullchain.pem
+          - Private key: /etc/letsencrypt/live/{{ minio_internal_domain }}/privkey.pem
+          - Certificate: /etc/letsencrypt/live/{{ minio_internal_domain }}/cert.pem
+          - Chain: /etc/letsencrypt/live/{{ minio_internal_domain }}/chain.pem
+
+          Auto-renewal: Configured (twice monthly via cron)
+      tags:
+        - ssl-summary

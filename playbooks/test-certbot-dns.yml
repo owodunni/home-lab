@@ -1,0 +1,129 @@
+---
+# Test playbook for Certbot DNS challenge with Cloudflare
+# Isolated testing before integration into MinIO setup
+
+- name: Test Certbot DNS Challenge with Cloudflare
+  hosts: nas
+  become: true
+  gather_facts: true
+
+  vars:
+    test_domain: "test.jardoole.xyz"
+    certbot_email: "{{ letsencrypt_email }}"
+    cloudflare_config_path: "/etc/letsencrypt/cloudflare.ini"
+
+  tasks:
+    - name: Install Certbot and DNS Cloudflare plugin
+      ansible.builtin.package:
+        name:
+          - certbot
+          - python3-certbot-dns-cloudflare
+        state: present
+        update_cache: true
+
+    - name: Display Certbot version for debugging
+      ansible.builtin.command:
+        cmd: certbot --version
+      register: certbot_version
+      changed_when: false
+
+    - name: Show Certbot version
+      ansible.builtin.debug:
+        msg: "Certbot version: {{ certbot_version.stdout }}"
+
+    - name: Create letsencrypt configuration directory
+      ansible.builtin.file:
+        path: /etc/letsencrypt
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Create Cloudflare credentials file
+      ansible.builtin.template:
+        src: cloudflare.ini.j2
+        dest: "{{ cloudflare_config_path }}"
+        owner: root
+        group: root
+        mode: '0600'
+        backup: true
+
+    - name: Test Cloudflare credentials (dry run)
+      ansible.builtin.command:
+        cmd: >
+          certbot certonly
+          --non-interactive
+          --agree-tos
+          --email {{ certbot_email }}
+          --dns-cloudflare
+          --dns-cloudflare-credentials {{ cloudflare_config_path }}
+          --dns-cloudflare-propagation-seconds 60
+          -d {{ test_domain }}
+          --dry-run
+          -v
+      register: certbot_dry_run
+      failed_when: false
+      changed_when: false
+
+    - name: Display dry run result
+      ansible.builtin.debug:
+        var: certbot_dry_run
+
+    - name: Test certificate request (real) - only if dry run succeeded
+      ansible.builtin.command:
+        cmd: >
+          certbot certonly
+          --non-interactive
+          --agree-tos
+          --email {{ certbot_email }}
+          --dns-cloudflare
+          --dns-cloudflare-credentials {{ cloudflare_config_path }}
+          --dns-cloudflare-propagation-seconds 60
+          -d {{ test_domain }}
+          -v
+        creates: "/etc/letsencrypt/live/{{ test_domain }}/fullchain.pem"
+      register: certbot_real
+      when: certbot_dry_run.rc == 0
+
+    - name: Display real certificate request result
+      ansible.builtin.debug:
+        var: certbot_real
+      when: certbot_real is defined
+
+    - name: List certificates
+      ansible.builtin.command:
+        cmd: certbot certificates
+      register: cert_list
+      changed_when: false
+      when: certbot_real is defined and not certbot_real.failed
+
+    - name: Show certificate list
+      ansible.builtin.debug:
+        var: cert_list.stdout_lines
+      when: cert_list is defined
+
+    - name: Clean up test certificate (optional)
+      ansible.builtin.command:
+        cmd: certbot delete --cert-name {{ test_domain }} --non-interactive
+      register: cleanup
+      failed_when: false
+      changed_when: cleanup.rc == 0
+      when: certbot_real is defined and not certbot_real.failed
+      tags:
+        - cleanup
+
+    - name: Display test summary
+      ansible.builtin.debug:
+        msg: |
+          Certbot DNS Challenge Test Summary
+          ==================================
+          Domain tested: {{ test_domain }}
+          Certbot version: {{ certbot_version.stdout }}
+          Dry run result: {{ 'SUCCESS' if certbot_dry_run.rc == 0 else 'FAILED' }}
+          Real request: {{ 'SUCCESS' if (certbot_real is defined and not certbot_real.failed) else 'SKIPPED/FAILED' }}
+
+          {% if certbot_dry_run.rc != 0 %}
+          Dry run error: {{ certbot_dry_run.stderr }}
+          {% endif %}
+
+          Ready for MinIO integration: {{ 'YES' if certbot_dry_run.rc == 0 else 'NO - Fix errors first' }}

@@ -43,7 +43,16 @@ minio_mount_options: "defaults,noatime"
 minio_root_user: "miniosuperuser"
 minio_root_password: "{{ vault_minio_root_password }}"
 minio_server_port: 9000
-minio_console_port: 9001
+minio_console_port: 443
+minio_enable_tls: true
+# Server bind configuration - bind to all interfaces for external access
+minio_server_addr: ""  # Empty = bind to all interfaces (0.0.0.0)
+# Client connection configuration - use proper domain name for SSL certificate compatibility
+minio_server_address: "{{ minio_internal_domain }}"
+# Certificate files will be provided via symlinks from minio-complete.yml
+# Do not define minio_cert/minio_key to prevent overwriting Let's Encrypt symlinks
+# minio_cert: "{{ minio_cert_path }}/public.crt"  # REMOVED - prevents symlink overwrite
+# minio_key: "{{ minio_cert_path }}/private.key"   # REMOVED - prevents symlink overwrite
 
 # MinIO buckets for different use cases
 minio_buckets:
@@ -73,14 +82,14 @@ minio_users:
 pi_cm5_config_cgroup_enabled: false
 
 # SSL Certificate configuration for NAS services
-# Domain for internal MinIO access with SSL
-minio_internal_domain: "minio.jardoole.xyz"
+# Domain for internal MinIO access with SSL (using test subdomain to bypass rate limits)
+minio_internal_domain: "minio-test.jardoole.xyz"
 
 # Let's Encrypt configuration
 letsencrypt_email: "{{ vault_letsencrypt_email }}"
 
-# Certificate deployment paths
-minio_cert_path: "/etc/minio/certs"
+# Certificate deployment paths (align with MinIO role default)
+minio_cert_path: "/etc/minio/ssl"
 minio_user: "minio"
 
 # Cloudflare API configuration for DNS-01 challenges

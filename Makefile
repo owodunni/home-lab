@@ -2,7 +2,7 @@
 # Fix macOS fork safety issue with Python 3.13 + Ansible multiprocessing
 ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
-.PHONY: help setup lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio minio-uninstall minio-teardown k3s-cluster k3s-cluster-check k3s-uninstall k8s-apps k8s-apps-check pfsense-system pfsense-haproxy pfsense-acme pfsense-firewall pfsense-check pfsense-full pfsense-validate
+.PHONY: help setup lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio minio-uninstall k3s-cluster k3s-cluster-check k3s-uninstall k8s-apps k8s-apps-check test-certbot ssl-certificates teardown teardown-check
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -55,14 +55,9 @@ minio: ## 🗄️ Complete MinIO installation with SSL certificates (HTTPS on po
 	@echo "Installing MinIO with SSL certificates..."
 	$(ANSIBLE_PLAYBOOK) playbooks/minio-complete.yml --diff
 
-minio-uninstall: ## 🧹 Completely uninstall MinIO from NAS node
-	@echo "Uninstalling MinIO from NAS node..."
+minio-uninstall: ## 💣 Complete MinIO uninstall (service + SSL certificates + certbot cleanup)
+	@echo "Uninstalling MinIO service and SSL certificates..."
 	$(ANSIBLE_PLAYBOOK) playbooks/minio-uninstall.yml
-
-minio-teardown: ## 💣 Complete MinIO teardown (uninstall + SSL cleanup)
-	@echo "Performing complete MinIO teardown..."
-	$(ANSIBLE_PLAYBOOK) playbooks/minio-uninstall.yml
-	@echo "MinIO teardown complete. Ready for fresh installation with 'make minio'"
 
 k3s-cluster: ## ⚡ Deploy K3s HA cluster on Pi nodes
 	@echo "Deploying K3s HA cluster..."
@@ -84,36 +79,50 @@ k8s-apps-check: ## 🔍 Check Kubernetes applications deployment (dry-run)
 	@echo "Checking Kubernetes applications deployment (dry-run)..."
 	$(ANSIBLE_PLAYBOOK) playbooks/k8s-applications.yml --check --diff
 
-pfsense-system: ## 🔧 Configure pfSense system settings and network interfaces
-	@echo "Configuring pfSense system settings..."
-	$(ANSIBLE_PLAYBOOK) playbooks/pfsense-system-config.yml --diff
+test-certbot: ## 🧪 Test Certbot DNS challenge in isolation (for debugging)
+	@echo "Testing Certbot DNS challenge with Cloudflare..."
+	$(ANSIBLE_PLAYBOOK) playbooks/test-certbot-dns.yml
 
-pfsense-haproxy: ## ⚖️ Configure HAProxy load balancer for K3s cluster
-	@echo "Configuring HAProxy load balancer..."
-	$(ANSIBLE_PLAYBOOK) playbooks/pfsense-haproxy-setup.yml --diff
+ssl-certificates: ## 🔒 Request SSL certificates for configured domains
+	@echo "Requesting SSL certificates using Let's Encrypt + Cloudflare DNS..."
+	$(ANSIBLE_PLAYBOOK) playbooks/ssl-certificates.yml
 
-pfsense-acme: ## 🔐 Configure ACME/Let's Encrypt certificates with Cloudflare DNS
-	@echo "Configuring ACME certificates..."
-	$(ANSIBLE_PLAYBOOK) playbooks/pfsense-acme-setup.yml --diff
+teardown-check: ## 🔍 Preview infrastructure teardown (dry-run with diff)
+	@echo "⚠️ PREVIEW: Infrastructure Teardown (dry-run)"
+	@echo "This will show what would be removed:"
+	@echo "• K3s cluster from all cluster nodes"
+	@echo "• MinIO service and SSL certificates from NAS"
+	@echo "• Kubernetes applications"
+	@echo ""
+	@echo "Running teardown preview..."
+	$(ANSIBLE_PLAYBOOK) playbooks/k3s-uninstall.yml --check --diff
+	$(ANSIBLE_PLAYBOOK) playbooks/minio-uninstall.yml --check --diff
 
-pfsense-firewall: ## 🛡️ Configure firewall rules for HAProxy and security
-	@echo "Configuring firewall rules..."
-	$(ANSIBLE_PLAYBOOK) playbooks/pfsense-firewall-rules.yml --diff
-
-pfsense-check: ## 🔍 Run full pfSense configuration in dry-run mode with diff
-	@echo "Checking pfSense configuration (dry-run)..."
-	$(ANSIBLE_PLAYBOOK) playbooks/pfsense-system-config.yml --check --diff
-	$(ANSIBLE_PLAYBOOK) playbooks/pfsense-acme-setup.yml --check --diff
-	$(ANSIBLE_PLAYBOOK) playbooks/pfsense-haproxy-setup.yml --check --diff
-	$(ANSIBLE_PLAYBOOK) playbooks/pfsense-firewall-rules.yml --check --diff
-
-pfsense-full: ## 🌐 Run complete pfSense automation (system + ACME + HAProxy + firewall)
-	@echo "Running complete pfSense automation..."
-	$(ANSIBLE_PLAYBOOK) playbooks/pfsense-system-config.yml --diff
-	$(ANSIBLE_PLAYBOOK) playbooks/pfsense-acme-setup.yml --diff
-	$(ANSIBLE_PLAYBOOK) playbooks/pfsense-haproxy-setup.yml --diff
-	$(ANSIBLE_PLAYBOOK) playbooks/pfsense-firewall-rules.yml --diff
-
-pfsense-validate: ## 🔍 Validate and test pfSense configuration and functionality
-	@echo "Validating pfSense configuration..."
-	$(ANSIBLE_PLAYBOOK) playbooks/pfsense-validate-config.yml
+teardown: ## 💣 Complete infrastructure teardown (K3s + MinIO + certificates)
+	@echo "⚠️ WARNING: Complete Infrastructure Teardown"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "This will REMOVE:"
+	@echo "• K3s cluster from all cluster nodes (pi-cm5-1, pi-cm5-2, pi-cm5-3)"
+	@echo "• MinIO service and data from NAS node (pi-cm5-4)"
+	@echo "• SSL certificates and Let's Encrypt configurations"
+	@echo "• Kubernetes applications and configurations"
+	@echo ""
+	@echo "This will PRESERVE:"
+	@echo "• Pi base configurations and optimizations"
+	@echo "• Storage/disk configurations and mounts"
+	@echo "• Unattended upgrade configurations"
+	@echo "• System users and SSH access"
+	@echo ""
+	@read -p "Are you sure you want to proceed? (yes/no): " answer && [ "$$answer" = "yes" ] || (echo "Teardown cancelled." && exit 1)
+	@echo ""
+	@echo "Phase 1: Uninstalling Kubernetes applications..."
+	-$(ANSIBLE_PLAYBOOK) playbooks/k8s-applications.yml --tags=uninstall
+	@echo ""
+	@echo "Phase 2: Uninstalling K3s cluster..."
+	$(ANSIBLE_PLAYBOOK) playbooks/k3s-uninstall.yml
+	@echo ""
+	@echo "Phase 3: Uninstalling MinIO and certificates..."
+	$(ANSIBLE_PLAYBOOK) playbooks/minio-uninstall.yml
+	@echo ""
+	@echo "🏁 Infrastructure teardown complete!"
+	@echo "Base Pi configurations preserved. Ready for fresh deployment with 'make site'"
