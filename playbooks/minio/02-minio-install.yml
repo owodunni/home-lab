@@ -53,8 +53,8 @@
         name: minio
         state: present
       check_mode: true
-      register: minio_user
-      failed_when: minio_user.changed
+      register: minio_user_check
+      failed_when: minio_user_check.changed
 
     - name: Display Phase 2 completion
       ansible.builtin.debug:
@@ -62,7 +62,7 @@
           Phase 2 Complete: MinIO Binary Installation
           ==========================================
           ✓ MinIO binary: /usr/local/bin/minio
-          ✓ MinIO user: {{ minio_user.name if minio_user is defined else 'minio' }}
+          ✓ MinIO user: {{ minio_user_check.name if minio_user_check is defined else 'minio' }}
           ✓ Storage directories: {{ minio_server_datadirs | length }} configured
           ✓ Systemd service: minio.service (not started yet)
 
