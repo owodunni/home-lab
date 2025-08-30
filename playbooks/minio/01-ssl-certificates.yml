@@ -48,7 +48,7 @@
 
     - name: Create Cloudflare credentials file
       ansible.builtin.template:
-        src: cloudflare.ini.j2
+        src: templates/cloudflare.ini.j2
         dest: "{{ cloudflare_config_path }}"
         owner: root
         group: root
@@ -132,7 +132,7 @@
 
     - name: Create certificate renewal script
       ansible.builtin.template:
-        src: renew-minio-certs.sh.j2
+        src: templates/renew-minio-certs.sh.j2
         dest: /usr/local/bin/renew-ssl-certs.sh
         owner: root
         group: root

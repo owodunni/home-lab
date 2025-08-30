@@ -81,15 +81,27 @@
       changed_when: setcap_result.rc == 0
 
     - name: Update MinIO configuration for HTTPS
-      ansible.builtin.template:
-        src: minio-env-ssl.conf.j2
-        dest: /etc/minio/minio.conf
-        owner: root
-        group: minio
-        mode: '0640'
-      notify:
-        - Restart minio with SSL
-        - Wait for MinIO HTTPS
+      ansible.builtin.include_role:
+        name: ricsanfre.minio
+        tasks_from: configure_systemd
+      vars:
+        minio_enable_tls: true
+
+    - name: Trigger MinIO restart with SSL
+      ansible.builtin.meta: flush_handlers
+
+    - name: Restart MinIO with SSL after configuration update
+      ansible.builtin.systemd:
+        name: minio
+        state: restarted
+        daemon_reload: true
+
+    - name: Wait for MinIO HTTPS after restart
+      ansible.builtin.wait_for:
+        port: "{{ minio_server_port }}"
+        host: "{{ ansible_default_ipv4.address }}"
+        delay: 10
+        timeout: 60
 
     - name: Add localhost resolution for MinIO domain
       ansible.builtin.lineinfile:

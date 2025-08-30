@@ -35,14 +35,12 @@
         recurse: true
       loop: "{{ minio_server_datadirs }}"
 
-    - name: Configure MinIO environment file (basic - no SSL)
-      ansible.builtin.template:
-        src: minio-env-basic.conf.j2
-        dest: /etc/minio/minio.conf
-        owner: root
-        group: minio
-        mode: '0640'
-      notify: Restart minio service
+    - name: Configure MinIO service (basic configuration)
+      ansible.builtin.include_role:
+        name: ricsanfre.minio
+        tasks_from: configure_systemd
+      vars:
+        minio_enable_tls: false
 
     - name: Verify MinIO can access data directories
       ansible.builtin.command:
