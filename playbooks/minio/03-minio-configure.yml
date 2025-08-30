@@ -35,11 +35,6 @@
         recurse: true
       loop: "{{ minio_server_datadirs }}"
 
-    - name: Remove SSL directory to force HTTP-only mode in Phase 3
-      ansible.builtin.file:
-        path: "{{ minio_cert_path }}"
-        state: absent
-
     - name: Configure MinIO environment file (basic configuration)
       ansible.builtin.include_role:
         name: ricsanfre.minio
@@ -49,6 +44,18 @@
         minio_install_client: false
         minio_server_port: 9000      # HTTP port for basic config
         minio_console_port: 9001     # HTTP console port
+
+    - name: Remove SSL directory to force HTTP-only mode (after role runs)
+      ansible.builtin.file:
+        path: "{{ minio_cert_path }}"
+        state: absent
+
+    - name: Fix MinIO configuration to force HTTP-only mode
+      ansible.builtin.replace:
+        path: /etc/minio/minio.conf
+        regexp: '--certs-dir /etc/minio/ssl\s*'
+        replace: ''
+      notify: Restart minio service
 
     - name: Verify MinIO can access data directories
       ansible.builtin.command:
