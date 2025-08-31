@@ -28,30 +28,16 @@
           - Resource monitoring and autoscaling capabilities
           - Foundation for secure application deployment
 
-    - name: Create cert-manager namespace
-      kubernetes.core.k8s:
-        name: "{{ cert_manager_namespace }}"
-        api_version: v1
-        kind: Namespace
-        state: present
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-
-    - name: Install cert-manager CRDs
-      kubernetes.core.k8s:
-        state: present
-        definition: "{{ item }}"
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-      with_url: "https://github.com/cert-manager/cert-manager/releases/download/{{ cert_manager_version }}/cert-manager.crds.yaml"
-
     - name: Install cert-manager using Helm
       kubernetes.core.helm:
         name: cert-manager
         chart_ref: jetstack/cert-manager
         release_namespace: "{{ cert_manager_namespace }}"
+        create_namespace: true
         chart_version: "{{ cert_manager_version }}"
         kubeconfig: /etc/rancher/k3s/k3s.yaml
         values:
-          installCRDs: false  # Already installed above
+          installCRDs: true  # Let Helm handle CRDs automatically
           global:
             leaderElection:
               namespace: "{{ cert_manager_namespace }}"
@@ -77,6 +63,19 @@
           status: "True"
         wait_timeout: 300
 
+    - name: Create Cloudflare API token secret
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: cloudflare-api-token
+            namespace: "{{ cert_manager_namespace }}"
+          type: Opaque
+          stringData:
+            api-token: "{{ vault_cloudflare_api_token }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+
     - name: Create Let's Encrypt staging cluster issuer
       kubernetes.core.k8s:
         definition:
@@ -93,10 +92,12 @@
               solvers:
                 - dns01:
                     cloudflare:
-                    email: "{{ letsencrypt_email }}"
-                    apiTokenSecretRef:
-                      name: cloudflare-api-token
-                      key: api-token
+                      apiTokenSecretRef:
+                        name: cloudflare-api-token
+                        key: api-token
+                  selector:
+                    dnsZones:
+                      - jardoole.xyz
         kubeconfig: /etc/rancher/k3s/k3s.yaml
 
     - name: Create Let's Encrypt production cluster issuer
@@ -115,23 +116,12 @@
               solvers:
                 - dns01:
                     cloudflare:
-                    email: "{{ letsencrypt_email }}"
-                    apiTokenSecretRef:
-                      name: cloudflare-api-token
-                      key: api-token
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-
-    - name: Create Cloudflare API token secret
-      kubernetes.core.k8s:
-        definition:
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: cloudflare-api-token
-            namespace: "{{ cert_manager_namespace }}"
-          type: Opaque
-          stringData:
-            api-token: "{{ vault_cloudflare_api_token }}"
+                      apiTokenSecretRef:
+                        name: cloudflare-api-token
+                        key: api-token
+                  selector:
+                    dnsZones:
+                      - jardoole.xyz
         kubeconfig: /etc/rancher/k3s/k3s.yaml
 
     - name: Verify metrics-server is running (K3s built-in)
