@@ -67,7 +67,7 @@
 
     - name: Start K3s installation (async)
       ansible.builtin.command:
-        cmd: uv run ansible-playbook -i hosts.ini playbooks/k3s-cluster.yml --diff
+        cmd: uv run ansible-playbook -i hosts.ini playbooks/k3s/k3s-complete.yml --diff
         chdir: "{{ playbook_dir }}"
       async: 1800  # 30 minutes timeout
       poll: 0

@@ -104,24 +104,24 @@
           spec:
             podSelector: {}
             policyTypes:
-            - Ingress
-            - Egress
+              - Ingress
+              - Egress
             ingress:
-            - from:
-              - namespaceSelector:
-                  matchLabels:
-                    name: "{{ item.name }}"
-              - namespaceSelector:
-                  matchLabels:
-                    name: "kube-system"  # Allow Traefik access
+              - from:
+                  - namespaceSelector:
+                      matchLabels:
+                        name: "{{ item.name }}"
+                  - namespaceSelector:
+                      matchLabels:
+                        name: "kube-system"  # Allow Traefik access
             egress:
-            - to:
-              - namespaceSelector:
-                  matchLabels:
-                    name: "{{ item.name }}"
-            - to: []  # Allow external traffic
-              ports:
-              - protocol: TCP
+              - to:
+                  - namespaceSelector:
+                      matchLabels:
+                        name: "{{ item.name }}"
+              - to: []  # Allow external traffic
+                ports:
+                  - protocol: TCP
                 port: 53
               - protocol: UDP
                 port: 53

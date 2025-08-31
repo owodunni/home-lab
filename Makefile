@@ -59,15 +59,15 @@ minio-uninstall: ## 💣 Complete MinIO uninstall (service + SSL certificates + 
 	@echo "Uninstalling MinIO service and SSL certificates..."
 	$(ANSIBLE_PLAYBOOK) playbooks/minio-uninstall.yml
 
-k3s-cluster: ## ⚡ Deploy K3s HA cluster on Pi nodes
-	@echo "Deploying K3s HA cluster..."
-	$(ANSIBLE_PLAYBOOK) playbooks/k3s-cluster.yml --diff
+k3s: ## ⚡ Deploy complete K3s infrastructure (all phases)
+	@echo "Deploying complete K3s infrastructure..."
+	$(ANSIBLE_PLAYBOOK) playbooks/k3s/k3s-complete.yml --diff
 
-k3s-cluster-check: ## 🔍 Check K3s cluster deployment (dry-run)
-	@echo "Checking K3s cluster deployment (dry-run)..."
-	$(ANSIBLE_PLAYBOOK) playbooks/k3s-cluster.yml --check --diff
+k3s-check: ## 🔍 Check complete K3s deployment (dry-run)
+	@echo "Checking complete K3s deployment (dry-run)..."
+	$(ANSIBLE_PLAYBOOK) playbooks/k3s/k3s-complete.yml --check --diff
 
-k3s-uninstall: ## 🧹 Completely uninstall K3s from all cluster nodes
+k3s-teardown: ## 🧹 Completely uninstall K3s from all cluster nodes
 	@echo "Uninstalling K3s from all cluster nodes..."
 	$(ANSIBLE_PLAYBOOK) playbooks/k3s-uninstall.yml
 

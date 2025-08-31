@@ -1,0 +1,11 @@
+---
+# Complete K3s Infrastructure Deployment
+# Orchestrates all K3s phases in proper dependency order
+# Similar to minio-complete.yml for consistent deployment patterns
+
+# - import_playbook: 01-k3s-cluster.yml
+# - import_playbook: 02-helm-setup.yml
+# - import_playbook: 03-storage-systems.yml
+- name: Phase 4 - Core Infrastructure
+  import_playbook: 04-core-infrastructure.yml
+# - import_playbook: 05-platform-foundation.yml

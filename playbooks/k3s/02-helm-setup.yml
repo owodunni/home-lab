@@ -9,7 +9,7 @@
   run_once: true
 
   vars:
-    helm_version: "v3.13.0"
+    helm_version: "v3.18.6"
     helm_install_dir: "/usr/local/bin"
 
   tasks:
@@ -18,12 +18,11 @@
         msg: |
           Phase 2: Helm Installation and Setup
           ====================================
-          - Install Helm {{ helm_version }} package manager
-          - Configure Helm for K3s cluster access
+          - Install Helm {{ helm_version }} package manager (latest stable)
+          - Add essential Helm repositories for K8s applications
           - Verify Helm installation and cluster connectivity
-          - Add essential Helm repositories
 
-          Helm enables easy installation of complex K8s applications like:
+          Helm enables deployment of complex applications:
           - cert-manager (SSL certificate automation)
           - Longhorn (distributed storage)
           - Prometheus/Grafana (monitoring stack)
@@ -41,24 +40,26 @@
         msg: "Helm already installed: {{ helm_version_check.stdout }}"
       when: helm_version_check.rc == 0
 
-    - name: Download Helm installation script
-      ansible.builtin.get_url:
-        url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
-        dest: /tmp/get-helm.sh
+    - name: Download and install Helm binary
+      ansible.builtin.unarchive:
+        src: "https://get.helm.sh/helm-{{ helm_version }}-linux-arm64.tar.gz"
+        dest: /tmp
+        remote_src: true
+        creates: "/tmp/linux-arm64/helm"
+      when: helm_version_check.rc != 0
+      register: helm_download
+
+    - name: Install Helm binary to system path
+      ansible.builtin.copy:
+        src: /tmp/linux-arm64/helm
+        dest: "{{ helm_install_dir }}/helm"
         mode: '0755'
+        remote_src: true
       when: helm_version_check.rc != 0
 
-    - name: Install Helm using official script
-      ansible.builtin.command:
-        cmd: /tmp/get-helm.sh --version {{ helm_version }}
-      environment:
-        HELM_INSTALL_DIR: "{{ helm_install_dir }}"
-      when: helm_version_check.rc != 0
-      register: helm_install_result
-
-    - name: Remove Helm installation script
+    - name: Clean up Helm download files
       ansible.builtin.file:
-        path: /tmp/get-helm.sh
+        path: /tmp/linux-arm64
         state: absent
       when: helm_version_check.rc != 0
 
@@ -68,43 +69,39 @@
       register: helm_verify
       changed_when: false
 
-    - name: Configure Helm to use K3s kubeconfig
-      ansible.builtin.command:
-        cmd: helm repo add stable https://charts.helm.sh/stable
-      environment:
-        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+    - name: Add Helm stable repository
+      kubernetes.core.helm_repository:
+        name: stable
+        repo_url: https://charts.helm.sh/stable
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
       register: helm_repo_stable
       failed_when: false
-      changed_when: helm_repo_stable.rc == 0
 
-    - name: Add Bitnami Helm repository (popular applications)
-      ansible.builtin.command:
-        cmd: helm repo add bitnami https://charts.bitnami.com/bitnami
-      environment:
-        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+    - name: Add Bitnami Helm repository
+      kubernetes.core.helm_repository:
+        name: bitnami
+        repo_url: https://charts.bitnami.com/bitnami
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
       register: helm_repo_bitnami
       failed_when: false
-      changed_when: helm_repo_bitnami.rc == 0
 
     - name: Add Jetstack repository (cert-manager)
-      ansible.builtin.command:
-        cmd: helm repo add jetstack https://charts.jetstack.io
-      environment:
-        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      kubernetes.core.helm_repository:
+        name: jetstack
+        repo_url: https://charts.jetstack.io
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
       register: helm_repo_jetstack
       failed_when: false
-      changed_when: helm_repo_jetstack.rc == 0
 
     - name: Add Longhorn repository (distributed storage)
-      ansible.builtin.command:
-        cmd: helm repo add longhorn https://charts.longhorn.io
-      environment:
-        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      kubernetes.core.helm_repository:
+        name: longhorn
+        repo_url: https://charts.longhorn.io
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
       register: helm_repo_longhorn
       failed_when: false
-      changed_when: helm_repo_longhorn.rc == 0
 
-    - name: Update Helm repositories
+    - name: Update all Helm repositories
       ansible.builtin.command:
         cmd: helm repo update
       environment:

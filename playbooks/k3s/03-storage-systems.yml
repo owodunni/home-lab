@@ -162,10 +162,10 @@
           spec:
             ingressClassName: traefik
             rules:
-            - host: longhorn.internal
-              http:
-                paths:
-                - path: /
+              - host: longhorn.internal
+                http:
+                  paths:
+                    - path: /
                   pathType: Prefix
                   backend:
                     service:
@@ -198,12 +198,14 @@
           ============================================
           ✓ Longhorn {{ longhorn_chart_version }} installed in {{ longhorn_namespace }} namespace
           ✓ MinIO backup integration configured
-          ✓ Storage classes created: {{ storage_classes.resources | selectattr('metadata.name', 'match', '^longhorn.*') | list | length }} Longhorn classes
+          ✓ Storage classes: {{ storage_classes.resources |
+            selectattr('metadata.name', 'match', '^longhorn.*') | list | length }} Longhorn classes
           ✓ Longhorn manager pods: {{ longhorn_pods.resources | length }} running
 
           Available storage classes:
           {% for sc in storage_classes.resources %}
-          - {{ sc.metadata.name }}{% if sc.metadata.annotations is defined and 'storageclass.kubernetes.io/is-default-class' in sc.metadata.annotations %} (default){% endif %}
+          - {{ sc.metadata.name }}{% if sc.metadata.annotations is defined and
+            'storageclass.kubernetes.io/is-default-class' in sc.metadata.annotations %} (default){% endif %}
           {% endfor %}
 
           Access Longhorn UI: http://longhorn.internal (via Traefik)
