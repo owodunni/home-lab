@@ -1,0 +1,181 @@
+---
+# Phase 4: Core Infrastructure
+# Installs essential cluster services like cert-manager and metrics-server
+
+- name: Phase 4 - Core Infrastructure
+  hosts: cluster
+  become: true
+  gather_facts: true
+  run_once: true
+
+  vars:
+    cert_manager_version: "v1.13.2"
+    cert_manager_namespace: "cert-manager"
+
+  tasks:
+    - name: Display Phase 4 overview
+      ansible.builtin.debug:
+        msg: |
+          Phase 4: Core Infrastructure
+          ============================
+          - Install cert-manager {{ cert_manager_version }} for SSL certificate automation
+          - Configure cluster issuers for Let's Encrypt
+          - Verify metrics-server is running (K3s built-in)
+          - Set up essential cluster services
+
+          Core services provide:
+          - Automated SSL certificate management
+          - Resource monitoring and autoscaling capabilities
+          - Foundation for secure application deployment
+
+    - name: Create cert-manager namespace
+      kubernetes.core.k8s:
+        name: "{{ cert_manager_namespace }}"
+        api_version: v1
+        kind: Namespace
+        state: present
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+    - name: Install cert-manager CRDs
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ item }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      with_url: "https://github.com/cert-manager/cert-manager/releases/download/{{ cert_manager_version }}/cert-manager.crds.yaml"
+
+    - name: Install cert-manager using Helm
+      kubernetes.core.helm:
+        name: cert-manager
+        chart_ref: jetstack/cert-manager
+        release_namespace: "{{ cert_manager_namespace }}"
+        chart_version: "{{ cert_manager_version }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        values:
+          installCRDs: false  # Already installed above
+          global:
+            leaderElection:
+              namespace: "{{ cert_manager_namespace }}"
+          webhook:
+            nodeSelector:
+              kubernetes.io/os: linux
+          cainjector:
+            nodeSelector:
+              kubernetes.io/os: linux
+          nodeSelector:
+            kubernetes.io/os: linux
+
+    - name: Wait for cert-manager to be ready
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: cert-manager
+        namespace: "{{ cert_manager_namespace }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        wait: true
+        wait_condition:
+          type: Available
+          status: "True"
+        wait_timeout: 300
+
+    - name: Create Let's Encrypt staging cluster issuer
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: cert-manager.io/v1
+          kind: ClusterIssuer
+          metadata:
+            name: letsencrypt-staging
+          spec:
+            acme:
+              server: https://acme-staging-v02.api.letsencrypt.org/directory
+              email: "{{ letsencrypt_email }}"
+              privateKeySecretRef:
+                name: letsencrypt-staging
+              solvers:
+              - dns01:
+                  cloudflare:
+                    email: "{{ letsencrypt_email }}"
+                    apiTokenSecretRef:
+                      name: cloudflare-api-token
+                      key: api-token
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+    - name: Create Let's Encrypt production cluster issuer
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: cert-manager.io/v1
+          kind: ClusterIssuer
+          metadata:
+            name: letsencrypt-prod
+          spec:
+            acme:
+              server: https://acme-v02.api.letsencrypt.org/directory
+              email: "{{ letsencrypt_email }}"
+              privateKeySecretRef:
+                name: letsencrypt-prod
+              solvers:
+              - dns01:
+                  cloudflare:
+                    email: "{{ letsencrypt_email }}"
+                    apiTokenSecretRef:
+                      name: cloudflare-api-token
+                      key: api-token
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+    - name: Create Cloudflare API token secret
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: cloudflare-api-token
+            namespace: "{{ cert_manager_namespace }}"
+          type: Opaque
+          stringData:
+            api-token: "{{ vault_cloudflare_api_token }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+    - name: Verify metrics-server is running (K3s built-in)
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: metrics-server
+        namespace: kube-system
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: metrics_server
+
+    - name: Get cert-manager pods status
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ cert_manager_namespace }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: cert_manager_pods
+
+    - name: Get cluster issuers
+      kubernetes.core.k8s_info:
+        api_version: cert-manager.io/v1
+        kind: ClusterIssuer
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: cluster_issuers
+
+    - name: Display Phase 4 completion
+      ansible.builtin.debug:
+        msg: |
+          Phase 4 Complete: Core Infrastructure
+          =====================================
+          ✓ cert-manager {{ cert_manager_version }} installed in {{ cert_manager_namespace }} namespace
+          ✓ cert-manager pods: {{ cert_manager_pods.resources | length }} running
+          ✓ metrics-server: {{ 'Running' if metrics_server.resources else 'Not found' }}
+          ✓ Cluster issuers: {{ cluster_issuers.resources | length }} configured
+
+          Configured cluster issuers:
+          {% for issuer in cluster_issuers.resources %}
+          - {{ issuer.metadata.name }} ({{ issuer.spec.acme.server | regex_replace('.*//(.*)/', '\\1') }})
+          {% endfor %}
+
+          Core infrastructure ready:
+          - SSL certificates can be automatically issued via Let's Encrypt
+          - Resource monitoring available for autoscaling
+          - Foundation set for secure application deployment
+
+          Next: Platform foundation and application namespaces

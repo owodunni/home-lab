@@ -1,0 +1,226 @@
+---
+# Phase 5: Application Platform Foundation
+# Sets up namespaces, Traefik configuration, and application templates
+
+- name: Phase 5 - Application Platform Foundation
+  hosts: cluster
+  become: true
+  gather_facts: true
+  run_once: true
+
+  vars:
+    application_namespaces:
+      - name: monitoring
+        description: "Monitoring and observability stack"
+      - name: dashboard
+        description: "Cluster management and dashboard applications"
+      - name: applications
+        description: "General application deployments"
+      - name: tools
+        description: "Development and administrative tools"
+
+  tasks:
+    - name: Display Phase 5 overview
+      ansible.builtin.debug:
+        msg: |
+          Phase 5: Application Platform Foundation
+          ========================================
+          - Create application namespaces with proper labels
+          - Configure Traefik for internal routing
+          - Set up ingress patterns for easy application addition
+          - Create resource quotas and network policies
+          - Prepare platform for monitoring and dashboard deployment
+
+          Platform features:
+          - Organized namespace structure
+          - Consistent ingress routing via Traefik
+          - Resource management and security policies
+          - Easy application addition templates
+
+    - name: Create application namespaces
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ item.name }}"
+            labels:
+              name: "{{ item.name }}"
+              environment: "production"
+              managed-by: "ansible"
+            annotations:
+              description: "{{ item.description }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      loop: "{{ application_namespaces }}"
+
+    - name: Create resource quotas for application namespaces
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: v1
+          kind: ResourceQuota
+          metadata:
+            name: compute-quota
+            namespace: "{{ item.name }}"
+          spec:
+            hard:
+              requests.cpu: "4"
+              requests.memory: 8Gi
+              limits.cpu: "8"
+              limits.memory: 16Gi
+              persistentvolumeclaims: "10"
+              pods: "20"
+              services: "10"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      loop: "{{ application_namespaces }}"
+      when: item.name != "monitoring"  # Monitoring needs more resources
+
+    - name: Create larger resource quota for monitoring namespace
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: v1
+          kind: ResourceQuota
+          metadata:
+            name: compute-quota
+            namespace: monitoring
+          spec:
+            hard:
+              requests.cpu: "8"
+              requests.memory: 16Gi
+              limits.cpu: "16"
+              limits.memory: 32Gi
+              persistentvolumeclaims: "20"
+              pods: "50"
+              services: "20"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+    - name: Create network policy for namespace isolation
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          metadata:
+            name: allow-same-namespace
+            namespace: "{{ item.name }}"
+          spec:
+            podSelector: {}
+            policyTypes:
+            - Ingress
+            - Egress
+            ingress:
+            - from:
+              - namespaceSelector:
+                  matchLabels:
+                    name: "{{ item.name }}"
+              - namespaceSelector:
+                  matchLabels:
+                    name: "kube-system"  # Allow Traefik access
+            egress:
+            - to:
+              - namespaceSelector:
+                  matchLabels:
+                    name: "{{ item.name }}"
+            - to: []  # Allow external traffic
+              ports:
+              - protocol: TCP
+                port: 53
+              - protocol: UDP
+                port: 53
+              - protocol: TCP
+                port: 443
+              - protocol: TCP
+                port: 80
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      loop: "{{ application_namespaces }}"
+
+    - name: Configure Traefik middleware for internal routing
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: traefik.containo.us/v1alpha1
+          kind: Middleware
+          metadata:
+            name: internal-auth
+            namespace: kube-system
+          spec:
+            basicAuth:
+              removeHeader: true
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+    - name: Create Traefik middleware for compression
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: traefik.containo.us/v1alpha1
+          kind: Middleware
+          metadata:
+            name: compression
+            namespace: kube-system
+          spec:
+            compress: {}
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+    - name: Create Traefik middleware for security headers
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: traefik.containo.us/v1alpha1
+          kind: Middleware
+          metadata:
+            name: security-headers
+            namespace: kube-system
+          spec:
+            headers:
+              customRequestHeaders:
+                X-Forwarded-Proto: "https"
+              customResponseHeaders:
+                X-Frame-Options: "SAMEORIGIN"
+                X-Content-Type-Options: "nosniff"
+                X-XSS-Protection: "1; mode=block"
+                Referrer-Policy: "strict-origin-when-cross-origin"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+    - name: Get namespace status
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Namespace
+        label_selectors:
+          - managed-by=ansible
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: created_namespaces
+
+    - name: Get resource quotas
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: ResourceQuota
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: resource_quotas
+
+    - name: Get Traefik services status
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Service
+        name: traefik
+        namespace: kube-system
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: traefik_service
+
+    - name: Display Phase 5 completion
+      ansible.builtin.debug:
+        msg: |
+          Phase 5 Complete: Application Platform Foundation
+          =================================================
+          ✓ Namespaces created: {{ created_namespaces.resources | length }}
+          ✓ Resource quotas: {{ resource_quotas.resources | length }} configured
+          ✓ Network policies: {{ application_namespaces | length }} applied
+          ✓ Traefik middlewares: 3 configured
+          ✓ Traefik service: {{ 'Ready' if traefik_service.resources else 'Not found' }}
+
+          Created namespaces:
+          {% for ns in created_namespaces.resources %}
+          - {{ ns.metadata.name }}: {{ ns.metadata.annotations.description | default('No description') }}
+          {% endfor %}
+
+          Platform ready for application deployment:
+          - Internal routing: *.internal domains via Traefik
+          - Resource management: CPU/memory limits per namespace
+          - Network isolation: Namespace-based policies
+          - Security: Headers and compression middleware
+
+          Ready for Phase 6: Monitoring stack deployment

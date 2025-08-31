@@ -1,0 +1,217 @@
+---
+# Phase 3: Storage Systems (Longhorn)
+# Installs Longhorn distributed storage system with MinIO backup integration
+
+- name: Phase 3 - Storage Systems (Longhorn)
+  hosts: cluster
+  become: true
+  gather_facts: true
+  run_once: true
+
+  vars:
+    longhorn_namespace: "longhorn-system"
+    longhorn_chart_version: "1.5.3"
+    backup_target: "s3://longhorn-backups@minio/"
+    backup_target_credential_secret: "minio-backup-secret"
+
+  tasks:
+    - name: Display Phase 3 overview
+      ansible.builtin.debug:
+        msg: |
+          Phase 3: Storage Systems (Longhorn)
+          ===================================
+          - Install Longhorn {{ longhorn_chart_version }} distributed storage
+          - Configure storage classes for different performance needs
+          - Set up MinIO S3 backup target for persistent volume backups
+          - Create backup credentials and policies
+          - Verify storage system functionality
+
+          Longhorn provides:
+          - Distributed block storage across cluster nodes
+          - Automatic replication and failover
+          - Snapshot and backup capabilities
+          - CSI-compliant storage classes
+          - Web UI for management
+
+    - name: Create Longhorn namespace
+      kubernetes.core.k8s:
+        name: "{{ longhorn_namespace }}"
+        api_version: v1
+        kind: Namespace
+        state: present
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+    - name: Create MinIO backup credentials secret
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ backup_target_credential_secret }}"
+            namespace: "{{ longhorn_namespace }}"
+          type: Opaque
+          stringData:
+            AWS_ACCESS_KEY_ID: "{{ minio_root_user }}"
+            AWS_SECRET_ACCESS_KEY: "{{ minio_root_password }}"
+            AWS_ENDPOINTS: "http://{{ minio_server_address }}:{{ minio_server_port }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+    - name: Install Longhorn using Helm
+      kubernetes.core.helm:
+        name: longhorn
+        chart_ref: longhorn/longhorn
+        release_namespace: "{{ longhorn_namespace }}"
+        create_namespace: true
+        chart_version: "{{ longhorn_chart_version }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        values:
+          defaultSettings:
+            backupTarget: "{{ backup_target }}"
+            backupTargetCredentialSecret: "{{ backup_target_credential_secret }}"
+            defaultDataLocality: best-effort
+            replicaSoftAntiAffinity: true
+            storageOverProvisioningPercentage: 100
+            storageMinimalAvailablePercentage: 10
+            upgradeChecker: false
+            defaultReplicaCount: 2
+          longhornUI:
+            replicas: 1
+          persistence:
+            defaultClass: true
+            defaultFsType: ext4
+            defaultClassReplicaCount: 2
+            reclaimPolicy: Retain
+          csi:
+            kubeletRootDir: /var/lib/rancher/k3s/agent/kubelet
+          longhornManager:
+            nodeSelector:
+              kubernetes.io/os: linux
+          longhornDriver:
+            nodeSelector:
+              kubernetes.io/os: linux
+
+    - name: Wait for Longhorn deployment to be ready
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: longhorn-ui
+        namespace: "{{ longhorn_namespace }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        wait: true
+        wait_condition:
+          type: Available
+          status: "True"
+        wait_timeout: 300
+
+    - name: Create performance storage class
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: storage.k8s.io/v1
+          kind: StorageClass
+          metadata:
+            name: longhorn-performance
+          provisioner: driver.longhorn.io
+          allowVolumeExpansion: true
+          reclaimPolicy: Retain
+          volumeBindingMode: Immediate
+          parameters:
+            numberOfReplicas: "3"
+            staleReplicaTimeout: "2880"
+            fromBackup: ""
+            fsType: "ext4"
+            dataLocality: "strict-local"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+    - name: Create backup storage class
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: storage.k8s.io/v1
+          kind: StorageClass
+          metadata:
+            name: longhorn-backup
+          provisioner: driver.longhorn.io
+          allowVolumeExpansion: true
+          reclaimPolicy: Retain
+          volumeBindingMode: Immediate
+          parameters:
+            numberOfReplicas: "2"
+            staleReplicaTimeout: "2880"
+            fromBackup: ""
+            fsType: "ext4"
+            dataLocality: "best-effort"
+            recurringJobSelector: |
+              [
+                {
+                  "name": "backup-daily",
+                  "isGroup": false
+                }
+              ]
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+    - name: Create Longhorn ingress for UI access
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: longhorn-ui
+            namespace: "{{ longhorn_namespace }}"
+            annotations:
+              traefik.ingress.kubernetes.io/router.entrypoints: web
+              traefik.ingress.kubernetes.io/router.rule: Host(`longhorn.internal`)
+          spec:
+            ingressClassName: traefik
+            rules:
+            - host: longhorn.internal
+              http:
+                paths:
+                - path: /
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: longhorn-frontend
+                      port:
+                        number: 80
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+    - name: Get Longhorn system status
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ longhorn_namespace }}"
+        label_selectors:
+          - app=longhorn-manager
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: longhorn_pods
+
+    - name: Get storage classes
+      kubernetes.core.k8s_info:
+        api_version: storage.k8s.io/v1
+        kind: StorageClass
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: storage_classes
+
+    - name: Display Phase 3 completion
+      ansible.builtin.debug:
+        msg: |
+          Phase 3 Complete: Storage Systems (Longhorn)
+          ============================================
+          ✓ Longhorn {{ longhorn_chart_version }} installed in {{ longhorn_namespace }} namespace
+          ✓ MinIO backup integration configured
+          ✓ Storage classes created: {{ storage_classes.resources | selectattr('metadata.name', 'match', '^longhorn.*') | list | length }} Longhorn classes
+          ✓ Longhorn manager pods: {{ longhorn_pods.resources | length }} running
+
+          Available storage classes:
+          {% for sc in storage_classes.resources %}
+          - {{ sc.metadata.name }}{% if sc.metadata.annotations is defined and 'storageclass.kubernetes.io/is-default-class' in sc.metadata.annotations %} (default){% endif %}
+          {% endfor %}
+
+          Access Longhorn UI: http://longhorn.internal (via Traefik)
+
+          Storage features enabled:
+          - Distributed storage across {{ longhorn_pods.resources | length }} nodes
+          - Automatic backup to MinIO S3 (longhorn-backups bucket)
+          - Performance storage class (3 replicas, strict-local)
+          - Backup storage class (2 replicas, daily backups)
+
+          Ready for application deployment with persistent storage!

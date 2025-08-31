@@ -1,0 +1,146 @@
+---
+# Phase 2: Helm Installation and Setup
+# Installs Helm package manager on K3s cluster for application management
+
+- name: Phase 2 - Helm Installation and Setup
+  hosts: cluster
+  become: true
+  gather_facts: true
+  run_once: true
+
+  vars:
+    helm_version: "v3.13.0"
+    helm_install_dir: "/usr/local/bin"
+
+  tasks:
+    - name: Display Phase 2 overview
+      ansible.builtin.debug:
+        msg: |
+          Phase 2: Helm Installation and Setup
+          ====================================
+          - Install Helm {{ helm_version }} package manager
+          - Configure Helm for K3s cluster access
+          - Verify Helm installation and cluster connectivity
+          - Add essential Helm repositories
+
+          Helm enables easy installation of complex K8s applications like:
+          - cert-manager (SSL certificate automation)
+          - Longhorn (distributed storage)
+          - Prometheus/Grafana (monitoring stack)
+          - Kubernetes Dashboard (cluster management)
+
+    - name: Check if Helm is already installed
+      ansible.builtin.command:
+        cmd: helm version --short
+      register: helm_version_check
+      failed_when: false
+      changed_when: false
+
+    - name: Display current Helm version if installed
+      ansible.builtin.debug:
+        msg: "Helm already installed: {{ helm_version_check.stdout }}"
+      when: helm_version_check.rc == 0
+
+    - name: Download Helm installation script
+      ansible.builtin.get_url:
+        url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+        dest: /tmp/get-helm.sh
+        mode: '0755'
+      when: helm_version_check.rc != 0
+
+    - name: Install Helm using official script
+      ansible.builtin.command:
+        cmd: /tmp/get-helm.sh --version {{ helm_version }}
+      environment:
+        HELM_INSTALL_DIR: "{{ helm_install_dir }}"
+      when: helm_version_check.rc != 0
+      register: helm_install_result
+
+    - name: Remove Helm installation script
+      ansible.builtin.file:
+        path: /tmp/get-helm.sh
+        state: absent
+      when: helm_version_check.rc != 0
+
+    - name: Verify Helm installation
+      ansible.builtin.command:
+        cmd: helm version --short
+      register: helm_verify
+      changed_when: false
+
+    - name: Configure Helm to use K3s kubeconfig
+      ansible.builtin.command:
+        cmd: helm repo add stable https://charts.helm.sh/stable
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: helm_repo_stable
+      failed_when: false
+      changed_when: helm_repo_stable.rc == 0
+
+    - name: Add Bitnami Helm repository (popular applications)
+      ansible.builtin.command:
+        cmd: helm repo add bitnami https://charts.bitnami.com/bitnami
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: helm_repo_bitnami
+      failed_when: false
+      changed_when: helm_repo_bitnami.rc == 0
+
+    - name: Add Jetstack repository (cert-manager)
+      ansible.builtin.command:
+        cmd: helm repo add jetstack https://charts.jetstack.io
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: helm_repo_jetstack
+      failed_when: false
+      changed_when: helm_repo_jetstack.rc == 0
+
+    - name: Add Longhorn repository (distributed storage)
+      ansible.builtin.command:
+        cmd: helm repo add longhorn https://charts.longhorn.io
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: helm_repo_longhorn
+      failed_when: false
+      changed_when: helm_repo_longhorn.rc == 0
+
+    - name: Update Helm repositories
+      ansible.builtin.command:
+        cmd: helm repo update
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      changed_when: false
+
+    - name: List available Helm repositories
+      ansible.builtin.command:
+        cmd: helm repo list
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: helm_repos
+      changed_when: false
+
+    - name: Test Helm cluster connectivity
+      ansible.builtin.command:
+        cmd: helm list --all-namespaces
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: helm_test
+      changed_when: false
+
+    - name: Display Phase 2 completion
+      ansible.builtin.debug:
+        msg: |
+          Phase 2 Complete: Helm Installation and Setup
+          =============================================
+          ✓ Helm {{ helm_verify.stdout }} installed
+          ✓ Cluster connectivity: {{ 'SUCCESS' if helm_test.rc == 0 else 'FAILED' }}
+          ✓ Repositories configured: {{ helm_repos.stdout_lines | length }}
+
+          Configured repositories:
+          {{ helm_repos.stdout }}
+
+          Ready for application deployment phases:
+          - Phase 3: Storage systems (Longhorn)
+          - Phase 4: Core infrastructure (cert-manager)
+          - Phase 6: Monitoring stack (Prometheus/Grafana)
+          - Phase 7: Cluster dashboard
