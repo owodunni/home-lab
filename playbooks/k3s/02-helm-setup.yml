@@ -13,6 +13,15 @@
     helm_install_dir: "/usr/local/bin"
 
   tasks:
+    - name: Install Python dependencies for Kubernetes modules
+      ansible.builtin.package:
+        name:
+          - python3-kubernetes
+          - python3-yaml
+        state: present
+      tags:
+        - prerequisites
+
     - name: Display Phase 2 overview
       ansible.builtin.debug:
         msg: |
