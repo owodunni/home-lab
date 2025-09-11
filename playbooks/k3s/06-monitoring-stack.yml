@@ -1,0 +1,254 @@
+---
+# Phase 6: Monitoring Stack (Prometheus + Grafana)
+# Deploys comprehensive monitoring with HTTPS access via cert-manager
+
+- name: Phase 6 - Monitoring Stack
+  hosts: cluster
+  become: true
+  gather_facts: true
+  run_once: true
+
+  vars:
+    monitoring_namespace: "monitoring"
+    prometheus_chart_version: "25.27.0"
+    grafana_chart_version: "8.5.2"
+    prometheus_domain: "prometheus.jardoole.xyz"
+    grafana_domain: "grafana.jardoole.xyz"
+
+  tasks:
+    - name: Display Phase 6 overview
+      ansible.builtin.debug:
+        msg: |
+          Phase 6: Monitoring Stack
+          =========================
+          - Deploy Prometheus {{ prometheus_chart_version }} for metrics collection
+          - Deploy Grafana {{ grafana_chart_version }} for visualization dashboards
+          - Configure HTTPS ingress with cert-manager certificates
+          - Set up monitoring for K3s cluster and applications
+
+          External HTTPS access:
+          - Prometheus: https://{{ prometheus_domain }}
+          - Grafana: https://{{ grafana_domain }}
+
+    - name: Install Prometheus using Helm
+      kubernetes.core.helm:
+        name: prometheus
+        chart_ref: prometheus-community/kube-prometheus-stack
+        release_namespace: "{{ monitoring_namespace }}"
+        create_namespace: true
+        chart_version: "{{ prometheus_chart_version }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        values:
+          prometheus:
+            prometheusSpec:
+              storageSpec:
+                volumeClaimTemplate:
+                  spec:
+                    storageClassName: longhorn
+                    accessModes: ["ReadWriteOnce"]
+                    resources:
+                      requests:
+                        storage: 10Gi
+              nodeSelector:
+                kubernetes.io/os: linux
+          grafana:
+            persistence:
+              enabled: true
+              storageClassName: longhorn
+              size: 5Gi
+            nodeSelector:
+              kubernetes.io/os: linux
+            adminPassword: "{{ vault_grafana_admin_password }}"
+          alertmanager:
+            alertmanagerSpec:
+              storage:
+                volumeClaimTemplate:
+                  spec:
+                    storageClassName: longhorn
+                    accessModes: ["ReadWriteOnce"]
+                    resources:
+                      requests:
+                        storage: 5Gi
+              nodeSelector:
+                kubernetes.io/os: linux
+
+    - name: Wait for Prometheus deployment to be ready
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: prometheus-kube-prometheus-prometheus-operator
+        namespace: "{{ monitoring_namespace }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        wait: true
+        wait_condition:
+          type: Available
+          status: "True"
+        wait_timeout: 300
+
+    - name: Create Prometheus certificate
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: cert-manager.io/v1
+          kind: Certificate
+          metadata:
+            name: prometheus-tls
+            namespace: "{{ monitoring_namespace }}"
+          spec:
+            secretName: prometheus-tls-secret
+            issuerRef:
+              name: letsencrypt-prod
+              kind: ClusterIssuer
+            dnsNames:
+              - "{{ prometheus_domain }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+    - name: Create Grafana certificate
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: cert-manager.io/v1
+          kind: Certificate
+          metadata:
+            name: grafana-tls
+            namespace: "{{ monitoring_namespace }}"
+          spec:
+            secretName: grafana-tls-secret
+            issuerRef:
+              name: letsencrypt-prod
+              kind: ClusterIssuer
+            dnsNames:
+              - "{{ grafana_domain }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+    - name: Create Prometheus ingress with HTTPS
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: prometheus-ingress
+            namespace: "{{ monitoring_namespace }}"
+            annotations:
+              traefik.ingress.kubernetes.io/router.entrypoints: websecure
+              traefik.ingress.kubernetes.io/router.rule: Host(`{{ prometheus_domain }}`)
+              traefik.ingress.kubernetes.io/router.tls: "true"
+              cert-manager.io/cluster-issuer: letsencrypt-prod
+          spec:
+            ingressClassName: traefik
+            tls:
+              - hosts:
+                  - "{{ prometheus_domain }}"
+                secretName: prometheus-tls-secret
+            rules:
+              - host: "{{ prometheus_domain }}"
+                http:
+                  paths:
+                    - path: /
+                      pathType: Prefix
+                      backend:
+                        service:
+                          name: prometheus-kube-prometheus-prometheus
+                          port:
+                            number: 9090
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+    - name: Create Grafana ingress with HTTPS
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: grafana-ingress
+            namespace: "{{ monitoring_namespace }}"
+            annotations:
+              traefik.ingress.kubernetes.io/router.entrypoints: websecure
+              traefik.ingress.kubernetes.io/router.rule: Host(`{{ grafana_domain }}`)
+              traefik.ingress.kubernetes.io/router.tls: "true"
+              cert-manager.io/cluster-issuer: letsencrypt-prod
+          spec:
+            ingressClassName: traefik
+            tls:
+              - hosts:
+                  - "{{ grafana_domain }}"
+                secretName: grafana-tls-secret
+            rules:
+              - host: "{{ grafana_domain }}"
+                http:
+                  paths:
+                    - path: /
+                      pathType: Prefix
+                      backend:
+                        service:
+                          name: prometheus-grafana
+                          port:
+                            number: 80
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+    - name: Wait for certificates to be ready
+      kubernetes.core.k8s_info:
+        api_version: cert-manager.io/v1
+        kind: Certificate
+        name: "{{ item }}"
+        namespace: "{{ monitoring_namespace }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        wait: true
+        wait_condition:
+          type: Ready
+          status: "True"
+        wait_timeout: 300
+      loop:
+        - prometheus-tls
+        - grafana-tls
+
+    - name: Get monitoring services status
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Service
+        namespace: "{{ monitoring_namespace }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: monitoring_services
+
+    - name: Get ingress status
+      kubernetes.core.k8s_info:
+        api_version: networking.k8s.io/v1
+        kind: Ingress
+        namespace: "{{ monitoring_namespace }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: ingress_status
+
+    - name: Get certificate status
+      kubernetes.core.k8s_info:
+        api_version: cert-manager.io/v1
+        kind: Certificate
+        namespace: "{{ monitoring_namespace }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: certificate_status
+
+    - name: Display Phase 6 completion
+      ansible.builtin.debug:
+        msg: |
+          Phase 6 Complete: Monitoring Stack
+          ==================================
+          ✓ Prometheus stack deployed in {{ monitoring_namespace }} namespace
+          ✓ Grafana dashboard deployed with persistent storage
+          ✓ Services: {{ monitoring_services.resources | length }} running
+          ✓ Ingress routes: {{ ingress_status.resources | length }} configured
+          ✓ SSL certificates: {{ certificate_status.resources | length }} issued
+
+          External HTTPS Access:
+          - Prometheus: https://{{ prometheus_domain }}
+          - Grafana: https://{{ grafana_domain }}
+            Default login: admin / {{ vault_grafana_admin_password }}
+
+          Certificate Status:
+          {% for cert in certificate_status.resources %}
+          - {{ cert.metadata.name }}: {{ cert.status.conditions | selectattr('type', 'equalto', 'Ready') | map(attribute='status') | first | default('Pending') }}
+          {% endfor %}
+
+          Monitoring Features:
+          - K3s cluster metrics collection
+          - Node and pod monitoring dashboards
+          - Persistent storage for historical data
+          - Automatic SSL certificate management
+          - External HTTPS access via Traefik + cert-manager
+
+          Ready for production monitoring and alerting setup!
