@@ -20,14 +20,11 @@
 #   ssh beelink "ls -l /dev/disk/by-id/ | grep nvme"
 
 longhorn_storage_drives:
-  # Drive 1 - Replace WWN with actual identifier from beelink
-  - device: /dev/disk/by-id/wwn-0xXXXXXXXXXXXXXXXX
+  - device: /dev/disk/by-id/nvme-CT2000P310SSD8_24454C177944
     label: LONGHORN1
-    # Drive 2
-  - device: /dev/disk/by-id/wwn-0xYYYYYYYYYYYYYYYY
+  - device: /dev/disk/by-id/nvme-CT2000P310SSD8_24454C37CB1B
     label: LONGHORN2
-    # Drive 3
-  - device: /dev/disk/by-id/wwn-0xZZZZZZZZZZZZZZZZ
+  - device: /dev/disk/by-id/nvme-CT2000P310SSD8_24454C40D38E
     label: LONGHORN3
 
 # LUKS Encryption Configuration
@@ -36,8 +33,10 @@ longhorn_storage_drives:
 # Key file managed via ansible-vault for automatic unlock on boot
 
 # LUKS key file location (encrypted via ansible-vault)
-# Reference to vault variable containing key file path
-luks_key_file: "{{ vault_beelink_luks_key_path }}"
+# The file group_vars/beelink_nas/luks.key is encrypted with ansible-vault
+# Ansible automatically decrypts it when copying to the server
+# inventory_dir points to the repository root where group_vars lives
+luks_key_file: "{{ inventory_dir }}/group_vars/beelink_nas/luks.key"
 
 # Crypttab device names (for /etc/crypttab)
 # Maps encrypted devices to /dev/mapper/* names
