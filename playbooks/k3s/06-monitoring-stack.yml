@@ -3,14 +3,14 @@
 # Deploys comprehensive monitoring with HTTPS access via cert-manager
 
 - name: Phase 6 - Monitoring Stack
-  hosts: cluster
+  hosts: control_plane
   become: true
   gather_facts: true
   run_once: true
 
   vars:
     monitoring_namespace: "monitoring"
-    prometheus_chart_version: "25.27.0"
+    prometheus_chart_version: "67.4.0"  # kube-prometheus-stack chart version
     grafana_chart_version: "8.5.2"
     prometheus_domain: "prometheus.jardoole.xyz"
     grafana_domain: "grafana.jardoole.xyz"

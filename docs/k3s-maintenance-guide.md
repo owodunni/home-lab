@@ -14,13 +14,13 @@ ansible pi-cm5-1 -m shell -a "sudo kubectl get nodes -o wide --kubeconfig /etc/r
 ansible pi-cm5-1 -m shell -a "sudo kubectl get pods -A --kubeconfig /etc/rancher/k3s/k3s.yaml"
 
 # Service status on all nodes
-ansible cluster -m shell -a "systemctl is-active k3s"
+ansible control_plane -m shell -a "systemctl is-active k3s"
 ```
 
 ### Logs and Troubleshooting
 ```bash
 # Recent logs from all nodes
-ansible cluster -m shell -a "journalctl -u k3s --since='1 hour ago' --no-pager -l | tail -20"
+ansible control_plane -m shell -a "journalctl -u k3s --since='1 hour ago' --no-pager -l | tail -20"
 
 # Detailed logs from specific node
 ansible pi-cm5-1 -m shell -a "cat /var/log/k3s.log | tail -50"
@@ -48,7 +48,7 @@ ansible pi-cm5-1 -m shell -a "sudo kubectl get nodes --kubeconfig /etc/rancher/k
 ```
 
 ### Configuration Changes
-1. Edit configuration files in `group_vars/cluster/k3s.yml` or `host_vars/`
+1. Edit configuration files in `group_vars/k3s_cluster/k3s.yml` or `host_vars/`
 2. Run `make k3s-cluster-check` to validate changes
 3. Apply with `make k3s-cluster`
 
@@ -60,10 +60,10 @@ ansible pi-cm5-1 -m shell -a "sudo kubectl get nodes --kubeconfig /etc/rancher/k
 ansible pi-cm5-1 -m shell -a "sudo kubectl cluster-info --kubeconfig /etc/rancher/k3s/k3s.yaml"
 
 # Resource usage
-ansible cluster -m shell -a "free -h && df -h /"
+ansible control_plane -m shell -a "free -h && df -h /"
 
 # Network connectivity
-ansible cluster -m ping
+ansible control_plane -m ping
 ```
 
 ### Key Metrics to Monitor
@@ -87,7 +87,7 @@ ansible cluster -m ping
 /var/lib/rancher/k3s/server/token
 
 # Ansible configuration
-group_vars/cluster/k3s.yml
+group_vars/k3s_cluster/k3s.yml
 host_vars/pi-cm5-*.yml
 ```
 
@@ -104,14 +104,14 @@ host_vars/pi-cm5-*.yml
 3. Restore application data from backups
 
 **etcd Corruption**:
-1. Stop K3s on all nodes: `ansible cluster -m systemd -a "name=k3s state=stopped" --become`
+1. Stop K3s on all nodes: `ansible control_plane -m systemd -a "name=k3s state=stopped" --become`
 2. Remove corrupt etcd data: `rm -rf /var/lib/rancher/k3s/server/db/etcd/`
 3. Redeploy: `make k3s-uninstall && make k3s-cluster`
 
 ## Upgrades
 
 ### K3s Version Updates
-1. Update `k3s_release_version` in `group_vars/cluster/k3s.yml`
+1. Update `k3s_release_version` in `group_vars/k3s_cluster/k3s.yml`
 2. Test upgrade on single node first: `ansible-playbook playbooks/k3s-cluster.yml --limit pi-cm5-1`
 3. If successful, upgrade all nodes: `make k3s-cluster`
 
@@ -129,7 +129,7 @@ host_vars/pi-cm5-*.yml
 ansible pi-cm5-2 -m shell -a "nc -zv 192.168.92.24 6443"
 
 # Verify cluster token
-ansible cluster -m shell -a "cat /var/lib/rancher/k3s/server/token"
+ansible control_plane -m shell -a "cat /var/lib/rancher/k3s/server/token"
 
 # Check etcd logs
 ansible pi-cm5-1 -m shell -a "journalctl -u k3s | grep etcd"
@@ -156,19 +156,19 @@ ansible pi-cm5-1 -m shell -a "sudo kubectl top nodes --kubeconfig /etc/rancher/k
 ansible pi-cm5-1 -m shell -a "sudo /usr/local/bin/k3s etcd-snapshot ls"
 
 # etcd cluster health
-ansible cluster -m shell -a "journalctl -u k3s | grep 'became leader'"
+ansible control_plane -m shell -a "journalctl -u k3s | grep 'became leader'"
 ```
 
 ### Log Analysis
 ```bash
 # Look for common error patterns
-ansible cluster -m shell -a "journalctl -u k3s | grep -i error | tail -10"
+ansible control_plane -m shell -a "journalctl -u k3s | grep -i error | tail -10"
 
 # Check for etcd election issues
-ansible cluster -m shell -a "journalctl -u k3s | grep -i 'election\|leader'"
+ansible control_plane -m shell -a "journalctl -u k3s | grep -i 'election\|leader'"
 
 # Network connectivity issues
-ansible cluster -m shell -a "journalctl -u k3s | grep -i 'connection refused\|timeout'"
+ansible control_plane -m shell -a "journalctl -u k3s | grep -i 'connection refused\|timeout'"
 ```
 
 ## Performance Tuning
@@ -185,10 +185,10 @@ kubelet-arg:
 ### Monitoring Resource Usage
 ```bash
 # Node resources
-ansible cluster -m shell -a "top -bn1 | grep -E '(k3s|containerd)'"
+ansible control_plane -m shell -a "top -bn1 | grep -E '(k3s|containerd)'"
 
 # Disk space trends
-ansible cluster -m shell -a "du -sh /var/lib/rancher/k3s/"
+ansible control_plane -m shell -a "du -sh /var/lib/rancher/k3s/"
 ```
 
 ## Security
@@ -199,7 +199,7 @@ ansible cluster -m shell -a "du -sh /var/lib/rancher/k3s/"
 NEW_TOKEN=$(openssl rand -hex 32)
 
 # Update configuration
-sed -i "s/homelab-k3s-cluster-token-change-this/$NEW_TOKEN/" group_vars/cluster/k3s.yml
+sed -i "s/homelab-k3s-cluster-token-change-this/$NEW_TOKEN/" group_vars/k3s_cluster/k3s.yml
 
 # Redeploy cluster
 make k3s-uninstall && make k3s-cluster
@@ -214,8 +214,8 @@ make k3s-uninstall && make k3s-cluster
 ### Emergency Shutdown
 ```bash
 # Graceful shutdown all nodes
-ansible cluster -m systemd -a "name=k3s state=stopped" --become
-ansible cluster -m shell -a "shutdown -h now" --become
+ansible control_plane -m systemd -a "name=k3s state=stopped" --become
+ansible control_plane -m shell -a "shutdown -h now" --become
 ```
 
 ### Emergency Access

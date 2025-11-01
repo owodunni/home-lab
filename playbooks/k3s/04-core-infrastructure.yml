@@ -3,7 +3,7 @@
 # Installs essential cluster services like cert-manager and metrics-server
 
 - name: Phase 4 - Core Infrastructure
-  hosts: cluster
+  hosts: control_plane
   become: true
   gather_facts: true
   run_once: true

@@ -45,11 +45,11 @@ home-lab/
 ## Infrastructure Overview
 
 ### Host Groups
-- **cluster**: Pi CM5 computing nodes (pi-cm5-1, pi-cm5-2, pi-cm5-3)
+- **cluster**: Pi CM5 control plane nodes (pi-cm5-1, pi-cm5-2, pi-cm5-3)
 - **nas**: MinIO storage server (pi-cm5-4)
 - **beelink_nas**: Beelink storage server (beelink)
 - **k3s_cluster**: K3s cluster nodes (masters + workers)
-  - **masters**: Control plane nodes (pi-cm5-1, pi-cm5-2, pi-cm5-3)
+  - **control_plane**: Control plane nodes (pi-cm5-1, pi-cm5-2, pi-cm5-3)
   - **workers**: Dedicated worker nodes (beelink)
 - **all**: All devices in the infrastructure
 
@@ -135,7 +135,7 @@ pi_power_optimize:
 #### group_vars/cluster.yml and group_vars/nas.yml
 Group-specific configurations for different hardware requirements:
 ```yaml
-# group_vars/cluster.yml - Compute nodes without M.2 storage
+# group_vars/cluster.yml - Control plane nodes without M.2 storage
 pi_storage_config:
   pcie:
     enabled: false  # Disable PCIe for power savings

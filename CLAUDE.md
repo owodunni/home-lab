@@ -25,7 +25,7 @@ We build production code together. I handle implementation details while you gui
 
 This is a home lab automation repository using Ansible to provision and manage a cluster of Raspberry Pi CM5 (Compute Module 5) devices. The infrastructure consists of:
 
-- **Cluster nodes**: pi-cm5-1, pi-cm5-2, pi-cm5-3 (defined in hosts.ini under [cluster])
+- **Control plane nodes**: pi-cm5-1, pi-cm5-2, pi-cm5-3 (defined in hosts.ini under [control_plane])
 - **NAS node**: pi-cm5-4 (defined in hosts.ini under [nas])
 
 ## Code Organization

@@ -4,7 +4,7 @@
 # Includes Pi-specific optimizations for ARM64 and eMMC storage
 
 - name: Install additional kernel modules for K3s (if needed)
-  hosts: cluster
+  hosts: k3s_cluster
   become: true
   gather_facts: true
 
@@ -25,7 +25,7 @@
         - kernel-modules
 
 - name: Deploy K3s HA cluster
-  hosts: cluster
+  hosts: k3s_cluster
   become: true
   gather_facts: true
 
@@ -38,6 +38,7 @@
         path: /root/.kube
         state: directory
         mode: '0755'
+      when: inventory_hostname in groups['control_plane']
       tags:
         - kubeconfig
 
@@ -47,7 +48,9 @@
         dest: /root/.kube/config
         remote_src: true
         mode: '0600'
-      when: not ansible_check_mode
+      when:
+        - not ansible_check_mode
+        - inventory_hostname in groups['control_plane']
       tags:
         - kubeconfig
 
@@ -56,7 +59,9 @@
         port: 6443
         host: "{{ ansible_default_ipv4.address }}"
         timeout: 300
-      when: not ansible_check_mode
+      when:
+        - not ansible_check_mode
+        - inventory_hostname in groups['control_plane']
       tags:
         - verification
 
@@ -65,7 +70,7 @@
         cmd: kubectl get nodes -o json --kubeconfig /etc/rancher/k3s/k3s.yaml
       register: cluster_nodes_raw
       when:
-        - inventory_hostname == groups['cluster'][0]
+        - inventory_hostname == groups['control_plane'][0]
         - not ansible_check_mode
       tags:
         - verification
@@ -78,7 +83,7 @@
       ansible.builtin.set_fact:
         k3s_cluster_status: "{{ cluster_nodes_raw.stdout | from_json }}"
       when:
-        - inventory_hostname == groups['cluster'][0]
+        - inventory_hostname == groups['control_plane'][0]
         - not ansible_check_mode
         - cluster_nodes_raw is defined
         - cluster_nodes_raw.rc == 0
@@ -87,28 +92,60 @@
       tags:
         - verification
 
+    - name: Categorize cluster nodes by role
+      ansible.builtin.set_fact:
+        control_plane_nodes: >-
+          {{ k3s_cluster_status['items'] |
+             selectattr('metadata.labels.node-role.kubernetes.io/control-plane', 'defined') |
+             list }}
+        worker_nodes: >-
+          {{ k3s_cluster_status['items'] |
+             rejectattr('metadata.labels.node-role.kubernetes.io/control-plane', 'defined') |
+             list }}
+      when:
+        - inventory_hostname == groups['control_plane'][0]
+        - not ansible_check_mode
+        - k3s_cluster_status is defined
+        - k3s_cluster_status is mapping
+        - k3s_cluster_status['items'] is defined
+      tags:
+        - verification
+
     - name: Display cluster status
       ansible.builtin.debug:
         msg: |
           K3s HA cluster deployed successfully!
 
-          Cluster nodes ({{ k3s_cluster_status['items'] | length }}):
-          {% for node in k3s_cluster_status['items'] %}
+          Cluster Topology ({{ k3s_cluster_status['items'] | length }} nodes total):
+          ================================================================
+
+          Control Plane Nodes ({{ control_plane_nodes | length }}/{{ groups['control_plane'] | length }} expected):
+          {% for node in control_plane_nodes %}
           - {{ node.metadata.name }}: {{ node.status.conditions |
             selectattr('type', 'equalto', 'Ready') | map(attribute='status') | first }}
+            └─ https://{{ node.status.addresses | selectattr('type', 'equalto', 'InternalIP') | map(attribute='address') | first }}:6443
           {% endfor %}
 
-          Control plane endpoints:
-          {% for node in k3s_cluster_status['items'] %}
-          - https://{{ node.status.addresses | selectattr('type', 'equalto', 'InternalIP') | map(attribute='address') | first }}:6443
+          Worker Nodes ({{ worker_nodes | length }}/{{ groups['workers'] | length }} expected):
+          {% for node in worker_nodes %}
+          - {{ node.metadata.name }}: {{ node.status.conditions |
+            selectattr('type', 'equalto', 'Ready') | map(attribute='status') | first }}
+            └─ Labels: {{ node.metadata.labels.get('storage', 'none') }}
           {% endfor %}
+
+          Verification Status:
+          ✓ Total nodes: {{ k3s_cluster_status['items'] | length }}
+          {{ '✓' if control_plane_nodes | length == groups['control_plane'] | length else '✗' }}
+            Control plane: {{ control_plane_nodes | length }}/{{ groups['control_plane'] | length }}
+          {{ '✓' if worker_nodes | length == groups['workers'] | length else '✗' }}
+            Workers: {{ worker_nodes | length }}/{{ groups['workers'] | length }}
 
           To access the cluster from your local machine:
           1. Copy /etc/rancher/k3s/k3s.yaml from any server node
           2. Update server URL to point to any control plane node
           3. kubectl get nodes
       when:
-        - inventory_hostname == groups['cluster'][0]
+        - inventory_hostname == groups['control_plane'][0]
         - not ansible_check_mode
         - k3s_cluster_status is defined
         - k3s_cluster_status is mapping
@@ -131,7 +168,7 @@
           - Network connectivity issues
 
           Manual verification steps:
-          1. SSH to {{ groups['cluster'][0] }}
+          1. SSH to {{ groups['control_plane'][0] }}
           2. Run: sudo kubectl get nodes --kubeconfig /etc/rancher/k3s/k3s.yaml
           3. Check K3s service: sudo systemctl status k3s
           4. Check logs: sudo journalctl -u k3s -f
@@ -139,7 +176,7 @@
           Raw kubectl output: {{ cluster_nodes_raw.stdout | default('No output') }}
           Error: {{ cluster_nodes_raw.stderr | default('No error message') }}
       when:
-        - inventory_hostname == groups['cluster'][0]
+        - inventory_hostname == groups['control_plane'][0]
         - not ansible_check_mode
         - cluster_nodes_raw is defined
         - (cluster_nodes_raw.rc != 0 or cluster_nodes_raw.stdout is not defined or cluster_nodes_raw.stdout | length == 0)
@@ -155,8 +192,11 @@
           This dry-run shows what would be deployed:
 
           Target Infrastructure:
-          {% for host in groups['cluster'] %}
+          {% for host in groups['control_plane'] %}
           - {{ host }}: K3s server node with embedded etcd
+          {% endfor %}
+          {% for host in groups['workers'] %}
+          - {{ host }}: K3s agent (worker) node
           {% endfor %}
 
           Configuration Summary:
@@ -167,13 +207,13 @@
           - Disabled Components: {{ k3s_server.disable | join(', ') }}
 
           Control Plane Endpoints (after deployment):
-          {% for host in groups['cluster'] %}
+          {% for host in groups['control_plane'] %}
           - https://{{ hostvars[host]['ansible_default_ipv4']['address'] }}:6443
           {% endfor %}
 
           To actually deploy the cluster, run: make k3s-cluster
       when:
-        - inventory_hostname == groups['cluster'][0]
+        - inventory_hostname == groups['control_plane'][0]
         - ansible_check_mode
       tags:
         - verification

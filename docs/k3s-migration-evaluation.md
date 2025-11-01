@@ -21,7 +21,7 @@ This document evaluates migrating from our current xanmanning.k3s-based deployme
 
 **Current Setup Example**:
 ```
-group_vars/cluster/k3s.yml      # Global settings
+group_vars/k3s_cluster/k3s.yml      # Global settings
 host_vars/pi-cm5-1.yml          # First node (etcd init)
 host_vars/pi-cm5-2.yml          # Second node
 host_vars/pi-cm5-3.yml          # Third node

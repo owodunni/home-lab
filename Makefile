@@ -83,8 +83,8 @@ k3s-check: ## 🔍 Check complete K3s deployment (dry-run)
 	@echo "Checking complete K3s deployment (dry-run)..."
 	$(ANSIBLE_PLAYBOOK) playbooks/k3s/k3s-complete.yml --check --diff
 
-k3s-teardown: ## 🧹 Completely uninstall K3s from all cluster nodes
-	@echo "Uninstalling K3s from all cluster nodes..."
+k3s-teardown: ## 🧹 Completely uninstall K3s from all control plane nodes
+	@echo "Uninstalling K3s from all control plane nodes..."
 	$(ANSIBLE_PLAYBOOK) playbooks/k3s-uninstall.yml
 
 k8s-apps: ## 🚀 Deploy Kubernetes applications (cert-manager + MinIO SSL)
@@ -99,7 +99,7 @@ k8s-apps-check: ## 🔍 Check Kubernetes applications deployment (dry-run)
 teardown-check: ## 🔍 Preview infrastructure teardown (dry-run with diff)
 	@echo "⚠️ PREVIEW: Infrastructure Teardown (dry-run)"
 	@echo "This will show what would be removed:"
-	@echo "• K3s cluster from all cluster nodes"
+	@echo "• K3s cluster from all control plane nodes"
 	@echo "• MinIO service and SSL certificates from NAS"
 	@echo "• Kubernetes applications"
 	@echo ""
@@ -111,7 +111,7 @@ teardown: ## 💣 Complete infrastructure teardown (K3s + MinIO + certificates)
 	@echo "⚠️ WARNING: Complete Infrastructure Teardown"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@echo "This will REMOVE:"
-	@echo "• K3s cluster from all cluster nodes (pi-cm5-1, pi-cm5-2, pi-cm5-3)"
+	@echo "• K3s cluster from all control plane nodes (pi-cm5-1, pi-cm5-2, pi-cm5-3)"
 	@echo "• MinIO service and data from NAS node (pi-cm5-4)"
 	@echo "• SSL certificates and Let's Encrypt configurations"
 	@echo "• Kubernetes applications and configurations"

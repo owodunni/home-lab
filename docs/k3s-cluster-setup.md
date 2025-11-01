@@ -28,7 +28,7 @@ This document describes the current K3s High Availability cluster implementation
 
 ```
 home-lab/
-├── group_vars/cluster/k3s.yml        # Global K3s configuration
+├── group_vars/k3s_cluster/k3s.yml        # Global K3s configuration
 ├── host_vars/
 │   ├── pi-cm5-1.yml                  # First node config (etcd init)
 │   ├── pi-cm5-2.yml                  # Second node config
@@ -42,7 +42,7 @@ home-lab/
 
 ## Key Configuration Files
 
-### 1. Global Configuration (`group_vars/cluster/k3s.yml`)
+### 1. Global Configuration (`group_vars/k3s_cluster/k3s.yml`)
 
 ```yaml
 # K3s version and configuration

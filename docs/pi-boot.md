@@ -88,7 +88,7 @@ make pi-full-config    # Apply both base and storage configs
 
 Our configuration uses group-specific variables for different hardware requirements:
 
-### Cluster Nodes (`group_vars/cluster.yml`)
+### Control Plane Nodes (`group_vars/control_plane.yml`)
 ```yaml
 # Compute nodes - maximum power optimization
 pi_cm5_pcie_enabled: false  # No M.2 storage needed

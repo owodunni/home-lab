@@ -3,7 +3,7 @@
 # Completely removes K3s from all cluster nodes for debugging and clean re-installation
 
 - name: Uninstall K3s from all cluster nodes
-  hosts: cluster
+  hosts: k3s_cluster
   become: true
   gather_facts: false
 
@@ -51,6 +51,18 @@
         - /var/lib/cni
       failed_when: false
 
+    - name: Remove Helm binary and all Helm state
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /usr/local/bin/helm
+        - /root/.local/share/helm
+        - /root/.config/helm
+        - /root/.cache/helm
+      when: inventory_hostname in groups['control_plane']
+      failed_when: false
+
     - name: Clean up K3s network interfaces
       ansible.builtin.shell:
         cmd: |
@@ -94,5 +106,6 @@
           - Uninstall script executed: {{ uninstall_script.stat.exists }}
           - Network interfaces cleaned up
           - Directories removed
+          - Helm binary and state removed: {{ 'yes' if inventory_hostname in groups['control_plane'] else 'n/a (worker node)' }}
 
           Node is ready for fresh K3s installation.

@@ -134,7 +134,7 @@ Internet → pfSense HAProxy → K3s Nodes (HTTP internal)
 **Files to Create:**
 - ✅ `docs/pfsense-haproxy-setup.md` - Complete pfSense configuration guide
 - `docs/pfsense-integration-architecture.md` - Architecture documentation
-- ✅ `group_vars/cluster/k3s.yml` - Updated to re-enable Traefik/ServiceLB
+- ✅ `group_vars/k3s_cluster/k3s.yml` - Updated to re-enable Traefik/ServiceLB
 - `playbooks/k3s-reconfigure.yml` - Apply simplified K3s configuration
 
 **Test Requirements:**
