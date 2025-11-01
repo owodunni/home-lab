@@ -1,0 +1,13 @@
+# TEMPLATE - DO NOT COMMIT THIS FILE UNENCRYPTED
+# This is a template for creating the encrypted vault.yml file
+#
+# To use:
+# 1. Copy this template: cp vault.yml.template vault.yml
+# 2. Fill in the actual value for vault_beelink_luks_key_path
+# 3. Encrypt with: uv run ansible-vault encrypt vault.yml
+# 4. Delete this template or keep as reference (it's in .gitignore)
+
+---
+# Beelink storage encryption key file path
+# This should point to the ansible-vault encrypted LUKS key file
+vault_beelink_luks_key_path: "{{ playbook_dir }}/files/beelink-luks.key"

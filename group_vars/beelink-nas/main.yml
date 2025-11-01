@@ -1,0 +1,91 @@
+---
+# Configuration for Beelink ME Mini N150 storage server
+# Hardware: Intel N150, 6x M.2 slots, Dual 2.5G LAN
+# Role: Longhorn distributed storage worker for K3s cluster
+
+# Hardware Overview
+# ================
+# Model: Beelink ME Mini N150
+# CPU: Intel N150 (4-core, low power)
+# RAM: 12-16GB LPDDR5-4800 (soldered)
+# Storage: 6x M.2 slots (2230/2242/2280) - up to 24TB capacity
+# Network: Dual 2.5G Ethernet + WiFi 6
+# Use case: Longhorn storage node for K3s cluster distributed storage
+
+# Longhorn Storage Configuration
+# ==============================
+# Uses persistent disk identifiers (WWN) to avoid device name changes
+# Defines the NVMe drives to be prepared for Longhorn storage
+# IMPORTANT: Fill in actual WWN identifiers after running:
+#   ssh beelink "ls -l /dev/disk/by-id/ | grep nvme"
+
+longhorn_storage_drives:
+  # Drive 1 - Replace WWN with actual identifier from beelink
+  - device: /dev/disk/by-id/wwn-0xXXXXXXXXXXXXXXXX
+    label: LONGHORN1
+    # Drive 2
+  - device: /dev/disk/by-id/wwn-0xYYYYYYYYYYYYYYYY
+    label: LONGHORN2
+    # Drive 3
+  - device: /dev/disk/by-id/wwn-0xZZZZZZZZZZZZZZZZ
+    label: LONGHORN3
+
+# LUKS Encryption Configuration
+# =============================
+# Full disk encryption for data-at-rest security
+# Key file managed via ansible-vault for automatic unlock on boot
+
+# LUKS key file location (encrypted via ansible-vault)
+# Reference to vault variable containing key file path
+luks_key_file: "{{ vault_beelink_luks_key_path }}"
+
+# Crypttab device names (for /etc/crypttab)
+# Maps encrypted devices to /dev/mapper/* names
+luks_crypt_devices:
+  - name: longhorn1_crypt
+    device: "{{ longhorn_storage_drives[0].device }}"
+  - name: longhorn2_crypt
+    device: "{{ longhorn_storage_drives[1].device }}"
+  - name: longhorn3_crypt
+    device: "{{ longhorn_storage_drives[2].device }}"
+
+# LVM Configuration
+# =================
+# Aggregate all encrypted drives into single volume group
+# Allows Longhorn to use all storage as one pool and enables future expansion
+
+# LVM volume group name
+lvm_volume_group: longhorn-vg
+
+# LVM logical volume name
+lvm_logical_volume: longhorn-lv
+
+# Use 100% of available space in volume group
+lvm_volume_size: 100%FREE
+
+# Filesystem Configuration
+# ========================
+# ext4 chosen over XFS for Longhorn compatibility and stability
+# - Longhorn officially recommends ext4
+# - Better stability under network issues (less corruption)
+# - Required for RWX volumes (longhorn-share-manager)
+# - Better small file performance (typical k8s workloads)
+
+longhorn_filesystem: ext4
+
+# Longhorn mount point (standard location)
+longhorn_mount_point: /var/lib/longhorn
+
+# Mount options for Longhorn storage
+# noatime = performance optimization (no access time updates)
+# defaults = rw, suid, dev, exec, auto, nouser, async
+longhorn_mount_options: "defaults,noatime"
+
+# Longhorn Configuration
+# ======================
+# Path where Longhorn will store replica data
+longhorn_data_path: "{{ longhorn_mount_point }}"
+
+# Storage reservation (leave some space for filesystem overhead)
+# Longhorn will use 90% of available space, leaving 10% as buffer
+longhorn_storage_reserved_percentage: 10
