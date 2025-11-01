@@ -19,6 +19,7 @@ home-lab/
 │   ├── git-commit-guidelines.md
 │   └── playbook-guidelines.md
 ├── playbooks/                  # Ansible playbooks
+│   ├── beelink-setup.yml       # Initial beelink setup (passwordless sudo)
 │   ├── upgrade.yml             # System upgrade playbook
 │   ├── unattended-upgrades.yml # Unattended upgrades setup
 │   ├── pi-basic-config.yml     # Basic Pi CM5 headless configuration

@@ -2,7 +2,7 @@
 # Fix macOS fork safety issue with Python 3.13 + Ansible multiprocessing
 ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
-.PHONY: help setup lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio minio-uninstall k3s-cluster k3s-cluster-check k3s-uninstall k8s-apps k8s-apps-check teardown teardown-check
+.PHONY: help setup beelink-setup lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio minio-uninstall k3s-cluster k3s-cluster-check k3s-uninstall k8s-apps k8s-apps-check teardown teardown-check
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -14,6 +14,10 @@ setup: ## 🔧 Install all dependencies (Python + Ansible collections + roles)
 	uv sync
 	uv run ansible-galaxy collection install -r requirements.yml
 	uv run ansible-galaxy role install -r requirements.yml
+
+beelink-setup: ## 🖥️ Configure passwordless sudo on beelink (first-time setup)
+	@echo "Configuring passwordless sudo on beelink..."
+	$(ANSIBLE_PLAYBOOK) playbooks/beelink-setup.yml --ask-become-pass --limit beelink
 
 lint: ## 🔍 Run all linting and syntax checks
 	@echo "Running yamllint..."

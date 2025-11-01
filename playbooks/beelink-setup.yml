@@ -1,0 +1,36 @@
+---
+# Initial setup for beelink server - configure passwordless sudo
+# Run once on new Debian hosts to match Pi cluster configuration
+# Usage: make beelink-setup (will prompt for sudo password)
+- name: Configure passwordless sudo for beelink
+  hosts: beelink
+  become: true
+
+  tasks:
+    # Ensure sudo group exists (standard on Debian, but verify)
+    # https://docs.ansible.com/ansible/latest/collections/ansible/builtin/group_module.html
+    - name: Ensure sudo group exists
+      ansible.builtin.group:
+        name: sudo
+        state: present
+
+    # Add ansible user to sudo group for privilege escalation
+    # append: true preserves other group memberships
+    - name: Ensure ansible user is in sudo group
+      ansible.builtin.user:
+        name: alexanderp
+        groups: sudo
+        append: true
+
+    # Configure passwordless sudo to match Pi cluster behavior
+    # mode: 0440 is required for sudoers files (read-only, no execute)
+    # validate: prevents syntax errors from breaking sudo
+    # https://docs.ansible.com/ansible/latest/collections/ansible/builtin/lineinfile_module.html
+    - name: Configure passwordless sudo for ansible user
+      ansible.builtin.lineinfile:
+        path: /etc/sudoers.d/alexanderp
+        line: "alexanderp ALL=(ALL) NOPASSWD:ALL"
+        state: present
+        create: true
+        mode: '0440'
+        validate: '/usr/sbin/visudo -cf %s'
