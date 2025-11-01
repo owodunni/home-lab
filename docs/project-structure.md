@@ -17,28 +17,29 @@ home-lab/
 ├── docs/                       # Documentation
 │   ├── project-structure.md    # This file
 │   ├── git-commit-guidelines.md
-│   └── playbook-guidelines.md
+│   ├── playbook-guidelines.md
+│   └── beelink-storage-setup.md # Beelink storage configuration guide
 ├── playbooks/                  # Ansible playbooks
 │   ├── beelink-setup.yml       # Initial beelink setup (passwordless sudo)
+│   ├── beelink-storage-config.yml # Beelink LUKS+LVM storage configuration
 │   ├── upgrade.yml             # System upgrade playbook
 │   ├── unattended-upgrades.yml # Unattended upgrades setup
-│   ├── pi-basic-config.yml     # Basic Pi CM5 headless configuration
-│   ├── pi-power-optimize.yml   # Pi CM5 power optimization
-│   ├── pi-storage-config.yml   # Pi CM5 storage and PCIe configuration
-│   └── pi-validate-config.yml  # Pi CM5 configuration validation
+│   ├── pi-base-config.yml      # Pi CM5 base settings and power optimization
+│   └── pi-storage-config.yml   # Pi CM5 storage and PCIe configuration
 ├── roles/                      # Custom Ansible roles
-│   ├── pi_basic_config/        # Basic Pi CM5 headless settings
-│   ├── pi_power_optimize/      # Pi CM5 power optimization
-│   ├── pi_storage_config/      # Pi CM5 storage and PCIe settings
-│   └── pi_validate_config/     # Pi CM5 configuration validation
+│   └── pi_cm5_config/          # Pi CM5 configuration role
 └── group_vars/                 # Variable configuration
     ├── all.yml                 # Variables for all hosts
     ├── all/                    # All hosts directory structure
     │   └── vault.yml           # Encrypted variables for all hosts
     ├── cluster/                # Cluster-specific directory structure
     │   └── k3s.yml            # K3s cluster configuration variables
-    └── nas/                    # NAS-specific directory structure
-        └── main.yml            # NAS-specific variables
+    ├── nas/                    # NAS-specific directory structure
+    │   └── main.yml            # NAS-specific variables
+    └── beelink_nas/            # Beelink storage server directory
+        ├── main.yml            # Beelink storage configuration
+        ├── vault.yml           # Encrypted vault variables
+        └── luks.key            # LUKS encryption key (ansible-vault encrypted)
 ```
 
 ## Infrastructure Overview
@@ -46,10 +47,19 @@ home-lab/
 ### Host Groups
 - **cluster**: Computing nodes (pi-cm5-1, pi-cm5-2, pi-cm5-3)
 - **nas**: Network-attached storage (pi-cm5-4)
+- **beelink_nas**: Beelink storage server (beelink)
 - **all**: All devices in the infrastructure
 
 ### Network Architecture
-All devices are Raspberry Pi CM5 (Compute Module 5) units managed via SSH with user `alexanderp`.
+
+**Raspberry Pi CM5 Nodes:**
+- Cluster: pi-cm5-1, pi-cm5-2, pi-cm5-3 (ARM64 computing nodes)
+- NAS: pi-cm5-4 (ARM64 storage node with M.2 SATA drives)
+
+**Beelink Storage Server:**
+- beelink (Intel N150, 6x M.2 NVMe slots, Longhorn storage worker)
+
+All devices managed via SSH with user `alexanderp`.
 
 ## Ansible Variables System
 
@@ -132,6 +142,38 @@ pi_storage_config:
   pcie:
     enabled: true   # Enable PCIe for M.2 SATA support
 ```
+
+#### group_vars/beelink_nas/main.yml
+Beelink storage server configuration with LUKS-encrypted LVM:
+```yaml
+# Hardware-specific storage configuration
+longhorn_storage_drives:
+  - device: /dev/disk/by-id/nvme-CT2000P310SSD8_24454C177944
+    label: LONGHORN1
+  # Additional drives...
+
+# LUKS encryption configuration
+luks_key_file: "{{ inventory_dir }}/group_vars/beelink_nas/luks.key"
+luks_crypt_devices:
+  - name: longhorn1_crypt
+    device: "{{ longhorn_storage_drives[0].device }}"
+
+# LVM configuration
+lvm_volume_group: longhorn-vg
+lvm_logical_volume: longhorn-lv
+lvm_volume_size: 100%FREE
+
+# Filesystem and mount configuration
+longhorn_filesystem: ext4
+longhorn_mount_point: /var/lib/longhorn
+longhorn_mount_options: "defaults,noatime"
+```
+
+**Key differences from Pi NAS:**
+- Uses LUKS encryption for data-at-rest security
+- Aggregates all drives with LVM (vs individual mounts)
+- ext4 filesystem (Longhorn recommended)
+- Single mount point for all storage
 
 #### host_vars/ (When to Use)
 Create `host_vars/hostname.yml` only for truly unique per-host settings:
