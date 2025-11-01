@@ -117,10 +117,17 @@
       ansible.builtin.set_fact:
         _end_time: "{{ parallel_end_time | to_datetime('%Y-%m-%dT%H:%M:%SZ') }}"
         _start_time: "{{ parallel_start_time | to_datetime('%Y-%m-%dT%H:%M:%SZ') }}"
+      when: not ansible_check_mode
 
     - name: Set deployment duration
       ansible.builtin.set_fact:
         deployment_duration: "{{ ((_end_time - _start_time).total_seconds()) | int }}"
+      when: not ansible_check_mode
+
+    - name: Set deployment duration (check mode fallback)
+      ansible.builtin.set_fact:
+        deployment_duration: 0
+      when: ansible_check_mode
 
     - name: Display parallel execution completion
       ansible.builtin.debug:
@@ -129,7 +136,11 @@
           ============================================
           Start Time: {{ parallel_start_time }}
           End Time: {{ parallel_end_time }}
+          {% if not ansible_check_mode %}
           Total Duration: {{ (deployment_duration | int) // 60 }}m {{ (deployment_duration | int) % 60 }}s
+          {% else %}
+          Total Duration: (check mode - no actual deployment)
+          {% endif %}
 
           MinIO Status: {{ 'SUCCESS ✓' if minio_result.rc == 0 else 'FAILED ✗ (RC: ' + minio_result.rc | string + ')' }}
           K3s Status: {{ 'SUCCESS ✓' if k3s_result.rc == 0 else 'FAILED ✗ (RC: ' + k3s_result.rc | string + ')' }}
