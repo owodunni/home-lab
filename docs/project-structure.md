@@ -45,19 +45,22 @@ home-lab/
 ## Infrastructure Overview
 
 ### Host Groups
-- **cluster**: Computing nodes (pi-cm5-1, pi-cm5-2, pi-cm5-3)
-- **nas**: Network-attached storage (pi-cm5-4)
+- **cluster**: Pi CM5 computing nodes (pi-cm5-1, pi-cm5-2, pi-cm5-3)
+- **nas**: MinIO storage server (pi-cm5-4)
 - **beelink_nas**: Beelink storage server (beelink)
+- **k3s_cluster**: K3s cluster nodes (masters + workers)
+  - **masters**: Control plane nodes (pi-cm5-1, pi-cm5-2, pi-cm5-3)
+  - **workers**: Dedicated worker nodes (beelink)
 - **all**: All devices in the infrastructure
 
 ### Network Architecture
 
 **Raspberry Pi CM5 Nodes:**
-- Cluster: pi-cm5-1, pi-cm5-2, pi-cm5-3 (ARM64 computing nodes)
-- NAS: pi-cm5-4 (ARM64 storage node with M.2 SATA drives)
+- K3s Control Plane: pi-cm5-1, pi-cm5-2, pi-cm5-3 (3-node HA with embedded etcd)
+- MinIO NAS: pi-cm5-4 (M.2 SATA drives, S3-compatible backup storage)
 
 **Beelink Storage Server:**
-- beelink (Intel N150, 6x M.2 NVMe slots, Longhorn storage worker)
+- K3s Worker: beelink (Intel N150, 6TB LUKS-encrypted storage for Longhorn)
 
 All devices managed via SSH with user `alexanderp`.
 
