@@ -241,7 +241,11 @@
 
           Certificate Status:
           {% for cert in certificate_status.resources %}
-          - {{ cert.metadata.name }}: {{ cert.status.conditions | selectattr('type', 'equalto', 'Ready') | map(attribute='status') | first | default('Pending') }}
+          - {{ cert.metadata.name }}: {{
+              cert.status.conditions |
+              selectattr('type', 'equalto', 'Ready') |
+              map(attribute='status') | first | default('Pending')
+            }}
           {% endfor %}
 
           Monitoring Features:
