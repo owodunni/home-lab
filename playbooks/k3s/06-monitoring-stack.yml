@@ -71,6 +71,16 @@
                         storage: 5Gi
               nodeSelector:
                 kubernetes.io/os: linux
+          prometheusOperator:
+            admissionWebhooks:
+              patch:
+                resources:
+                  requests:
+                    cpu: 50m
+                    memory: 64Mi
+                  limits:
+                    cpu: 100m
+                    memory: 128Mi
 
     - name: Wait for Prometheus deployment to be ready
       kubernetes.core.k8s_info:
@@ -85,39 +95,8 @@
           status: "True"
         wait_timeout: 300
 
-    - name: Create Prometheus certificate
-      kubernetes.core.k8s:
-        definition:
-          apiVersion: cert-manager.io/v1
-          kind: Certificate
-          metadata:
-            name: prometheus-tls
-            namespace: "{{ monitoring_namespace }}"
-          spec:
-            secretName: prometheus-tls-secret
-            issuerRef:
-              name: letsencrypt-prod
-              kind: ClusterIssuer
-            dnsNames:
-              - "{{ prometheus_domain }}"
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-
-    - name: Create Grafana certificate
-      kubernetes.core.k8s:
-        definition:
-          apiVersion: cert-manager.io/v1
-          kind: Certificate
-          metadata:
-            name: grafana-tls
-            namespace: "{{ monitoring_namespace }}"
-          spec:
-            secretName: grafana-tls-secret
-            issuerRef:
-              name: letsencrypt-prod
-              kind: ClusterIssuer
-            dnsNames:
-              - "{{ grafana_domain }}"
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
+    # Note: Certificates are auto-created by cert-manager from Ingress annotations
+    # The cert-manager.io/cluster-issuer annotation triggers automatic Certificate creation
 
     - name: Create Prometheus ingress with HTTPS
       kubernetes.core.k8s:
@@ -196,8 +175,8 @@
           status: "True"
         wait_timeout: 300
       loop:
-        - prometheus-tls
-        - grafana-tls
+        - prometheus-tls         # Cert-manager auto-created with this name
+        - grafana-tls-secret     # Cert-manager auto-created with this name
 
     - name: Get monitoring services status
       kubernetes.core.k8s_info:
@@ -247,6 +226,7 @@
               map(attribute='status') | first | default('Pending')
             }}
           {% endfor %}
+
 
           Monitoring Features:
           - K3s cluster metrics collection

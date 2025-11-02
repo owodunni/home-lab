@@ -1,0 +1,105 @@
+---
+# Phase 0: Cluster Health Validation
+# Pre-flight checks to ensure K3s cluster is fully operational before deploying apps
+# Verifies core services, DNS, and API server functionality
+
+- name: Phase 0 - Cluster Health Validation
+  hosts: control_plane
+  become: true
+  gather_facts: true
+  run_once: true
+
+  tasks:
+    - name: Display Phase 0 overview
+      ansible.builtin.debug:
+        msg: |
+          Phase 0: Cluster Health Validation
+          ==================================
+          Pre-flight checks before deploying applications:
+          - Verify all cluster nodes are Ready
+          - Verify CoreDNS deployment is ready
+          - Verify Traefik ingress controller ready
+          - Verify metrics-server ready
+          - Test API server responsiveness
+
+          This ensures cluster is stable before proceeding.
+
+    - name: Verify all cluster nodes are Ready
+      ansible.builtin.command:
+        cmd: >
+          kubectl get nodes
+          -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}'
+          --kubeconfig /etc/rancher/k3s/k3s.yaml
+      register: nodes_ready
+      retries: 10
+      delay: 10
+      until:
+        - nodes_ready.stdout_lines | length > 0
+        - "'False' not in nodes_ready.stdout"
+        - nodes_ready.stdout.split() | length == 4
+      changed_when: false
+
+    - name: Display node count
+      ansible.builtin.debug:
+        msg: "✓ All {{ nodes_ready.stdout.split() | length }} nodes are Ready"
+
+    - name: Verify CoreDNS deployment is ready
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: coredns
+        namespace: kube-system
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        wait: true
+        wait_condition:
+          type: Available
+          status: "True"
+        wait_timeout: 120
+
+    - name: Verify Traefik deployment is ready
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: traefik
+        namespace: kube-system
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        wait: true
+        wait_condition:
+          type: Available
+          status: "True"
+        wait_timeout: 120
+
+    - name: Verify metrics-server deployment is ready
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: metrics-server
+        namespace: kube-system
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        wait: true
+        wait_condition:
+          type: Available
+          status: "True"
+        wait_timeout: 120
+
+    - name: Test API server responsiveness
+      ansible.builtin.command:
+        cmd: kubectl api-resources --kubeconfig /etc/rancher/k3s/k3s.yaml
+      register: api_resources
+      retries: 5
+      delay: 5
+      until: api_resources.rc == 0
+      changed_when: false
+
+    - name: Display Phase 0 completion
+      ansible.builtin.debug:
+        msg: |
+          Phase 0 Complete: Cluster Health Validation
+          ============================================
+          ✓ All cluster nodes Ready ({{ nodes_ready.stdout.split() | length }}/4)
+          ✓ CoreDNS deployment ready
+          ✓ Traefik ingress controller ready
+          ✓ metrics-server ready
+          ✓ API server responsive
+
+          Cluster is healthy and ready for application deployment.
