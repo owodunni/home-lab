@@ -7,7 +7,8 @@
   import_playbook: 01-k3s-cluster.yml
 - name: Phase 2 - Helm Setup
   import_playbook: 02-helm-setup.yml
-# - import_playbook: 03-storage-systems.yml
+- name: Phase 3 - Storage Systems
+  import_playbook: 03-storage-systems.yml
 - name: Phase 4 - Core Infrastructure
   import_playbook: 04-core-infrastructure.yml
 - name: Phase 5 - Platform Foundation
