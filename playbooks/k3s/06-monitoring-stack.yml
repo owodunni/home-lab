@@ -108,8 +108,6 @@
             namespace: "{{ monitoring_namespace }}"
             annotations:
               traefik.ingress.kubernetes.io/router.entrypoints: websecure
-              traefik.ingress.kubernetes.io/router.rule: Host(`{{ prometheus_domain }}`)
-              traefik.ingress.kubernetes.io/router.tls: "true"
               cert-manager.io/cluster-issuer: letsencrypt-prod
           spec:
             ingressClassName: traefik
@@ -140,8 +138,6 @@
             namespace: "{{ monitoring_namespace }}"
             annotations:
               traefik.ingress.kubernetes.io/router.entrypoints: websecure
-              traefik.ingress.kubernetes.io/router.rule: Host(`{{ grafana_domain }}`)
-              traefik.ingress.kubernetes.io/router.tls: "true"
               cert-manager.io/cluster-issuer: letsencrypt-prod
           spec:
             ingressClassName: traefik
