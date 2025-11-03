@@ -77,7 +77,7 @@ minio-uninstall: ## 💣 Complete MinIO uninstall (service + SSL certificates + 
 
 k3s: ## ⚡ Deploy complete K3s infrastructure (all phases)
 	@echo "Deploying complete K3s infrastructure..."
-	$(ANSIBLE_PLAYBOOK) playbooks/k3s/k3s-complete.yml --diff
+	$(ANSIBLE_PLAYBOOK) playbooks/k3s/k3s-complete.yml --diff -v
 
 k3s-check: ## 🔍 Check complete K3s deployment (dry-run)
 	@echo "Checking complete K3s deployment (dry-run)..."

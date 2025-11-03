@@ -9,7 +9,7 @@
   run_once: true
 
   vars:
-    helm_version: "v3.18.6"
+    helm_version: "v3.19.0"
     helm_install_dir: "/usr/local/bin"
 
   tasks:
@@ -17,7 +17,7 @@
       ansible.builtin.package:
         name:
           - python3-yaml
-          - git  # Required for helm plugin installation
+          - git # Required for helm plugin installation
         state: present
       tags:
         - prerequisites
@@ -28,7 +28,7 @@
           - kubernetes>=24.2.0
           - jsonpatch
         state: present
-        break_system_packages: true  # Required for Debian 12 (PEP 668)
+        break_system_packages: true # Required for Debian 12 (PEP 668)
       tags:
         - prerequisites
 
@@ -72,7 +72,7 @@
       ansible.builtin.copy:
         src: /tmp/linux-arm64/helm
         dest: "{{ helm_install_dir }}/helm"
-        mode: '0755'
+        mode: "0755"
         remote_src: true
       when: helm_version_check.rc != 0
 
@@ -100,7 +100,7 @@
         cmd: /usr/local/bin/helm plugin uninstall diff
       when: "'diff' in helm_plugin_list.stdout"
       register: helm_diff_uninstall
-      failed_when: false  # Don't fail if uninstall has issues
+      failed_when: false # Don't fail if uninstall has issues
       changed_when: helm_diff_uninstall.rc == 0
 
     - name: Install helm-diff plugin for better idempotency checks

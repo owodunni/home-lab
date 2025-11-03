@@ -3,7 +3,7 @@
 # Configures embedded etcd HA with 3 server nodes
 
 # K3s version and configuration - use latest stable release
-k3s_release_version: v1.31.3+k3s1
+k3s_release_version: v1.34.1+k3s1
 k3s_become: true
 
 # HA Configuration - Control node setting now handled per-host in inventory
@@ -16,7 +16,6 @@ k3s_control_token: "{{ vault_k3s_control_token }}"
 
 # Main K3s server configuration
 k3s_server:
-
   # Network configuration
   cluster-cidr: "10.42.0.0/16"
   service-cidr: "10.43.0.0/16"
@@ -25,7 +24,7 @@ k3s_server:
   # Enable built-in components for pfSense integration
   # Traefik handles internal routing, pfSense HAProxy handles external access
   # ServiceLB provides internal load balancing, pfSense handles external load balancing
-  disable: []  # Re-enable all built-in components
+  disable: [] # Re-enable all built-in components
 
   # Node labels
   node-label:
@@ -38,7 +37,7 @@ k3s_server:
   # Logging configuration
   log: "/var/log/k3s.log"
   alsologtostderr: false
-  v: 1  # Minimal logging to save disk space
+  v: 1 # Minimal logging to save disk space
 
   # ARM64 and API server optimizations
   # Note: LocalStorageCapacityIsolation feature gate removed in K8s 1.31
@@ -73,7 +72,7 @@ k3s_data_dir: /var/lib/rancher/k3s
 
 # Pi CM5 configuration for K3s cluster nodes
 # PCIe disabled for maximum power savings on compute nodes
-pi_cm5_config_pcie_enabled: false  # No M.2 storage needed for compute nodes
+pi_cm5_config_pcie_enabled: false # No M.2 storage needed for compute nodes
 
 # Enable cgroups for K3s cluster nodes (required for Kubernetes)
 pi_cm5_config_cgroup_enabled: true
