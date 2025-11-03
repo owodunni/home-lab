@@ -329,15 +329,205 @@ Ensure namespace has correct labels:
 kubectl label namespace <namespace> name=<namespace>
 ```
 
-## Makefile Reference
+## Makefile Commands Reference
+
+### helm-lint
+Lint all Helm values files in the `apps/` directory.
 
 ```bash
-make helm-lint           # Lint all Helm values files
-make helm-validate       # Validate rendered manifests
-make app-deploy APP=x    # Deploy specific app
-make app-upgrade APP=x   # Upgrade specific app
-make app-list            # List all deployed apps
-make app-status APP=x    # Show app status
+make helm-lint
+```
+
+**Example output:**
+```
+Linting Helm values files...
+Linting apps/test-app/values.yml...
+✓ YAML syntax valid
+```
+
+**When to use:** Before deploying any app to catch YAML syntax errors and missing required fields.
+
+**Automated:** Runs automatically in pre-commit hooks when values files are changed.
+
+---
+
+### helm-validate
+Validate Helm chart templates can be rendered correctly.
+
+```bash
+make helm-validate
+```
+
+**Example output:**
+```
+Validating Helm chart templates...
+Validating apps/test-app...
+✓ Template rendering successful
+```
+
+**When to use:** After creating/modifying Chart.yml or values.yml files.
+
+---
+
+### app-deploy
+Deploy a specific application to the K3s cluster.
+
+```bash
+make app-deploy APP=test-app
+```
+
+**Example output:**
+```
+Deploying test-app...
+PLAY [Deploy Helm Application] *************************
+TASK [Display deployment information] ******************
+╔═══════════════════════════════════════════════╗
+║ Helm Application Deployment                  ║
+║ Chart: bitnami/nginx                          ║
+║ Version: 18.2.5                               ║
+║ Release: test-app                             ║
+║ Namespace: applications                       ║
+╚═══════════════════════════════════════════════╝
+...
+✅ Successfully deployed test-app
+```
+
+**Parameters:**
+- `APP` (required): Name of the app directory in `apps/`
+
+**When to use:** Initial deployment of a new app, or redeployment after configuration changes.
+
+---
+
+### app-upgrade
+Upgrade an existing app with new values or chart version.
+
+```bash
+make app-upgrade APP=test-app
+```
+
+**Example:**
+```bash
+# Update chart version in apps/test-app/Chart.yml
+vim apps/test-app/Chart.yml
+
+# Apply the upgrade
+make app-upgrade APP=test-app
+```
+
+**Parameters:**
+- `APP` (required): Name of the app to upgrade
+
+**When to use:** After modifying Chart.yml or values.yml for an already-deployed app.
+
+---
+
+### app-list
+List all deployed Helm releases across all namespaces.
+
+```bash
+make app-list
+```
+
+**Example output:**
+```
+Deployed applications:
+NAME            NAMESPACE       REVISION    UPDATED                             STATUS      CHART           APP VERSION
+test-app        applications    1           2025-11-03 18:30:45 +0100 CET       deployed    nginx-18.2.5    1.27.3
+cert-manager    cert-manager    1           2025-11-03 07:00:15 +0100 CET       deployed    cert-manager... v1.13.2
+longhorn        longhorn-system 1           2025-11-03 06:58:43 +0100 CET       deployed    longhorn-1.10.0 v1.10.0
+```
+
+**When to use:** To see what apps are currently deployed and their versions.
+
+---
+
+### app-status
+Show detailed status of a specific app.
+
+```bash
+make app-status APP=test-app
+```
+
+**Example output:**
+```
+Status of test-app:
+Helm status:
+NAME: test-app
+LAST DEPLOYED: Mon Nov  3 18:30:45 2025
+NAMESPACE: applications
+STATUS: deployed
+REVISION: 1
+...
+
+Pods:
+NAME                        READY   STATUS    RESTARTS   AGE
+test-app-nginx-7d4c8f-xyz   1/1     Running   0          5m
+```
+
+**Parameters:**
+- `APP` (required): Name of the app
+
+**When to use:** To troubleshoot deployment issues or verify app health.
+
+---
+
+## Complete Workflow Example
+
+Deploying a new app from scratch:
+
+```bash
+# 1. Create app directory
+mkdir -p apps/my-app
+cd apps/my-app
+
+# 2. Create Chart.yml (use your editor)
+cat > Chart.yml <<EOF
+---
+chart_repository: bitnami
+chart_name: redis
+chart_version: 20.5.0
+release_name: my-app
+namespace: applications
+description: "My Redis cache"
+EOF
+
+# 3. Create values.yml
+cat > values.yml <<EOF
+---
+replicaCount: 1
+nodeSelector:
+  kubernetes.io/os: linux
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
+EOF
+
+# 4. Create app.yml playbook
+cat > app.yml <<EOF
+---
+- name: Deploy My App
+  import_playbook: ../../playbooks/deploy-helm-app.yml
+  vars:
+    app_chart_file: "{{ playbook_dir }}/Chart.yml"
+    app_values_file: "{{ playbook_dir }}/values.yml"
+EOF
+
+# 5. Validate
+make helm-lint
+
+# 6. Deploy
+make app-deploy APP=my-app
+
+# 7. Check status
+make app-status APP=my-app
+
+# 8. List all apps
+make app-list
 ```
 
 ## See Also

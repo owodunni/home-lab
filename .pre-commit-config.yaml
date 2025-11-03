@@ -21,3 +21,10 @@ repos:
         language: system
         files: \.(yml|yaml)$
         pass_filenames: false
+
+      - id: helm-lint
+        name: helm lint
+        entry: make helm-lint
+        language: system
+        files: ^apps/.*/values.*\.yml$
+        pass_filenames: false
