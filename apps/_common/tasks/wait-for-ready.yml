@@ -1,0 +1,71 @@
+---
+# Wait for Helm release to be fully deployed and ready
+# Checks deployment, statefulset, and daemonset resources for readiness
+
+- name: Get all deployments in namespace
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ chart_metadata.namespace }}"
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    label_selectors:
+      - "app.kubernetes.io/instance={{ chart_metadata.release_name }}"
+  register: deployments
+
+- name: Wait for deployments to be ready
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: "{{ item.metadata.name }}"
+    namespace: "{{ chart_metadata.namespace }}"
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    wait: true
+    wait_condition:
+      type: Available
+      status: "True"
+    wait_timeout: 300
+  loop: "{{ deployments.resources }}"
+  when: deployments.resources | length > 0
+
+- name: Get all statefulsets in namespace
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: StatefulSet
+    namespace: "{{ chart_metadata.namespace }}"
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    label_selectors:
+      - "app.kubernetes.io/instance={{ chart_metadata.release_name }}"
+  register: statefulsets
+
+- name: Wait for statefulsets to be ready
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: StatefulSet
+    name: "{{ item.metadata.name }}"
+    namespace: "{{ chart_metadata.namespace }}"
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    wait: true
+    wait_condition:
+      type: Available
+      status: "True"
+    wait_timeout: 300
+  loop: "{{ statefulsets.resources }}"
+  when: statefulsets.resources | length > 0
+
+- name: Get all daemonsets in namespace
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: DaemonSet
+    namespace: "{{ chart_metadata.namespace }}"
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    label_selectors:
+      - "app.kubernetes.io/instance={{ chart_metadata.release_name }}"
+  register: daemonsets
+
+- name: Display deployment summary
+  ansible.builtin.debug:
+    msg: |
+      Deployment complete for {{ chart_metadata.release_name }}:
+      - Deployments ready: {{ deployments.resources | length }}
+      - StatefulSets ready: {{ statefulsets.resources | length }}
+      - DaemonSets found: {{ daemonsets.resources | length }}

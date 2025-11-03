@@ -1,0 +1,66 @@
+---
+# Common Resource Limit Templates for Pi CM5 Hardware
+#
+# The K3s cluster runs on Raspberry Pi CM5 modules with 4GB RAM each.
+# Total cluster resources: ~12GB RAM (3x control plane + 1x worker)
+# Available for apps after system overhead: ~8GB
+#
+# Use these anchors in app values files:
+#   <<: *common-resource-limits-small
+#   <<: *common-resource-limits-medium
+#   <<: *common-resource-limits-large
+
+# Small profile: Sidecars, init containers, lightweight apps
+# CPU: 50m (0.05 cores), RAM: 64Mi
+common-resource-limits-small: &common-resource-limits-small
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+# Medium profile: Standard applications
+# CPU: 100m (0.1 cores), RAM: 128Mi
+common-resource-limits-medium: &common-resource-limits-medium
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+# Large profile: Resource-intensive applications
+# CPU: 200m (0.2 cores), RAM: 512Mi
+common-resource-limits-large: &common-resource-limits-large
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+# Node selector for Linux nodes (standard)
+common-node-selector: &common-node-selector
+  nodeSelector:
+    kubernetes.io/os: linux
+
+# Pod security context for filesystem permissions
+common-pod-security-context: &common-pod-security-context
+  podSecurityContext:
+    fsGroup: 1000
+    fsGroupChangePolicy: OnRootMismatch
+
+# Container security context (drop all capabilities)
+common-container-security-context: &common-container-security-context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    capabilities:
+      drop:
+        - ALL
+    seccompProfile:
+      type: RuntimeDefault

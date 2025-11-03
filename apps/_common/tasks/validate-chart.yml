@@ -1,0 +1,67 @@
+---
+# Validate Helm chart and values before deployment
+# This task file can be included in deployment playbooks to ensure
+# charts are properly configured before attempting deployment.
+
+- name: Check if Chart.yml exists
+  ansible.builtin.stat:
+    path: "{{ app_chart_file }}"
+  register: chart_file_check
+  failed_when: not chart_file_check.stat.exists
+
+- name: Load chart metadata
+  ansible.builtin.include_vars:
+    file: "{{ app_chart_file }}"
+    name: chart_metadata
+
+- name: Display chart information
+  ansible.builtin.debug:
+    msg: |
+      Validating chart: {{ chart_metadata.chart_repository }}/{{ chart_metadata.chart_name }}
+      Version: {{ chart_metadata.chart_version }}
+      Release: {{ chart_metadata.release_name }}
+      Namespace: {{ chart_metadata.namespace }}
+
+- name: Check if values file exists
+  ansible.builtin.stat:
+    path: "{{ app_values_file }}"
+  register: values_file_check
+  failed_when: not values_file_check.stat.exists
+
+- name: Validate YAML syntax of values file
+  ansible.builtin.command:
+    cmd: "python3 -c 'import yaml; yaml.safe_load(open(\"{{ app_values_file }}\"))'"
+  changed_when: false
+  register: yaml_validation
+
+- name: Check if Helm repository is configured
+  ansible.builtin.command:
+    cmd: helm repo list
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: helm_repos
+  changed_when: false
+
+- name: Verify chart repository exists
+  ansible.builtin.assert:
+    that:
+      - "chart_metadata.chart_repository in helm_repos.stdout"
+    fail_msg: "Helm repository '{{ chart_metadata.chart_repository }}' not found. Run 'helm repo add' first."
+    success_msg: "Helm repository '{{ chart_metadata.chart_repository }}' is configured."
+
+- name: Template chart to validate manifests
+  ansible.builtin.command:
+    cmd: >
+      helm template {{ chart_metadata.release_name }}
+      {{ chart_metadata.chart_repository }}/{{ chart_metadata.chart_name }}
+      --version {{ chart_metadata.chart_version }}
+      -f {{ app_values_file }}
+      --validate
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+  register: template_validation
+
+- name: Display validation success
+  ansible.builtin.debug:
+    msg: "✓ Chart validation passed: {{ chart_metadata.chart_name }} v{{ chart_metadata.chart_version }}"

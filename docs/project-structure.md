@@ -16,16 +16,38 @@ home-lab/
 ├── README.md                   # Project overview
 ├── docs/                       # Documentation
 │   ├── project-structure.md    # This file
+│   ├── app-deployment-guide.md # K8s app deployment guide
+│   ├── helm-standards.md       # Helm chart standards and conventions
 │   ├── git-commit-guidelines.md
 │   ├── playbook-guidelines.md
 │   └── beelink-storage-setup.md # Beelink storage configuration guide
+├── apps/                       # K8s application deployments
+│   ├── README.md               # App deployment quick start
+│   ├── _common/                # Shared app components
+│   │   ├── values/             # Reusable Helm value templates
+│   │   │   └── resource-limits.yml  # Resource limit profiles
+│   │   └── tasks/              # Reusable Ansible tasks
+│   │       ├── validate-chart.yml   # Chart validation
+│   │       └── wait-for-ready.yml   # Deployment readiness checks
+│   └── <app-name>/             # Individual app directory
+│       ├── Chart.yml           # Helm chart metadata
+│       ├── values.yml          # Helm values configuration
+│       ├── app.yml             # App deployment playbook
+│       ├── prerequisites.yml   # (Optional) Pre-deployment tasks
+│       └── README.md           # App-specific documentation
 ├── playbooks/                  # Ansible playbooks
+│   ├── deploy-helm-app.yml     # Reusable Helm app deployment playbook
 │   ├── beelink-setup.yml       # Initial beelink setup (passwordless sudo)
 │   ├── beelink-storage-config.yml # Beelink LUKS+LVM storage configuration
 │   ├── upgrade.yml             # System upgrade playbook
 │   ├── unattended-upgrades.yml # Unattended upgrades setup
 │   ├── pi-base-config.yml      # Pi CM5 base settings and power optimization
-│   └── pi-storage-config.yml   # Pi CM5 storage and PCIe configuration
+│   ├── pi-storage-config.yml   # Pi CM5 storage and PCIe configuration
+│   └── k3s/                    # K3s cluster deployment
+│       ├── k3s-complete.yml    # Complete K3s deployment orchestrator
+│       ├── 01-k3s-cluster.yml  # K3s cluster installation
+│       ├── 02-helm-setup.yml   # Helm and plugin installation
+│       └── ...                 # Additional K3s phase playbooks
 ├── roles/                      # Custom Ansible roles
 │   └── pi_cm5_config/          # Pi CM5 configuration role
 └── group_vars/                 # Variable configuration
@@ -41,6 +63,73 @@ home-lab/
         ├── vault.yml           # Encrypted vault variables
         └── luks.key            # LUKS encryption key (ansible-vault encrypted)
 ```
+
+## Application Deployment Structure
+
+The `apps/` directory contains standardized Kubernetes application deployments using Helm charts. This structure provides:
+
+- **Consistent deployment patterns** - All apps follow the same structure
+- **Reusable components** - Common values and tasks shared across apps
+- **Easy app management** - Simple Makefile commands for deployment
+- **Version control** - Chart versions and configurations tracked in Git
+
+### App Directory Layout
+
+Each application follows this structure:
+
+```
+apps/<app-name>/
+├── Chart.yml           # Chart metadata (repo, name, version)
+├── values.yml          # Helm values configuration
+├── app.yml             # Deployment playbook
+├── prerequisites.yml   # (Optional) Pre-deployment setup
+└── README.md           # App-specific documentation
+```
+
+### Example: cert-manager App
+
+```
+apps/cert-manager/
+├── Chart.yml           # Defines jetstack/cert-manager v1.13.2
+├── values.yml          # Resource limits, node selectors, CRD installation
+├── app.yml             # Calls playbooks/deploy-helm-app.yml
+└── README.md           # cert-manager deployment notes
+```
+
+### Common Components
+
+**apps/_common/values/resource-limits.yml**
+Provides reusable YAML anchors for Pi CM5-optimized resource limits:
+
+- `*common-resource-limits-small` - 50m CPU, 64Mi RAM (sidecars, small apps)
+- `*common-resource-limits-medium` - 100m CPU, 128Mi RAM (standard apps)
+- `*common-resource-limits-large` - 200m CPU, 256Mi RAM (resource-intensive apps)
+
+**apps/_common/tasks/**
+Reusable Ansible tasks for app deployment:
+
+- `validate-chart.yml` - Helm lint and manifest validation
+- `wait-for-ready.yml` - Wait for deployments to reach ready state
+
+### Deployment Workflow
+
+1. **Create app directory** with Chart.yml, values.yml, app.yml
+2. **Validate configuration**: `make helm-lint`
+3. **Deploy app**: `make app-deploy APP=<name>`
+4. **Check status**: `make app-status APP=<name>`
+
+See [App Deployment Guide](app-deployment-guide.md) for complete workflow.
+
+### Helm Chart Standards
+
+All apps follow standardized conventions:
+
+- **Exact version pinning** - No version ranges (`1.13.2` not `~1.13.0`)
+- **Resource limits required** - All containers specify requests/limits
+- **Consistent naming** - `<app>-tls-secret` for certificates
+- **Vault references** - Secrets use `{{ vault_app_secret }}` pattern
+
+See [Helm Standards](helm-standards.md) for complete conventions.
 
 ## Infrastructure Overview
 

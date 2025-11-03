@@ -210,6 +210,108 @@ Ansible automatically decrypts vault-encrypted files during playbook execution.
 To understand the project structure read
 
 - `docs/project-structure.md`: **MANDATORY READ** - Complete project architecture and variable system
+- `docs/app-deployment-guide.md`: Kubernetes app deployment workflow
+- `docs/helm-standards.md`: Helm chart standards and conventions
+
+## Deploying a New App to K3s
+
+The `apps/` directory contains standardized Helm chart deployments. Each app follows the same structure for consistency.
+
+### Quick Start
+
+```bash
+# List available apps
+ls apps/
+
+# Deploy an app
+make app-deploy APP=<app-name>
+
+# Check status
+make app-status APP=<app-name>
+```
+
+### Creating a New App
+
+1. **Create app directory:**
+   ```bash
+   mkdir -p apps/my-app
+   cd apps/my-app
+   ```
+
+2. **Create Chart.yml** (chart metadata):
+   ```yaml
+   ---
+   chart_repository: bitnami
+   chart_name: nginx
+   chart_version: 15.1.0
+   release_name: my-app
+   namespace: applications
+   description: "My application description"
+   ```
+
+3. **Create values.yml** (Helm values):
+   ```yaml
+   ---
+   # Use common resource limits
+   <<: *common-resource-limits-medium
+
+   replicaCount: 1
+
+   ingress:
+     enabled: true
+     className: traefik
+     annotations:
+       cert-manager.io/cluster-issuer: letsencrypt-prod
+     hosts:
+       - host: my-app.jardoole.xyz
+         paths:
+           - path: /
+             pathType: Prefix
+     tls:
+       - secretName: my-app-tls
+         hosts:
+           - my-app.jardoole.xyz
+   ```
+
+4. **Create app.yml** (deployment playbook):
+   ```yaml
+   ---
+   - name: Deploy My App
+     import_playbook: ../../playbooks/deploy-helm-app.yml
+     vars:
+       app_chart_file: "{{ playbook_dir }}/Chart.yml"
+       app_values_file: "{{ playbook_dir }}/values.yml"
+   ```
+
+5. **Create README.md:**
+   ```markdown
+   # My App
+
+   Brief description.
+
+   ## Dependencies
+   - Longhorn (storage)
+   - cert-manager (TLS)
+
+   ## Access
+   - URL: https://my-app.jardoole.xyz
+   ```
+
+6. **Deploy:**
+   ```bash
+   make helm-lint                # Validate values
+   make app-deploy APP=my-app    # Deploy
+   ```
+
+### Important Guidelines
+
+- **Pin exact versions** in Chart.yml (e.g., `1.13.2` not `~1.13.0`)
+- **Use common resource limits** - Reference `*common-resource-limits-*` anchors
+- **All secrets use vault** - Reference `{{ vault_app_secret }}` pattern
+- **HTTPS ingress** - Use cert-manager annotations for auto TLS
+- **ResourceQuota compliance** - All containers MUST specify resource limits
+
+See [App Deployment Guide](docs/app-deployment-guide.md) for complete workflow.
 
 ## Progress Tracking
 
