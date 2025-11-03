@@ -1,0 +1,25 @@
+---
+# Test App - Helm Values
+# Minimal nginx configuration for testing
+
+replicaCount: 1
+
+nodeSelector:
+  kubernetes.io/os: linux
+
+service:
+  type: ClusterIP
+  port: 80
+
+# Disable ingress for test app (internal only)
+ingress:
+  enabled: false
+
+# Minimal resource configuration
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 100m
+    memory: 128Mi

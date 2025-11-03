@@ -1,0 +1,12 @@
+---
+# Test App - Helm Chart Metadata
+# Simple nginx deployment for testing the app deployment workflow
+
+chart_repository: bitnami
+chart_name: nginx
+chart_version: 18.2.5
+release_name: test-app
+namespace: applications
+description: "Test application to validate Helm deployment workflow"
+create_namespace: true
+wait_for_ready: true

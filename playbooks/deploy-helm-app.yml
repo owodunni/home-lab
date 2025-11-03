@@ -1,0 +1,108 @@
+---
+# Reusable Helm Application Deployment Playbook
+#
+# This playbook provides a standardized way to deploy Helm charts to the K3s cluster.
+# It handles validation, namespace creation, chart deployment, and readiness checks.
+#
+# Required variables (passed from app-specific playbook):
+#   - app_chart_file: Path to Chart.yml metadata file
+#   - app_values_file: Path to values.yml configuration file
+#
+# Optional variables:
+#   - prerequisites_playbook: Path to prerequisites playbook (pre-deployment tasks)
+#   - upgrade_mode: Set to true for helm upgrade instead of install (default: false)
+
+- name: Deploy Helm Application
+  hosts: control_plane
+  become: true
+  gather_facts: true
+  run_once: true
+
+  tasks:
+    - name: Validate required variables
+      ansible.builtin.assert:
+        that:
+          - app_chart_file is defined
+          - app_values_file is defined
+        fail_msg: "Required variables not defined. Set app_chart_file and app_values_file."
+
+    - name: Load chart metadata
+      ansible.builtin.include_vars:
+        file: "{{ app_chart_file }}"
+        name: chart_metadata
+
+    - name: Display deployment information
+      ansible.builtin.debug:
+        msg: |
+          ╔═══════════════════════════════════════════════════════════╗
+          ║ Helm Application Deployment                              ║
+          ╠═══════════════════════════════════════════════════════════╣
+          ║ Chart: {{ chart_metadata.chart_repository }}/{{ chart_metadata.chart_name }}
+          ║ Version: {{ chart_metadata.chart_version }}
+          ║ Release: {{ chart_metadata.release_name }}
+          ║ Namespace: {{ chart_metadata.namespace }}
+          ║ Description: {{ chart_metadata.description | default('N/A') }}
+          ╚═══════════════════════════════════════════════════════════╝
+
+    - name: Run prerequisites playbook
+      ansible.builtin.include_tasks: "{{ prerequisites_playbook }}"
+      when:
+        - prerequisites_playbook is defined
+        - prerequisites_playbook | length > 0
+
+    - name: Validate Helm chart and values
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../apps/_common/tasks/validate-chart.yml"
+
+    - name: Create or update namespace
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ chart_metadata.namespace }}"
+            labels:
+              name: "{{ chart_metadata.namespace }}"
+              managed-by: ansible
+              app: "{{ chart_metadata.release_name }}"
+        state: present
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      when: chart_metadata.create_namespace | default(true)
+
+    - name: Deploy Helm chart
+      kubernetes.core.helm:
+        name: "{{ chart_metadata.release_name }}"
+        chart_ref: "{{ chart_metadata.chart_repository }}/{{ chart_metadata.chart_name }}"
+        chart_version: "{{ chart_metadata.chart_version }}"
+        release_namespace: "{{ chart_metadata.namespace }}"
+        create_namespace: false
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        values_files:
+          - "{{ app_values_file }}"
+        state: "{{ 'present' if not (upgrade_mode | default(false)) else 'present' }}"
+        update_repo_cache: true
+        wait: false
+      register: helm_deployment
+
+    - name: Display Helm deployment result
+      ansible.builtin.debug:
+        msg: |
+          Helm deployment completed:
+          - Status: {{ 'Updated' if helm_deployment.changed else 'Unchanged' }}
+          - Release: {{ chart_metadata.release_name }}
+          - Namespace: {{ chart_metadata.namespace }}
+
+    - name: Wait for deployment to be ready
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../apps/_common/tasks/wait-for-ready.yml"
+      when: chart_metadata.wait_for_ready | default(true)
+
+    - name: Display success message
+      ansible.builtin.debug:
+        msg: |
+          ✅ Successfully deployed {{ chart_metadata.release_name }}
+
+          Access information:
+          - Release name: {{ chart_metadata.release_name }}
+          - Namespace: {{ chart_metadata.namespace }}
+          - Chart version: {{ chart_metadata.chart_version }}
+
+          To check status: make app-status APP={{ chart_metadata.release_name }}

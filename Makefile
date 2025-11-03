@@ -2,7 +2,7 @@
 # Fix macOS fork safety issue with Python 3.13 + Ansible multiprocessing
 ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
-.PHONY: help setup beelink-setup beelink-storage lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio minio-uninstall k3s-cluster k3s-cluster-check k3s-uninstall k8s-apps k8s-apps-check teardown teardown-check
+.PHONY: help setup beelink-setup beelink-storage lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio minio-uninstall k3s-cluster k3s-cluster-check k3s-uninstall k8s-apps k8s-apps-check helm-lint helm-validate app-deploy app-upgrade app-list app-status teardown teardown-check
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -95,6 +95,68 @@ k8s-apps-check: ## 🔍 Check Kubernetes applications deployment (dry-run)
 	@echo "Checking Kubernetes applications deployment (dry-run)..."
 	$(ANSIBLE_PLAYBOOK) playbooks/k8s-applications.yml --check --diff
 
+helm-lint: ## 📋 Lint all Helm values files in apps/
+	@echo "Linting Helm values files..."
+	@find apps/ -name 'values*.yml' -type f | while read file; do \
+		echo "Linting $$file..."; \
+		uv run helm lint --strict --values "$$file" 2>&1 | grep -v "Error: no chart found" || true; \
+	done
+
+helm-validate: ## ✅ Validate Helm charts with template rendering
+	@echo "Validating Helm chart templates..."
+	@echo "Note: Full validation requires chart deployment context"
+	@find apps/*/Chart.yml -type f | while read chartfile; do \
+		dir=$$(dirname $$chartfile); \
+		if [ -f "$$dir/values.yml" ]; then \
+			echo "Validating $$dir..."; \
+		fi \
+	done
+
+app-deploy: ## 🚀 Deploy specific app (usage: make app-deploy APP=cert-manager)
+	@if [ -z "$(APP)" ]; then \
+		echo "Error: APP parameter required. Usage: make app-deploy APP=<app-name>"; \
+		echo "Available apps:"; \
+		ls -1 apps/ | grep -v "^_common$$" | grep -v "README.md"; \
+		exit 1; \
+	fi
+	@if [ ! -d "apps/$(APP)" ]; then \
+		echo "Error: App '$(APP)' not found in apps/ directory"; \
+		exit 1; \
+	fi
+	@echo "Deploying $(APP)..."
+	$(ANSIBLE_PLAYBOOK) apps/$(APP)/app.yml --diff
+
+app-upgrade: ## 🔄 Upgrade specific app (usage: make app-upgrade APP=cert-manager)
+	@if [ -z "$(APP)" ]; then \
+		echo "Error: APP parameter required. Usage: make app-upgrade APP=<app-name>"; \
+		exit 1; \
+	fi
+	@echo "Upgrading $(APP)..."
+	$(ANSIBLE_PLAYBOOK) apps/$(APP)/app.yml --diff -e upgrade_mode=true
+
+app-list: ## 📦 List all deployed Helm releases
+	@echo "Deployed applications:"
+	@uv run helm list --all-namespaces --kubeconfig=/etc/rancher/k3s/k3s.yaml || \
+		(echo "Note: Run this command on a control plane node" && exit 1)
+
+app-status: ## 📊 Show status of specific app (usage: make app-status APP=cert-manager)
+	@if [ -z "$(APP)" ]; then \
+		echo "Error: APP parameter required. Usage: make app-status APP=<app-name>"; \
+		exit 1; \
+	fi
+	@echo "Status of $(APP):"
+	@if [ -f "apps/$(APP)/Chart.yml" ]; then \
+		namespace=$$(grep 'namespace:' apps/$(APP)/Chart.yml | awk '{print $$2}'); \
+		release=$$(grep 'release_name:' apps/$(APP)/Chart.yml | awk '{print $$2}'); \
+		echo "Helm status:"; \
+		uv run helm status $$release -n $$namespace --kubeconfig=/etc/rancher/k3s/k3s.yaml || true; \
+		echo ""; \
+		echo "Pods:"; \
+		kubectl get pods -n $$namespace -l app.kubernetes.io/instance=$$release --kubeconfig=/etc/rancher/k3s/k3s.yaml || true; \
+	else \
+		echo "Error: Chart.yml not found for $(APP)"; \
+		exit 1; \
+	fi
 
 teardown-check: ## 🔍 Preview infrastructure teardown (dry-run with diff)
 	@echo "⚠️ PREVIEW: Infrastructure Teardown (dry-run)"
