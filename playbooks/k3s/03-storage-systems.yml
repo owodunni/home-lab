@@ -12,8 +12,9 @@
     - name: Install Longhorn prerequisites
       ansible.builtin.package:
         name:
-          - open-iscsi  # Required for iSCSI block storage
-          - nfs-common  # Required for RWX volumes (future)
+          - open-iscsi # Required for iSCSI block storage
+          - nfs-common # Required for RWX volumes (future)
+          - nfs-kernel-server
         state: present
 
     - name: Enable and start iscsid service
@@ -30,7 +31,7 @@
 
   vars:
     longhorn_namespace: "longhorn-system"
-    longhorn_chart_version: "1.7.2"  # Latest stable as of 2024
+    longhorn_chart_version: "1.10.0" # Latest stable as of 2025 november
 
   tasks:
     - name: Display Phase 3 overview
@@ -110,29 +111,24 @@
         values:
           defaultSettings:
             # Replica count: 1 (we have 1 worker node with storage)
-            defaultReplicaCount: 1
+            defaultReplicaCount: "1"
             # Data locality: prefer storing data on same node as workload
             defaultDataLocality: best-effort
             # Soft anti-affinity: allow replicas on same node if needed
             replicaSoftAntiAffinity: true
-            # Storage over-provisioning: allow 2x thin provisioning
-            storageOverProvisioningPercentage: 100
-            # Reserve 10% of storage space as buffer
-            storageMinimalAvailablePercentage: 10
-            # Disable upgrade checker (air-gapped or controlled updates)
-            upgradeChecker: false
           longhornUI:
             replicas: 1
           persistence:
             # Make Longhorn the default storage class
             defaultClass: true
             defaultFsType: ext4
-            defaultClassReplicaCount: 1  # Matches infrastructure
+            defaultClassReplicaCount: 1 # Matches infrastructure
             # Retain volumes when PVC is deleted (safety)
             reclaimPolicy: Retain
           csi:
-            # K3s-specific kubelet path (different from standard K8s)
-            kubeletRootDir: /var/lib/rancher/k3s/agent/kubelet
+            # K3s v0.10.0+ uses standard kubelet path
+            # See: https://longhorn.io/docs/1.10.0/advanced-resources/os-distro-specific/csi-on-k3s/
+            kubeletRootDir: /var/lib/kubelet
           longhornManager:
             nodeSelector:
               kubernetes.io/os: linux

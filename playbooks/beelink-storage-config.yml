@@ -16,14 +16,14 @@
           - lvm2
         state: present
         update_cache: true
-        cache_valid_time: 3600  # 1 hour
+        cache_valid_time: 3600 # 1 hour
 
     # Ensure directory exists for LUKS key file
     - name: Create directory for LUKS key file
       ansible.builtin.file:
         path: /root/.luks
         state: directory
-        mode: '0700'
+        mode: "0700"
         owner: root
         group: root
 
@@ -33,7 +33,7 @@
       ansible.builtin.copy:
         src: "{{ luks_key_file }}"
         dest: /root/.luks/beelink-luks.key
-        mode: '0600'
+        mode: "0600"
         owner: root
         group: root
 
@@ -57,7 +57,7 @@
         line: "{{ item.name }} {{ item.device }} /root/.luks/beelink-luks.key luks"
         state: present
         create: true
-        mode: '0644'
+        mode: "0644"
         backup: true
       loop: "{{ luks_crypt_devices }}"
 
@@ -74,6 +74,8 @@
     # Create LVM logical volume using all available space
     # Ansible lvol module handles lvcreate automatically
     # size: 100%FREE allocates all free space in the volume group
+    # shrink: false prevents accidental shrinking on subsequent runs
+    # resizefs: false prevents filesystem resize attempts (handled separately)
     # https://docs.ansible.com/ansible/latest/collections/community/general/lvol_module.html
     - name: Create LVM logical volume
       community.general.lvol:
@@ -81,6 +83,8 @@
         lv: "{{ lvm_logical_volume }}"
         size: "{{ lvm_volume_size }}"
         state: present
+        shrink: false
+        resizefs: false
 
     # Format logical volume with ext4 filesystem
     # Idempotent - only formats if no filesystem exists
@@ -95,7 +99,7 @@
       ansible.builtin.file:
         path: "{{ longhorn_mount_point }}"
         state: directory
-        mode: '0755'
+        mode: "0755"
         owner: root
         group: root
 
