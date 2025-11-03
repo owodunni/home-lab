@@ -5,8 +5,8 @@
 
 - name: Phase 1 - K3s Cluster Setup
   import_playbook: 01-k3s-cluster.yml
-- name: Phase 0 - Cluster Health Check
-  import_playbook: 00-cluster-health-check.yml
+- name: Phase 1.1 - Cluster Health Check
+  import_playbook: 011-cluster-health-check.yml
 - name: Phase 2 - Helm Setup
   import_playbook: 02-helm-setup.yml
 - name: Phase 3 - Storage Systems
