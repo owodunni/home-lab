@@ -49,6 +49,31 @@
                     resources:
                       requests:
                         storage: 10Gi
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 512Mi
+                limits:
+                  cpu: 500m
+                  memory: 1Gi
+              initContainers:
+                - name: init-config-reloader
+                  resources:
+                    requests:
+                      cpu: 50m
+                      memory: 64Mi
+                    limits:
+                      cpu: 100m
+                      memory: 128Mi
+              containers:
+                - name: config-reloader
+                  resources:
+                    requests:
+                      cpu: 50m
+                      memory: 64Mi
+                    limits:
+                      cpu: 100m
+                      memory: 128Mi
               nodeSelector:
                 kubernetes.io/os: linux
           grafana:
@@ -56,6 +81,41 @@
               enabled: true
               storageClassName: longhorn
               size: 5Gi
+            resources:
+              requests:
+                cpu: 100m
+                memory: 128Mi
+              limits:
+                cpu: 200m
+                memory: 256Mi
+            sidecar:
+              dashboards:
+                enabled: true
+                resources:
+                  requests:
+                    cpu: 50m
+                    memory: 64Mi
+                  limits:
+                    cpu: 100m
+                    memory: 128Mi
+              datasources:
+                enabled: true
+                resources:
+                  requests:
+                    cpu: 50m
+                    memory: 64Mi
+                  limits:
+                    cpu: 100m
+                    memory: 128Mi
+            initChownData:
+              enabled: true
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 100m
+                  memory: 128Mi
             nodeSelector:
               kubernetes.io/os: linux
             adminPassword: "{{ vault_grafana_admin_password }}"
@@ -69,9 +129,41 @@
                     resources:
                       requests:
                         storage: 5Gi
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 200m
+                  memory: 256Mi
+              initContainers:
+                - name: init-config-reloader
+                  resources:
+                    requests:
+                      cpu: 50m
+                      memory: 64Mi
+                    limits:
+                      cpu: 100m
+                      memory: 128Mi
+              containers:
+                - name: config-reloader
+                  resources:
+                    requests:
+                      cpu: 50m
+                      memory: 64Mi
+                    limits:
+                      cpu: 100m
+                      memory: 128Mi
               nodeSelector:
                 kubernetes.io/os: linux
           prometheusOperator:
+            resources:
+              requests:
+                cpu: 100m
+                memory: 128Mi
+              limits:
+                cpu: 200m
+                memory: 256Mi
             admissionWebhooks:
               patch:
                 resources:
@@ -81,6 +173,22 @@
                   limits:
                     cpu: 100m
                     memory: 128Mi
+          kubeStateMetrics:
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                cpu: 100m
+                memory: 128Mi
+          prometheus-node-exporter:
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                cpu: 100m
+                memory: 128Mi
 
     - name: Wait for Prometheus deployment to be ready
       kubernetes.core.k8s_info:
