@@ -135,7 +135,7 @@
     - name: Configure Traefik middleware for internal routing
       kubernetes.core.k8s:
         definition:
-          apiVersion: traefik.containo.us/v1alpha1
+          apiVersion: traefik.io/v1alpha1
           kind: Middleware
           metadata:
             name: internal-auth
@@ -148,7 +148,7 @@
     - name: Create Traefik middleware for compression
       kubernetes.core.k8s:
         definition:
-          apiVersion: traefik.containo.us/v1alpha1
+          apiVersion: traefik.io/v1alpha1
           kind: Middleware
           metadata:
             name: compression
@@ -160,7 +160,7 @@
     - name: Create Traefik middleware for security headers
       kubernetes.core.k8s:
         definition:
-          apiVersion: traefik.containo.us/v1alpha1
+          apiVersion: traefik.io/v1alpha1
           kind: Middleware
           metadata:
             name: security-headers
