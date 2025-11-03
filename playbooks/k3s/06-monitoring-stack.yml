@@ -166,7 +166,7 @@
                   limits:
                     cpu: 100m
                     memory: 128Mi
-          kubeStateMetrics:
+          kube-state-metrics:
             resources:
               requests:
                 cpu: 50m
@@ -272,8 +272,8 @@
           status: "True"
         wait_timeout: 300
       loop:
-        - prometheus-tls         # Cert-manager auto-created with this name
-        - grafana-tls-secret     # Cert-manager auto-created with this name
+        - prometheus-tls-secret  # Cert-manager auto-created from ingress secretName
+        - grafana-tls-secret     # Cert-manager auto-created from ingress secretName
 
     - name: Get monitoring services status
       kubernetes.core.k8s_info:

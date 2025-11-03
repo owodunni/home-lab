@@ -37,6 +37,18 @@
           - Resource management and security policies
           - Easy application addition templates
 
+    - name: Label kube-system namespace for network policies
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: kube-system
+            labels:
+              name: kube-system
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        state: patched
+
     - name: Create application namespaces
       kubernetes.core.k8s:
         definition:
