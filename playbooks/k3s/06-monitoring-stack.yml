@@ -2,7 +2,7 @@
 # Phase 6: Monitoring Stack (Prometheus + Grafana)
 # Deploys comprehensive monitoring with HTTPS access via cert-manager
 
-- name: Phase 6 - Monitoring Stack
+- name: Phase 6a - Pre-deployment Overview
   hosts: control_plane
   become: true
   gather_facts: true
@@ -11,7 +11,6 @@
   vars:
     monitoring_namespace: "monitoring"
     prometheus_chart_version: "67.4.0"  # kube-prometheus-stack chart version
-    grafana_chart_version: "8.5.2"
     prometheus_domain: "prometheus.jardoole.xyz"
     grafana_domain: "grafana.jardoole.xyz"
 
@@ -21,8 +20,7 @@
         msg: |
           Phase 6: Monitoring Stack
           =========================
-          - Deploy Prometheus {{ prometheus_chart_version }} for metrics collection
-          - Deploy Grafana {{ grafana_chart_version }} for visualization dashboards
+          - Deploy kube-prometheus-stack {{ prometheus_chart_version }}
           - Configure HTTPS ingress with cert-manager certificates
           - Set up monitoring for K3s cluster and applications
 
@@ -30,234 +28,24 @@
           - Prometheus: https://{{ prometheus_domain }}
           - Grafana: https://{{ grafana_domain }}
 
-    - name: Install Prometheus using Helm
-      kubernetes.core.helm:
-        name: prometheus
-        chart_ref: prometheus-community/kube-prometheus-stack
-        release_namespace: "{{ monitoring_namespace }}"
-        create_namespace: true
-        chart_version: "{{ prometheus_chart_version }}"
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-        values:
-          prometheus:
-            prometheusSpec:
-              storageSpec:
-                volumeClaimTemplate:
-                  spec:
-                    storageClassName: longhorn
-                    accessModes: ["ReadWriteOnce"]
-                    resources:
-                      requests:
-                        storage: 10Gi
-              resources:
-                requests:
-                  cpu: 200m
-                  memory: 512Mi
-                limits:
-                  cpu: 500m
-                  memory: 1Gi
-              initContainers:
-                - name: init-config-reloader
-                  resources:
-                    requests:
-                      cpu: 50m
-                      memory: 64Mi
-                    limits:
-                      cpu: 100m
-                      memory: 128Mi
-              containers:
-                - name: config-reloader
-                  resources:
-                    requests:
-                      cpu: 50m
-                      memory: 64Mi
-                    limits:
-                      cpu: 100m
-                      memory: 128Mi
-              nodeSelector:
-                kubernetes.io/os: linux
-          grafana:
-            persistence:
-              enabled: true
-              storageClassName: longhorn
-              size: 5Gi
-            resources:
-              requests:
-                cpu: 100m
-                memory: 128Mi
-              limits:
-                cpu: 200m
-                memory: 256Mi
-            sidecar:
-              dashboards:
-                enabled: true
-              datasources:
-                enabled: true
-              resources:
-                requests:
-                  cpu: 50m
-                  memory: 64Mi
-                limits:
-                  cpu: 100m
-                  memory: 128Mi
-            initChownData:
-              enabled: true
-              resources:
-                requests:
-                  cpu: 50m
-                  memory: 64Mi
-                limits:
-                  cpu: 100m
-                  memory: 128Mi
-            nodeSelector:
-              kubernetes.io/os: linux
-            adminPassword: "{{ vault_grafana_admin_password }}"
-          alertmanager:
-            alertmanagerSpec:
-              storage:
-                volumeClaimTemplate:
-                  spec:
-                    storageClassName: longhorn
-                    accessModes: ["ReadWriteOnce"]
-                    resources:
-                      requests:
-                        storage: 5Gi
-              resources:
-                requests:
-                  cpu: 100m
-                  memory: 128Mi
-                limits:
-                  cpu: 200m
-                  memory: 256Mi
-              initContainers:
-                - name: init-config-reloader
-                  resources:
-                    requests:
-                      cpu: 50m
-                      memory: 64Mi
-                    limits:
-                      cpu: 100m
-                      memory: 128Mi
-              containers:
-                - name: config-reloader
-                  resources:
-                    requests:
-                      cpu: 50m
-                      memory: 64Mi
-                    limits:
-                      cpu: 100m
-                      memory: 128Mi
-              nodeSelector:
-                kubernetes.io/os: linux
-          prometheusOperator:
-            resources:
-              requests:
-                cpu: 100m
-                memory: 128Mi
-              limits:
-                cpu: 200m
-                memory: 256Mi
-            admissionWebhooks:
-              patch:
-                resources:
-                  requests:
-                    cpu: 50m
-                    memory: 64Mi
-                  limits:
-                    cpu: 100m
-                    memory: 128Mi
-          kube-state-metrics:
-            resources:
-              requests:
-                cpu: 50m
-                memory: 64Mi
-              limits:
-                cpu: 100m
-                memory: 128Mi
-          prometheus-node-exporter:
-            resources:
-              requests:
-                cpu: 50m
-                memory: 64Mi
-              limits:
-                cpu: 100m
-                memory: 128Mi
+- name: Phase 6b - Deploy Monitoring Stack Application
+  import_playbook: ../../apps/kube-prometheus-stack/app.yml
 
-    - name: Wait for Prometheus deployment to be ready
-      kubernetes.core.k8s_info:
-        api_version: apps/v1
-        kind: Deployment
-        name: prometheus-kube-prometheus-prometheus-operator
-        namespace: "{{ monitoring_namespace }}"
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-        wait: true
-        wait_condition:
-          type: Available
-          status: "True"
-        wait_timeout: 300
+- name: Phase 6c - Post-deployment Verification
+  hosts: control_plane
+  become: true
+  gather_facts: true
+  run_once: true
 
+  vars:
+    monitoring_namespace: "monitoring"
+    prometheus_chart_version: "67.4.0"
+    prometheus_domain: "prometheus.jardoole.xyz"
+    grafana_domain: "grafana.jardoole.xyz"
+
+  tasks:
     # Note: Certificates are auto-created by cert-manager from Ingress annotations
     # The cert-manager.io/cluster-issuer annotation triggers automatic Certificate creation
-
-    - name: Create Prometheus ingress with HTTPS
-      kubernetes.core.k8s:
-        definition:
-          apiVersion: networking.k8s.io/v1
-          kind: Ingress
-          metadata:
-            name: prometheus-ingress
-            namespace: "{{ monitoring_namespace }}"
-            annotations:
-              traefik.ingress.kubernetes.io/router.entrypoints: websecure
-              cert-manager.io/cluster-issuer: letsencrypt-prod
-          spec:
-            ingressClassName: traefik
-            tls:
-              - hosts:
-                  - "{{ prometheus_domain }}"
-                secretName: prometheus-tls-secret
-            rules:
-              - host: "{{ prometheus_domain }}"
-                http:
-                  paths:
-                    - path: /
-                      pathType: Prefix
-                      backend:
-                        service:
-                          name: prometheus-kube-prometheus-prometheus
-                          port:
-                            number: 9090
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-
-    - name: Create Grafana ingress with HTTPS
-      kubernetes.core.k8s:
-        definition:
-          apiVersion: networking.k8s.io/v1
-          kind: Ingress
-          metadata:
-            name: grafana-ingress
-            namespace: "{{ monitoring_namespace }}"
-            annotations:
-              traefik.ingress.kubernetes.io/router.entrypoints: websecure
-              cert-manager.io/cluster-issuer: letsencrypt-prod
-          spec:
-            ingressClassName: traefik
-            tls:
-              - hosts:
-                  - "{{ grafana_domain }}"
-                secretName: grafana-tls-secret
-            rules:
-              - host: "{{ grafana_domain }}"
-                http:
-                  paths:
-                    - path: /
-                      pathType: Prefix
-                      backend:
-                        service:
-                          name: prometheus-grafana
-                          port:
-                            number: 80
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
 
     - name: Wait for certificates to be ready
       kubernetes.core.k8s_info:

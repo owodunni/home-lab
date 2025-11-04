@@ -1,0 +1,52 @@
+---
+# cert-manager Helm Values
+# Automated SSL certificate management with Let's Encrypt
+
+# Install CRDs via Helm (simplifies upgrades)
+installCRDs: true
+
+global:
+  leaderElection:
+    namespace: cert-manager
+
+# DNS-01 challenge configuration
+# Use CoreDNS (10.43.0.10) which forwards to router for external DNS resolution
+extraArgs:
+  - --dns01-recursive-nameservers=10.43.0.10:53
+  - --dns01-recursive-nameservers-only
+
+# Resource limits for Pi CM5 nodes (ARM64)
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
+  limits:
+    cpu: 100m
+    memory: 128Mi
+
+nodeSelector:
+  kubernetes.io/os: linux
+
+# Webhook component (validates certificate resources)
+webhook:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+  nodeSelector:
+    kubernetes.io/os: linux
+
+# CA injector (injects CA bundles into webhooks/APIServices)
+cainjector:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+  nodeSelector:
+    kubernetes.io/os: linux

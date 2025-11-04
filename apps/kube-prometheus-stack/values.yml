@@ -1,0 +1,207 @@
+---
+# kube-prometheus-stack Helm Values
+# Comprehensive monitoring with Prometheus, Grafana, and Alertmanager
+
+prometheus:
+  prometheusSpec:
+    # Persistent storage for metrics data
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: longhorn
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+    # Resource limits for Pi CM5 nodes
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+    # Init container resource limits
+    initContainers:
+      - name: init-config-reloader
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+    # Config reloader sidecar resource limits
+    containers:
+      - name: config-reloader
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+    nodeSelector:
+      kubernetes.io/os: linux
+
+  # Ingress for Prometheus UI
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - prometheus.jardoole.xyz
+    paths:
+      - /
+    pathType: Prefix
+    tls:
+      - secretName: prometheus-tls-secret
+        hosts:
+          - prometheus.jardoole.xyz
+
+grafana:
+  # Persistent storage for dashboards and data
+  persistence:
+    enabled: true
+    storageClassName: longhorn
+    size: 5Gi
+
+  # Resource limits
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  # Sidecar configuration for auto-loading dashboards/datasources
+  sidecar:
+    dashboards:
+      enabled: true
+    datasources:
+      enabled: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+
+  # Init container for volume permissions
+  initChownData:
+    enabled: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+
+  nodeSelector:
+    kubernetes.io/os: linux
+
+  # Admin password from vault
+  adminPassword: "{{ vault_grafana_admin_password }}"
+
+  # Ingress for Grafana UI
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - grafana.jardoole.xyz
+    path: /
+    pathType: Prefix
+    tls:
+      - secretName: grafana-tls-secret
+        hosts:
+          - grafana.jardoole.xyz
+
+alertmanager:
+  alertmanagerSpec:
+    # Persistent storage for alert data
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: longhorn
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 5Gi
+    # Resource limits
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    # Init container resource limits
+    initContainers:
+      - name: init-config-reloader
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+    # Config reloader sidecar resource limits
+    containers:
+      - name: config-reloader
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+    nodeSelector:
+      kubernetes.io/os: linux
+
+prometheusOperator:
+  # Resource limits for operator
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  # Admission webhook patch job resource limits
+  admissionWebhooks:
+    patch:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 100m
+          memory: 128Mi
+
+kube-state-metrics:
+  # Resource limits for kube-state-metrics
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+prometheus-node-exporter:
+  # Resource limits for node exporter (runs on all nodes)
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi

@@ -23,7 +23,7 @@
         enabled: true
         state: started
 
-- name: Phase 3b - Deploy Longhorn Storage System
+- name: Phase 3b - Pre-deployment Verification
   hosts: control_plane
   become: true
   gather_facts: true
@@ -71,120 +71,20 @@
           - This path should be mounted from LUKS-encrypted LVM volume
           - Total storage capacity: ~6TB across {{ groups['workers'] | length }} node(s)
 
-    - name: Restart CoreDNS for fresh DNS resolution
-      ansible.builtin.command:
-        cmd: kubectl -n kube-system rollout restart deployment coredns
-      environment:
-        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-      changed_when: true
-      register: coredns_restart
+- name: Phase 3c - Deploy Longhorn Application
+  import_playbook: ../../apps/longhorn/app.yml
 
-    - name: Wait for CoreDNS to be ready
-      kubernetes.core.k8s_info:
-        api_version: apps/v1
-        kind: Deployment
-        name: coredns
-        namespace: kube-system
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-        wait: true
-        wait_condition:
-          type: Available
-          status: "True"
-        wait_timeout: 120
+- name: Phase 3d - Post-deployment Verification
+  hosts: control_plane
+  become: true
+  gather_facts: true
+  run_once: true
 
-    - name: Create Longhorn namespace
-      kubernetes.core.k8s:
-        name: "{{ longhorn_namespace }}"
-        api_version: v1
-        kind: Namespace
-        state: present
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
+  vars:
+    longhorn_namespace: "longhorn-system"
+    longhorn_chart_version: "1.10.0"
 
-    - name: Install Longhorn using Helm
-      kubernetes.core.helm:
-        name: longhorn
-        chart_ref: longhorn/longhorn
-        release_namespace: "{{ longhorn_namespace }}"
-        create_namespace: true
-        chart_version: "{{ longhorn_chart_version }}"
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-        values:
-          defaultSettings:
-            # Replica count: 1 (we have 1 worker node with storage)
-            defaultReplicaCount: "1"
-            # Data locality: prefer storing data on same node as workload
-            defaultDataLocality: best-effort
-            # Soft anti-affinity: allow replicas on same node if needed
-            replicaSoftAntiAffinity: true
-          longhornUI:
-            replicas: 1
-          persistence:
-            # Make Longhorn the default storage class
-            defaultClass: true
-            defaultFsType: ext4
-            defaultClassReplicaCount: 1 # Matches infrastructure
-            # Retain volumes when PVC is deleted (safety)
-            reclaimPolicy: Retain
-          csi:
-            # K3s v0.10.0+ uses standard kubelet path
-            # See: https://longhorn.io/docs/1.10.0/advanced-resources/os-distro-specific/csi-on-k3s/
-            kubeletRootDir: /var/lib/kubelet
-          longhornManager:
-            nodeSelector:
-              kubernetes.io/os: linux
-          longhornDriver:
-            nodeSelector:
-              kubernetes.io/os: linux
-
-    - name: Wait for Longhorn manager to be ready
-      kubernetes.core.k8s_info:
-        api_version: apps/v1
-        kind: DaemonSet
-        name: longhorn-manager
-        namespace: "{{ longhorn_namespace }}"
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-        wait: true
-        wait_timeout: 300
-      register: longhorn_manager
-
-    - name: Wait for Longhorn UI to be ready
-      kubernetes.core.k8s_info:
-        api_version: apps/v1
-        kind: Deployment
-        name: longhorn-ui
-        namespace: "{{ longhorn_namespace }}"
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-        wait: true
-        wait_condition:
-          type: Available
-          status: "True"
-        wait_timeout: 300
-
-    - name: Create Longhorn ingress for UI access
-      kubernetes.core.k8s:
-        definition:
-          apiVersion: networking.k8s.io/v1
-          kind: Ingress
-          metadata:
-            name: longhorn-ui
-            namespace: "{{ longhorn_namespace }}"
-            annotations:
-              traefik.ingress.kubernetes.io/router.entrypoints: web
-          spec:
-            ingressClassName: traefik
-            rules:
-              - host: longhorn.internal
-                http:
-                  paths:
-                    - path: /
-                      pathType: Prefix
-                      backend:
-                        service:
-                          name: longhorn-frontend
-                          port:
-                            number: 80
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-
+  tasks:
     - name: Get Longhorn system status
       kubernetes.core.k8s_info:
         api_version: v1
@@ -229,8 +129,7 @@
           {% endfor %}
 
           Access Longhorn UI:
-          - http://longhorn.internal (via Traefik)
-          - Add to /etc/hosts or configure local DNS
+          - https://longhorn.jardoole.xyz (via Traefik with TLS)
 
           Storage Configuration:
           - Replica count: 1 (matches 1 worker node with storage)

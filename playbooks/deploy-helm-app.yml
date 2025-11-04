@@ -50,9 +50,6 @@
         - prerequisites_playbook is defined
         - prerequisites_playbook | length > 0
 
-    - name: Validate Helm chart and values
-      ansible.builtin.include_tasks: "{{ playbook_dir }}/../apps/_common/tasks/validate-chart.yml"
-
     - name: Create or update namespace
       kubernetes.core.k8s:
         definition:

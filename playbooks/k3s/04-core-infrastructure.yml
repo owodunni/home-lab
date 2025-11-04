@@ -2,7 +2,7 @@
 # Phase 4: Core Infrastructure
 # Installs essential cluster services like cert-manager and metrics-server
 
-- name: Phase 4 - Core Infrastructure
+- name: Phase 4a - Pre-deployment Overview
   hosts: control_plane
   become: true
   gather_facts: true
@@ -28,95 +28,20 @@
           - Resource monitoring and autoscaling capabilities
           - Foundation for secure application deployment
 
-    - name: Install cert-manager using Helm
-      kubernetes.core.helm:
-        name: cert-manager
-        chart_ref: jetstack/cert-manager
-        release_namespace: "{{ cert_manager_namespace }}"
-        create_namespace: true
-        chart_version: "{{ cert_manager_version }}"
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-        values:
-          installCRDs: true  # Let Helm handle CRDs automatically
-          global:
-            leaderElection:
-              namespace: "{{ cert_manager_namespace }}"
-          # Custom DNS servers for DNS-01 challenge validation
-          # Use CoreDNS which forwards to router (192.168.0.1) - same path as MinIO certbot
-          # CoreDNS forwards to /etc/resolv.conf (192.168.0.1) which routes to external DNS
-          extraArgs:
-            - --dns01-recursive-nameservers=10.43.0.10:53
-            - --dns01-recursive-nameservers-only
-          # Resource limits for Pi CM5 nodes (ARM64, limited resources)
-          resources:
-            requests:
-              cpu: 10m
-              memory: 64Mi
-            limits:
-              cpu: 100m
-              memory: 128Mi
-          webhook:
-            resources:
-              requests:
-                cpu: 10m
-                memory: 64Mi
-              limits:
-                cpu: 100m
-                memory: 128Mi
-            nodeSelector:
-              kubernetes.io/os: linux
-          cainjector:
-            resources:
-              requests:
-                cpu: 10m
-                memory: 64Mi
-              limits:
-                cpu: 100m
-                memory: 128Mi
-            nodeSelector:
-              kubernetes.io/os: linux
-          nodeSelector:
-            kubernetes.io/os: linux
+- name: Phase 4b - Deploy cert-manager Application
+  import_playbook: ../../apps/cert-manager/app.yml
 
-    - name: Wait for cert-manager to be ready
-      kubernetes.core.k8s_info:
-        api_version: apps/v1
-        kind: Deployment
-        name: cert-manager
-        namespace: "{{ cert_manager_namespace }}"
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-        wait: true
-        wait_condition:
-          type: Available
-          status: "True"
-        wait_timeout: 300
+- name: Phase 4c - Configure ClusterIssuers and Post-deployment
+  hosts: control_plane
+  become: true
+  gather_facts: true
+  run_once: true
 
-    - name: Wait for cert-manager-webhook to be ready
-      kubernetes.core.k8s_info:
-        api_version: apps/v1
-        kind: Deployment
-        name: cert-manager-webhook
-        namespace: "{{ cert_manager_namespace }}"
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-        wait: true
-        wait_condition:
-          type: Available
-          status: "True"
-        wait_timeout: 300
+  vars:
+    cert_manager_version: "v1.13.2"
+    cert_manager_namespace: "cert-manager"
 
-    - name: Wait for cert-manager-cainjector to be ready
-      kubernetes.core.k8s_info:
-        api_version: apps/v1
-        kind: Deployment
-        name: cert-manager-cainjector
-        namespace: "{{ cert_manager_namespace }}"
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-        wait: true
-        wait_condition:
-          type: Available
-          status: "True"
-        wait_timeout: 300
-
+  tasks:
     - name: Verify cert-manager CRDs are registered
       ansible.builtin.command:
         cmd: >
@@ -143,33 +68,13 @@
         - webhook_endpoints.stdout | length > 0
       changed_when: false
 
-    - name: Restart CoreDNS for fresh webhook DNS resolution
-      ansible.builtin.command:
-        cmd: kubectl -n kube-system rollout restart deployment coredns
-      environment:
-        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-      changed_when: true
-
-    - name: Wait for CoreDNS to be ready after restart
-      kubernetes.core.k8s_info:
-        api_version: apps/v1
-        kind: Deployment
-        name: coredns
-        namespace: kube-system
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-        wait: true
-        wait_condition:
-          type: Available
-          status: "True"
-        wait_timeout: 120
-
-    - name: Pause for webhook and DNS propagation
+    - name: Pause for webhook and API server registration
       ansible.builtin.pause:
         seconds: 60
         prompt: >
           Waiting for:
           - API server to register cert-manager webhook
-          - CoreDNS to propagate webhook service DNS
+          - Webhook service DNS to propagate
           - CNI hairpin mode to update for service connectivity
 
     - name: Display cert-manager readiness
@@ -179,7 +84,6 @@
           ✓ cert-manager webhook ready ({{ webhook_endpoints.stdout }})
           ✓ cert-manager cainjector ready
           ✓ CRDs registered and serving
-          ✓ CoreDNS restarted for webhook DNS
 
           Safe to create ClusterIssuers
 

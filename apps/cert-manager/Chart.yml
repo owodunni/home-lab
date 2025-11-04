@@ -1,0 +1,10 @@
+---
+# Chart metadata for cert-manager
+chart_repository: jetstack
+chart_name: cert-manager
+chart_version: v1.13.2
+release_name: cert-manager
+namespace: cert-manager
+description: "Certificate management for Kubernetes with Let's Encrypt support"
+create_namespace: true
+wait_for_ready: true

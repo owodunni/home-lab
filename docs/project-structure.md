@@ -27,7 +27,6 @@ home-lab/
 │   │   ├── values/             # Reusable Helm value templates
 │   │   │   └── resource-limits.yml  # Resource limit profiles
 │   │   └── tasks/              # Reusable Ansible tasks
-│   │       ├── validate-chart.yml   # Chart validation
 │   │       └── wait-for-ready.yml   # Deployment readiness checks
 │   └── <app-name>/             # Individual app directory
 │       ├── Chart.yml           # Helm chart metadata
@@ -108,8 +107,9 @@ Provides reusable YAML anchors for Pi CM5-optimized resource limits:
 **apps/_common/tasks/**
 Reusable Ansible tasks for app deployment:
 
-- `validate-chart.yml` - Helm lint and manifest validation
 - `wait-for-ready.yml` - Wait for deployments to reach ready state
+
+**Validation**: Chart and values validation handled by `make lint-apps` (runs yamllint + helm template) and pre-commit hooks.
 
 ### Deployment Workflow
 

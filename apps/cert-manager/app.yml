@@ -1,0 +1,8 @@
+---
+# cert-manager deployment playbook
+- name: Deploy cert-manager
+  import_playbook: ../../playbooks/deploy-helm-app.yml
+  vars:
+    app_chart_file: "{{ inventory_dir }}/apps/cert-manager/Chart.yml"
+    app_values_file: "{{ inventory_dir }}/apps/cert-manager/values.yml"
+    prerequisites_playbook: "{{ inventory_dir }}/apps/cert-manager/prerequisites.yml"

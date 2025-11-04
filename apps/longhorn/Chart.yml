@@ -1,0 +1,10 @@
+---
+# Chart metadata for Longhorn
+chart_repository: longhorn
+chart_name: longhorn
+chart_version: 1.10.0
+release_name: longhorn
+namespace: longhorn-system
+description: "Distributed block storage system for Kubernetes"
+create_namespace: true
+wait_for_ready: true

@@ -1,0 +1,7 @@
+---
+# kube-prometheus-stack deployment playbook
+- name: Deploy kube-prometheus-stack
+  import_playbook: ../../playbooks/deploy-helm-app.yml
+  vars:
+    app_chart_file: "{{ inventory_dir }}/apps/kube-prometheus-stack/Chart.yml"
+    app_values_file: "{{ inventory_dir }}/apps/kube-prometheus-stack/values.yml"

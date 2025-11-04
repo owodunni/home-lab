@@ -30,7 +30,6 @@ apps/
 │   ├── values/               # Reusable Helm value templates
 │   │   └── resource-limits.yml
 │   └── tasks/                # Reusable Ansible tasks
-│       ├── validate-chart.yml
 │       └── wait-for-ready.yml
 └── <app-name>/               # Individual app directory
     ├── Chart.yml             # Helm chart metadata
@@ -70,13 +69,6 @@ Usage in `values.yml`:
 
 # Your app configuration
 ```
-
-### Validation Tasks (`_common/tasks/validate-chart.yml`)
-
-Automatically validates Helm charts before deployment:
-- Helm lint with strict mode
-- Template rendering validation
-- Manifest schema validation
 
 ### Readiness Checks (`_common/tasks/wait-for-ready.yml`)
 
