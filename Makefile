@@ -2,7 +2,7 @@
 # Fix macOS fork safety issue with Python 3.13 + Ansible multiprocessing
 ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
-.PHONY: help setup beelink-setup beelink-storage lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio minio-uninstall k3s-cluster k3s-cluster-check k3s-uninstall k8s-apps k8s-apps-check helm-lint helm-validate app-deploy app-upgrade app-list app-status teardown teardown-check
+.PHONY: help setup beelink-setup beelink-storage lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio minio-uninstall k3s-cluster k3s-cluster-check k3s-uninstall k8s-apps k8s-apps-check lint-apps app-deploy app-upgrade app-list app-status teardown teardown-check
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -95,23 +95,28 @@ k8s-apps-check: ## 🔍 Check Kubernetes applications deployment (dry-run)
 	@echo "Checking Kubernetes applications deployment (dry-run)..."
 	$(ANSIBLE_PLAYBOOK) playbooks/k8s-applications.yml --check --diff
 
-helm-lint: ## 📋 Lint all Helm values files in apps/
-	@echo "Linting Helm values files..."
-	@find apps/ -name 'values*.yml' -type f | while read file; do \
-		echo "Linting $$file..."; \
+lint-apps: ## 📋 Lint and validate all app configurations
+	@echo "=== Linting YAML Files ==="
+	@find apps/ -name 'values*.yml' -type f ! -path 'apps/_common/*' | while read file; do \
+		echo "Checking $$file..."; \
 		uv run yamllint -d relaxed "$$file" || exit 1; \
 	done
-	@echo "✅ All Helm values files passed linting"
-
-helm-validate: ## ✅ Validate Helm charts with template rendering
-	@echo "Validating Helm chart templates..."
-	@echo "Note: Full validation requires chart deployment context"
+	@echo ""
+	@echo "=== Validating Helm Chart Templates ==="
 	@find apps/*/Chart.yml -type f | while read chartfile; do \
 		dir=$$(dirname $$chartfile); \
+		appname=$$(basename $$dir); \
 		if [ -f "$$dir/values.yml" ]; then \
-			echo "Validating $$dir..."; \
+			repo=$$(grep '^chart_repository:' $$chartfile | awk '{print $$2}'); \
+			chart=$$(grep '^chart_name:' $$chartfile | awk '{print $$2}'); \
+			version=$$(grep '^chart_version:' $$chartfile | awk '{print $$2}'); \
+			echo ""; \
+			echo "--- Rendering $$appname ($$repo/$$chart:$$version) ---"; \
+			uv run helm template $$appname $$repo/$$chart --version $$version -f $$dir/values.yml || exit 1; \
 		fi \
 	done
+	@echo ""
+	@echo "✅ All apps validated successfully"
 
 app-deploy: ## 🚀 Deploy specific app (usage: make app-deploy APP=cert-manager)
 	@if [ -z "$(APP)" ]; then \
@@ -137,27 +142,27 @@ app-upgrade: ## 🔄 Upgrade specific app (usage: make app-upgrade APP=cert-mana
 
 app-list: ## 📦 List all deployed Helm releases
 	@echo "Deployed applications:"
-	@uv run helm list --all-namespaces --kubeconfig=/etc/rancher/k3s/k3s.yaml || \
+	@uv run helm list --all-namespaces || \
 		(echo "Note: Run this command on a control plane node" && exit 1)
 
-app-status: ## 📊 Show status of specific app (usage: make app-status APP=cert-manager)
+app-status: ## 📊 Show status of specific app (usage: make app-status APP=demo-app)
 	@if [ -z "$(APP)" ]; then \
 		echo "Error: APP parameter required. Usage: make app-status APP=<app-name>"; \
 		exit 1; \
 	fi
-	@echo "Status of $(APP):"
-	@if [ -f "apps/$(APP)/Chart.yml" ]; then \
-		namespace=$$(grep 'namespace:' apps/$(APP)/Chart.yml | awk '{print $$2}'); \
-		release=$$(grep 'release_name:' apps/$(APP)/Chart.yml | awk '{print $$2}'); \
-		echo "Helm status:"; \
-		uv run helm status $$release -n $$namespace --kubeconfig=/etc/rancher/k3s/k3s.yaml || true; \
-		echo ""; \
-		echo "Pods:"; \
-		kubectl get pods -n $$namespace -l app.kubernetes.io/instance=$$release --kubeconfig=/etc/rancher/k3s/k3s.yaml || true; \
-	else \
+	@if [ ! -f "apps/$(APP)/Chart.yml" ]; then \
 		echo "Error: Chart.yml not found for $(APP)"; \
 		exit 1; \
 	fi
+	@namespace=$$(grep '^namespace:' apps/$(APP)/Chart.yml | awk '{print $$2}'); \
+	release=$$(grep '^release_name:' apps/$(APP)/Chart.yml | awk '{print $$2}'); \
+	echo "Status of $(APP):"; \
+	echo ""; \
+	echo "Helm Release:"; \
+	uv run ansible pi-cm5-1 -a "helm status $$release -n $$namespace" --become || true; \
+	echo ""; \
+	echo "Pods:"; \
+	uv run ansible pi-cm5-1 -a "kubectl get pods -n $$namespace -l app.kubernetes.io/instance=$$release" --become || true
 
 teardown-check: ## 🔍 Preview infrastructure teardown (dry-run with diff)
 	@echo "⚠️ PREVIEW: Infrastructure Teardown (dry-run)"

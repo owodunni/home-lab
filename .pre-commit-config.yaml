@@ -22,9 +22,9 @@ repos:
         files: \.(yml|yaml)$
         pass_filenames: false
 
-      - id: helm-lint
-        name: helm lint
-        entry: make helm-lint
+      - id: lint-apps
+        name: lint apps
+        entry: make lint-apps
         language: system
         files: ^apps/.*/values.*\.yml$
         pass_filenames: false
