@@ -169,11 +169,8 @@ Update chart version in Chart.yml and redeploy.
 ### Step 6: Validate and Deploy
 
 ```bash
-# Lint Helm values
-make helm-lint
-
-# Validate rendered manifests
-make helm-validate
+# Lint and validate Helm values and templates
+make lint-apps
 
 # Deploy
 make app-deploy APP=my-app
@@ -284,7 +281,7 @@ persistence:
 
 2. **Validate Chart.yml:**
    ```bash
-   make helm-lint
+   make lint-apps
    ```
 
 3. **Check namespace exists:**
@@ -333,41 +330,32 @@ kubectl label namespace <namespace> name=<namespace>
 
 ## Makefile Commands Reference
 
-### helm-lint
-Lint all Helm values files in the `apps/` directory.
+### lint-apps
+Lint and validate all app configurations including YAML syntax and Helm chart templates.
 
 ```bash
-make helm-lint
+make lint-apps
 ```
 
 **Example output:**
 ```
-Linting Helm values files...
-Linting apps/test-app/values.yml...
-✓ YAML syntax valid
+=== Linting YAML Files ===
+Checking apps/test-app/values.yml...
+Checking apps/demo-app/values.yml...
+
+=== Validating Helm Chart Templates ===
+
+--- Rendering demo-app (bitnami/nginx:22.2.3) ---
+[Full YAML manifests displayed...]
+
+✅ All apps validated successfully
 ```
 
-**When to use:** Before deploying any app to catch YAML syntax errors and missing required fields.
+**When to use:** Before deploying any app to catch YAML syntax errors, template rendering issues, and validate chart compatibility.
 
 **Automated:** Runs automatically in pre-commit hooks when values files are changed.
 
----
-
-### helm-validate
-Validate Helm chart templates can be rendered correctly.
-
-```bash
-make helm-validate
-```
-
-**Example output:**
-```
-Validating Helm chart templates...
-Validating apps/test-app...
-✓ Template rendering successful
-```
-
-**When to use:** After creating/modifying Chart.yml or values.yml files.
+**Note:** Shows full rendered manifests for debugging. Validates both YAML syntax and Helm template rendering.
 
 ---
 
@@ -520,7 +508,7 @@ cat > app.yml <<EOF
 EOF
 
 # 5. Validate
-make helm-lint
+make lint-apps
 
 # 6. Deploy
 make app-deploy APP=my-app
