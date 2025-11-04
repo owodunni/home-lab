@@ -1,9 +1,9 @@
 ---
-# Phase 3: Storage Systems (Longhorn)
+# Phase 4: Storage Systems (Longhorn)
 # Installs Longhorn distributed storage system for persistent volumes
 # Note: MinIO backup integration will be added in a future phase
 
-- name: Phase 3a - Install Longhorn Prerequisites on All Nodes
+- name: Phase 4a - Install Longhorn Prerequisites on All Nodes
   hosts: k3s_cluster
   become: true
   gather_facts: true
@@ -23,7 +23,7 @@
         enabled: true
         state: started
 
-- name: Phase 3b - Pre-deployment Verification
+- name: Phase 4b - Pre-deployment Verification
   hosts: control_plane
   become: true
   gather_facts: true
@@ -34,10 +34,10 @@
     longhorn_chart_version: "1.10.0" # Latest stable as of 2025 november
 
   tasks:
-    - name: Display Phase 3 overview
+    - name: Display Phase 4 overview
       ansible.builtin.debug:
         msg: |
-          Phase 3: Storage Systems (Longhorn)
+          Phase 4: Storage Systems (Longhorn)
           ===================================
           - Install Longhorn {{ longhorn_chart_version }} distributed storage
           - Configure basic storage class with 1 replica (matches infrastructure)
@@ -71,10 +71,10 @@
           - This path should be mounted from LUKS-encrypted LVM volume
           - Total storage capacity: ~6TB across {{ groups['workers'] | length }} node(s)
 
-- name: Phase 3c - Deploy Longhorn Application
+- name: Phase 4c - Deploy Longhorn Application
   import_playbook: ../../apps/longhorn/app.yml
 
-- name: Phase 3d - Post-deployment Verification
+- name: Phase 4d - Post-deployment Verification
   hosts: control_plane
   become: true
   gather_facts: true
@@ -109,10 +109,10 @@
         fail_msg: "Longhorn default storage class not found!"
         success_msg: "✓ Longhorn storage class created successfully"
 
-    - name: Display Phase 3 completion
+    - name: Display Phase 4 completion
       ansible.builtin.debug:
         msg: |
-          Phase 3 Complete: Storage Systems (Longhorn)
+          Phase 4 Complete: Storage Systems (Longhorn)
           ============================================
           ✓ Longhorn {{ longhorn_chart_version }} installed in {{ longhorn_namespace }} namespace
           ✓ Longhorn manager pods: {{ longhorn_pods.resources | length }} running

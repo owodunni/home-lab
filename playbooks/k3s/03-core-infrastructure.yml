@@ -1,8 +1,8 @@
 ---
-# Phase 4: Core Infrastructure
+# Phase 3: Core Infrastructure
 # Installs essential cluster services like cert-manager and metrics-server
 
-- name: Phase 4a - Pre-deployment Overview
+- name: Phase 3a - Pre-deployment Overview
   hosts: control_plane
   become: true
   gather_facts: true
@@ -13,10 +13,10 @@
     cert_manager_namespace: "cert-manager"
 
   tasks:
-    - name: Display Phase 4 overview
+    - name: Display Phase 3 overview
       ansible.builtin.debug:
         msg: |
-          Phase 4: Core Infrastructure
+          Phase 3: Core Infrastructure
           ============================
           - Install cert-manager {{ cert_manager_version }} for SSL certificate automation
           - Configure cluster issuers for Let's Encrypt
@@ -28,10 +28,10 @@
           - Resource monitoring and autoscaling capabilities
           - Foundation for secure application deployment
 
-- name: Phase 4b - Deploy cert-manager Application
+- name: Phase 3b - Deploy cert-manager Application
   import_playbook: ../../apps/cert-manager/app.yml
 
-- name: Phase 4c - Configure ClusterIssuers and Post-deployment
+- name: Phase 3c - Configure ClusterIssuers and Post-deployment
   hosts: control_plane
   become: true
   gather_facts: true
@@ -172,10 +172,10 @@
         kubeconfig: /etc/rancher/k3s/k3s.yaml
       register: cluster_issuers
 
-    - name: Display Phase 4 completion
+    - name: Display Phase 3 completion
       ansible.builtin.debug:
         msg: |
-          Phase 4 Complete: Core Infrastructure
+          Phase 3 Complete: Core Infrastructure
           =====================================
           ✓ cert-manager {{ cert_manager_version }} installed in {{ cert_manager_namespace }} namespace
           ✓ cert-manager pods: {{ cert_manager_pods.resources | length }} running
