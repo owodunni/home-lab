@@ -99,8 +99,9 @@ helm-lint: ## 📋 Lint all Helm values files in apps/
 	@echo "Linting Helm values files..."
 	@find apps/ -name 'values*.yml' -type f | while read file; do \
 		echo "Linting $$file..."; \
-		uv run helm lint --strict --values "$$file" 2>&1 | grep -v "Error: no chart found" || true; \
+		uv run yamllint -d relaxed "$$file" || exit 1; \
 	done
+	@echo "✅ All Helm values files passed linting"
 
 helm-validate: ## ✅ Validate Helm charts with template rendering
 	@echo "Validating Helm chart templates..."

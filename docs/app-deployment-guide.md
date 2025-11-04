@@ -69,9 +69,9 @@ nodeSelector:
 - name: Deploy cert-manager
   import_playbook: ../../playbooks/deploy-helm-app.yml
   vars:
-    app_chart_file: "{{ playbook_dir }}/Chart.yml"
-    app_values_file: "{{ playbook_dir }}/values.yml"
-    prerequisites_playbook: "{{ playbook_dir }}/prerequisites.yml"
+    app_chart_file: "{{ inventory_dir }}/apps/cert-manager/Chart.yml"
+    app_values_file: "{{ inventory_dir }}/apps/cert-manager/values.yml"
+    prerequisites_playbook: "{{ inventory_dir }}/apps/cert-manager/prerequisites.yml"
 ```
 
 ## Creating a New App
@@ -138,8 +138,8 @@ Simple wrapper playbook:
 - name: Deploy My App
   import_playbook: ../../playbooks/deploy-helm-app.yml
   vars:
-    app_chart_file: "{{ playbook_dir }}/Chart.yml"
-    app_values_file: "{{ playbook_dir }}/values.yml"
+    app_chart_file: "{{ inventory_dir }}/apps/my-app/Chart.yml"
+    app_values_file: "{{ inventory_dir }}/apps/my-app/values.yml"
 ```
 
 ### Step 5: Create README.md
@@ -219,10 +219,12 @@ Create `prerequisites.yml` for tasks that must run before deployment:
     state: started
 ```
 
-Reference in `app.yml`:
+Reference in `app.yml` (replace `my-app` with your app name):
 ```yaml
 vars:
-  prerequisites_playbook: "{{ playbook_dir }}/prerequisites.yml"
+  app_chart_file: "{{ inventory_dir }}/apps/my-app/Chart.yml"
+  app_values_file: "{{ inventory_dir }}/apps/my-app/values.yml"
+  prerequisites_playbook: "{{ inventory_dir }}/apps/my-app/prerequisites.yml"
 ```
 
 ### Using Vault Secrets
@@ -513,8 +515,8 @@ cat > app.yml <<EOF
 - name: Deploy My App
   import_playbook: ../../playbooks/deploy-helm-app.yml
   vars:
-    app_chart_file: "{{ playbook_dir }}/Chart.yml"
-    app_values_file: "{{ playbook_dir }}/values.yml"
+    app_chart_file: "{{ inventory_dir }}/apps/my-app/Chart.yml"
+    app_values_file: "{{ inventory_dir }}/apps/my-app/values.yml"
 EOF
 
 # 5. Validate

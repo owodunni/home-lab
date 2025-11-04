@@ -1,0 +1,62 @@
+---
+# Demo App - Helm Values
+# nginx with persistent storage and SSL certificates
+
+replicaCount: 1
+
+nodeSelector:
+  kubernetes.io/os: linux
+
+service:
+  type: ClusterIP
+  port: 80
+
+# Enable ingress with SSL
+ingress:
+  enabled: true
+  ingressClassName: traefik
+  hostname: demo.jardoole.xyz
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  tls: true
+  extraTls:
+    - hosts:
+        - demo.jardoole.xyz
+      secretName: demo-app-tls-secret
+
+# Persistent storage using Longhorn
+persistence:
+  enabled: true
+  storageClass: longhorn
+  accessModes:
+    - ReadWriteOnce
+  size: 1Gi
+
+# Resource limits optimized for Pi CM5
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 100m
+    memory: 128Mi
+
+# Use default nginx configuration
+# Custom server block for health checks
+serverBlock: |
+  server {
+    listen 8080;
+    server_name _;
+
+    location / {
+      root /app;
+      index index.html;
+    }
+
+    location /health {
+      access_log off;
+      return 200 "Demo app is healthy\n";
+      add_header Content-Type text/plain;
+    }
+  }

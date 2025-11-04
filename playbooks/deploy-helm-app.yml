@@ -68,6 +68,11 @@
         kubeconfig: /etc/rancher/k3s/k3s.yaml
       when: chart_metadata.create_namespace | default(true)
 
+    - name: Load Helm values
+      ansible.builtin.include_vars:
+        file: "{{ app_values_file }}"
+        name: helm_values
+
     - name: Deploy Helm chart
       kubernetes.core.helm:
         name: "{{ chart_metadata.release_name }}"
@@ -76,8 +81,7 @@
         release_namespace: "{{ chart_metadata.namespace }}"
         create_namespace: false
         kubeconfig: /etc/rancher/k3s/k3s.yaml
-        values_files:
-          - "{{ app_values_file }}"
+        values: "{{ helm_values }}"
         state: "{{ 'present' if not (upgrade_mode | default(false)) else 'present' }}"
         update_repo_cache: true
         wait: false

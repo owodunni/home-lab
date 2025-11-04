@@ -1,0 +1,10 @@
+---
+# Chart metadata for demo-app
+chart_repository: bitnami
+chart_name: nginx
+chart_version: 22.2.3
+release_name: demo-app
+namespace: applications
+description: "Demo application with persistent storage and SSL for testing app deployment workflow"
+create_namespace: true
+wait_for_ready: true
