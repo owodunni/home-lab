@@ -44,11 +44,12 @@
     name: "{{ item.metadata.name }}"
     namespace: "{{ chart_metadata.namespace }}"
     kubeconfig: /etc/rancher/k3s/k3s.yaml
-    wait: true
-    wait_condition:
-      type: Available
-      status: "True"
-    wait_timeout: 300
+  register: statefulset_status
+  until:
+    - statefulset_status.resources[0].status.readyReplicas is defined
+    - statefulset_status.resources[0].status.readyReplicas == statefulset_status.resources[0].status.replicas
+  retries: 60
+  delay: 5
   loop: "{{ statefulsets.resources }}"
   when: statefulsets.resources | length > 0
 
