@@ -2,7 +2,7 @@
 # Fix macOS fork safety issue with Python 3.13 + Ansible multiprocessing
 ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
-.PHONY: help setup beelink-setup beelink-storage lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio minio-uninstall k3s-cluster k3s-cluster-check k3s-uninstall k8s-apps k8s-apps-check lint-apps app-deploy app-upgrade app-list app-status teardown teardown-check
+.PHONY: help setup beelink-setup beelink-storage lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio minio-uninstall k3s-cluster k3s-cluster-check k3s-uninstall kubeconfig-update k8s-apps k8s-apps-check lint-apps app-deploy app-upgrade app-list app-status teardown teardown-check
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -86,6 +86,16 @@ k3s-check: ## 🔍 Check complete K3s deployment (dry-run)
 k3s-teardown: ## 🧹 Completely uninstall K3s from all control plane nodes
 	@echo "Uninstalling K3s from all control plane nodes..."
 	$(ANSIBLE_PLAYBOOK) playbooks/k3s-uninstall.yml
+
+kubeconfig-update: ## 🔑 Update local kubeconfig from control plane node
+	@echo "Updating ~/.kube/config from control plane..."
+	@mkdir -p ~/.kube
+	@uv run ansible pi-cm5-1 -a "cat /etc/rancher/k3s/k3s.yaml" -b 2>/dev/null | \
+		awk '/^apiVersion:/, /^$$/ {print}' | \
+		sed 's|https://127.0.0.1:6443|https://192.168.0.167:6443|' > ~/.kube/config
+	@echo "✅ Kubeconfig updated successfully"
+	@echo "Testing connection..."
+	@kubectl cluster-info
 
 k8s-apps: ## 🚀 Deploy Kubernetes applications (cert-manager + MinIO SSL)
 	@echo "Deploying Kubernetes applications..."

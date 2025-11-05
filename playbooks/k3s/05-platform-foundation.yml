@@ -49,6 +49,18 @@
         kubeconfig: /etc/rancher/k3s/k3s.yaml
         state: patched
 
+    - name: Label default namespace for network policies
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: default
+            labels:
+              name: default
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        state: patched
+
     - name: Create application namespaces
       kubernetes.core.k8s:
         definition:

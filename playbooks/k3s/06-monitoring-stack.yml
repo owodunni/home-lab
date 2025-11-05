@@ -46,22 +46,7 @@
   tasks:
     # Note: Certificates are auto-created by cert-manager from Ingress annotations
     # The cert-manager.io/cluster-issuer annotation triggers automatic Certificate creation
-
-    - name: Wait for certificates to be ready
-      kubernetes.core.k8s_info:
-        api_version: cert-manager.io/v1
-        kind: Certificate
-        name: "{{ item }}"
-        namespace: "{{ monitoring_namespace }}"
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-        wait: true
-        wait_condition:
-          type: Ready
-          status: "True"
-        wait_timeout: 300
-      loop:
-        - prometheus-tls-secret  # Cert-manager auto-created from ingress secretName
-        - grafana-tls-secret     # Cert-manager auto-created from ingress secretName
+    # Certificate issuance happens asynchronously and may take several minutes for DNS-01 challenges
 
     - name: Get monitoring services status
       kubernetes.core.k8s_info:
@@ -96,14 +81,14 @@
           ✓ Grafana dashboard deployed with persistent storage
           ✓ Services: {{ monitoring_services.resources | length }} running
           ✓ Ingress routes: {{ ingress_status.resources | length }} configured
-          ✓ SSL certificates: {{ certificate_status.resources | length }} issued
+          ⏳ SSL certificates: {{ certificate_status.resources | length }} requested (issuance in progress)
 
-          External HTTPS Access:
+          External HTTPS Access (may take 5-10 minutes for certificates):
           - Prometheus: https://{{ prometheus_domain }}
           - Grafana: https://{{ grafana_domain }}
             Default login: admin / {{ vault_grafana_admin_password }}
 
-          Certificate Status:
+          Certificate Status (check with: kubectl get certificate -n {{ monitoring_namespace }}):
           {% for cert in certificate_status.resources %}
           - {{ cert.metadata.name }}: {{
               cert.status.conditions |
