@@ -2,7 +2,10 @@
 # Phase 3: Core Infrastructure
 # Installs essential cluster services like cert-manager and metrics-server
 
-- name: Phase 3a - Pre-deployment Overview
+- name: Phase 3a - Deploy cert-manager Application
+  import_playbook: ../../apps/cert-manager/app.yml
+
+- name: Phase 3b - Core Infrastructure
   hosts: control_plane
   become: true
   gather_facts: true
@@ -28,20 +31,45 @@
           - Resource monitoring and autoscaling capabilities
           - Foundation for secure application deployment
 
-- name: Phase 3b - Deploy cert-manager Application
-  import_playbook: ../../apps/cert-manager/app.yml
+    - name: Wait for cert-manager to be ready
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: cert-manager
+        namespace: "{{ cert_manager_namespace }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        wait: true
+        wait_condition:
+          type: Available
+          status: "True"
+        wait_timeout: 300
 
-- name: Phase 3c - Configure ClusterIssuers and Post-deployment
-  hosts: control_plane
-  become: true
-  gather_facts: true
-  run_once: true
+    - name: Wait for cert-manager-webhook to be ready
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: cert-manager-webhook
+        namespace: "{{ cert_manager_namespace }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        wait: true
+        wait_condition:
+          type: Available
+          status: "True"
+        wait_timeout: 300
 
-  vars:
-    cert_manager_version: "v1.13.2"
-    cert_manager_namespace: "cert-manager"
+    - name: Wait for cert-manager-cainjector to be ready
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: cert-manager-cainjector
+        namespace: "{{ cert_manager_namespace }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        wait: true
+        wait_condition:
+          type: Available
+          status: "True"
+        wait_timeout: 300
 
-  tasks:
     - name: Verify cert-manager CRDs are registered
       ansible.builtin.command:
         cmd: >
@@ -68,26 +96,6 @@
         - webhook_endpoints.stdout | length > 0
       changed_when: false
 
-    - name: Restart CoreDNS for fresh webhook DNS resolution
-      ansible.builtin.command:
-        cmd: kubectl -n kube-system rollout restart deployment coredns
-      environment:
-        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-      changed_when: true
-
-    - name: Wait for CoreDNS to be ready after restart
-      kubernetes.core.k8s_info:
-        api_version: apps/v1
-        kind: Deployment
-        name: coredns
-        namespace: kube-system
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-        wait: true
-        wait_condition:
-          type: Available
-          status: "True"
-        wait_timeout: 120
-
     - name: Pause for webhook and DNS propagation
       ansible.builtin.pause:
         seconds: 60
@@ -104,6 +112,7 @@
           ✓ cert-manager webhook ready ({{ webhook_endpoints.stdout }})
           ✓ cert-manager cainjector ready
           ✓ CRDs registered and serving
+          ✓ CoreDNS restarted for webhook DNS
 
           Safe to create ClusterIssuers
 
