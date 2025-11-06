@@ -69,11 +69,18 @@ Complete home lab infrastructure with K3s Kubernetes cluster, Longhorn distribut
 - **Access:** kubectl via any cluster node (pi-cm5-1, pi-cm5-2, pi-cm5-3)
 - **Documentation:** See `docs/k3s-cluster-setup.md`, `docs/k3s-maintenance-guide.md`
 
-### Phase 6b: Kubernetes Applications (NEEDS WORK)
-- **Status:** ⚠️ Problematic - Currently commented out of site.yml
-- **Issue:** k8s-applications playbook has issues and needs debugging/testing
-- **Command:** `make k8s-apps` (when fixed)
-- **Note:** Excluded from `make site` until properly tested and verified
+### Phase 6b: Kubernetes Applications
+- **Status:** ✅ Complete - Migrated to standardized apps/ structure
+- **Deployed Apps:**
+  - cert-manager (via 03-core-infrastructure.yml)
+  - longhorn (via 04-storage-systems.yml)
+  - kube-prometheus-stack (via 06-monitoring-stack.yml)
+- **Commands:**
+  - `make app-deploy APP=<name>` - Deploy specific app
+  - `make apps-deploy-all` - Deploy all apps
+  - `make app-list` - List deployed apps
+  - `make app-status APP=<name>` - Show app status
+- **Note:** Old k8s-applications.yml removed in favor of modular apps/ structure
 
 ---
 
@@ -308,6 +315,14 @@ make k3s-cluster        # Deploy K3s HA cluster standalone
 make k3s-uninstall      # Uninstall K3s for debugging
 make teardown           # Complete infrastructure removal
 make upgrade            # System updates
+
+# K8s application management
+make apps-deploy-all    # Deploy all apps in apps/ directory
+make app-deploy APP=... # Deploy specific app
+make app-upgrade APP=.. # Upgrade specific app
+make app-list           # List deployed Helm releases
+make app-status APP=... # Show detailed app status
+make lint-apps          # Lint and validate all app configs
 
 # Development
 make setup              # Install dependencies

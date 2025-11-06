@@ -1,5 +1,2 @@
-# Ansible-lint ignore file for justified exceptions
-# Format: filename rule_name [optional comment]
-
 # Pi CM5 config.txt permissions: Intentionally preserving RPi OS defaults
 roles/pi_cm5_config/tasks/main.yml risky-file-permissions

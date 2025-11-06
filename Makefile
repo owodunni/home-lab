@@ -2,7 +2,7 @@
 # Fix macOS fork safety issue with Python 3.13 + Ansible multiprocessing
 ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
-.PHONY: help setup beelink-setup beelink-storage lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio minio-uninstall k3s-cluster k3s-cluster-check k3s-uninstall kubeconfig-update k8s-apps k8s-apps-check lint-apps app-deploy app-upgrade app-list app-status teardown teardown-check
+.PHONY: help setup beelink-setup beelink-storage lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio minio-uninstall k3s-cluster k3s-cluster-check k3s-uninstall kubeconfig-update lint-apps app-deploy app-upgrade app-list app-status apps-deploy-all teardown teardown-check
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -97,14 +97,6 @@ kubeconfig-update: ## 🔑 Update local kubeconfig from control plane node
 	@echo "Testing connection..."
 	@kubectl cluster-info
 
-k8s-apps: ## 🚀 Deploy Kubernetes applications (cert-manager + MinIO SSL)
-	@echo "Deploying Kubernetes applications..."
-	$(ANSIBLE_PLAYBOOK) playbooks/k8s-applications.yml --diff
-
-k8s-apps-check: ## 🔍 Check Kubernetes applications deployment (dry-run)
-	@echo "Checking Kubernetes applications deployment (dry-run)..."
-	$(ANSIBLE_PLAYBOOK) playbooks/k8s-applications.yml --check --diff
-
 lint-apps: ## 📋 Lint and validate all app configurations
 	@echo "=== Linting YAML Files ==="
 	@find apps/ -name 'values*.yml' -type f ! -path 'apps/_common/*' | while read file; do \
@@ -174,6 +166,23 @@ app-status: ## 📊 Show status of specific app (usage: make app-status APP=demo
 	echo "Pods:"; \
 	uv run ansible pi-cm5-1 -a "kubectl get pods -n $$namespace -l app.kubernetes.io/instance=$$release" --become || true
 
+apps-deploy-all: ## 🚀 Deploy all apps in apps/ directory
+	@echo "Discovering apps in apps/ directory..."
+	@apps=$$(ls -1 apps/ | grep -v "^_common$$" | grep -v "README.md"); \
+	count=$$(echo "$$apps" | wc -l); \
+	echo "Found $$count app(s) to deploy"; \
+	echo ""; \
+	for app in $$apps; do \
+		if [ -f "apps/$$app/app.yml" ]; then \
+			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+			echo "Deploying $$app..."; \
+			echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"; \
+			$(ANSIBLE_PLAYBOOK) apps/$$app/app.yml --diff || exit 1; \
+			echo ""; \
+		fi \
+	done; \
+	echo "✅ All apps deployed successfully"
+
 teardown-check: ## 🔍 Preview infrastructure teardown (dry-run with diff)
 	@echo "⚠️ PREVIEW: Infrastructure Teardown (dry-run)"
 	@echo "This will show what would be removed:"
@@ -202,13 +211,10 @@ teardown: ## 💣 Complete infrastructure teardown (K3s + MinIO + certificates)
 	@echo ""
 	@read -p "Are you sure you want to proceed? (yes/no): " answer && [ "$$answer" = "yes" ] || (echo "Teardown cancelled." && exit 1)
 	@echo ""
-	@echo "Phase 1: Uninstalling Kubernetes applications..."
-	-$(ANSIBLE_PLAYBOOK) playbooks/k8s-applications.yml --tags=uninstall
-	@echo ""
-	@echo "Phase 2: Uninstalling K3s cluster..."
+	@echo "Phase 1: Uninstalling K3s cluster..."
 	$(ANSIBLE_PLAYBOOK) playbooks/k3s-uninstall.yml
 	@echo ""
-	@echo "Phase 3: Uninstalling MinIO and certificates..."
+	@echo "Phase 2: Uninstalling MinIO and certificates..."
 	$(ANSIBLE_PLAYBOOK) playbooks/minio-uninstall.yml
 	@echo ""
 	@echo "🏁 Infrastructure teardown complete!"

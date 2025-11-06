@@ -156,10 +156,6 @@
           K3s: {{ 'OK' if k3s_result.rc == 0 else 'FAILED (RC: ' + k3s_result.rc | string + ')' }}
       when: minio_result.rc != 0 or k3s_result.rc != 0
 
-# Phase 5: Kubernetes applications deployment
-# - name: Phase 5 - Kubernetes Applications Deployment
-#  import_playbook: playbooks/k8s-applications.yml
-
 # Final status summary
 - name: Setup Complete
   hosts: localhost

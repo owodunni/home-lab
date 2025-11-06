@@ -28,6 +28,7 @@ Thumbs.db
 *.tmp
 *.temp
 .tmp/
+tree/
 
 # Logs
 *.log
