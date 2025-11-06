@@ -63,6 +63,31 @@
       - "app.kubernetes.io/instance={{ chart_metadata.release_name }}"
   register: daemonsets
 
+- name: Get all certificates in namespace
+  kubernetes.core.k8s_info:
+    api_version: cert-manager.io/v1
+    kind: Certificate
+    namespace: "{{ chart_metadata.namespace }}"
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    label_selectors:
+      - "app.kubernetes.io/instance={{ chart_metadata.release_name }}"
+  register: certificates
+
+- name: Wait for certificates to be ready
+  kubernetes.core.k8s_info:
+    api_version: cert-manager.io/v1
+    kind: Certificate
+    name: "{{ item.metadata.name }}"
+    namespace: "{{ chart_metadata.namespace }}"
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    wait: true
+    wait_condition:
+      type: Ready
+      status: "True"
+    wait_timeout: 600
+  loop: "{{ certificates.resources }}"
+  when: certificates.resources | length > 0
+
 - name: Display deployment summary
   ansible.builtin.debug:
     msg: |
@@ -70,3 +95,4 @@
       - Deployments ready: {{ deployments.resources | length }}
       - StatefulSets ready: {{ statefulsets.resources | length }}
       - DaemonSets found: {{ daemonsets.resources | length }}
+      - Certificates ready: {{ certificates.resources | length }}
