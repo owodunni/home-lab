@@ -1,0 +1,6 @@
+---
+- name: Deploy PostgreSQL Test
+  import_playbook: ../../playbooks/deploy-helm-app.yml
+  vars:
+    app_chart_file: "{{ inventory_dir }}/apps/postgres-test/Chart.yml"
+    app_values_file: "{{ inventory_dir }}/apps/postgres-test/values.yml"

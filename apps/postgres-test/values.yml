@@ -1,0 +1,24 @@
+---
+# Small resources for testing
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 200m
+    memory: 512Mi
+
+auth:
+  postgresPassword: "{{ vault_postgres_test_password }}"
+  username: testuser
+  password: "{{ vault_postgres_test_password }}"
+  database: testdb
+
+primary:
+  persistence:
+    enabled: true
+    storageClass: longhorn  # Uses our backup-enabled storage
+    size: 2Gi
+
+  nodeSelector:
+    kubernetes.io/os: linux
