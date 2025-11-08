@@ -286,12 +286,12 @@ backup_size = volume_size × compression_ratio × retention_count
 
 ### Steps:
 
-- [ ] **Step 3.1**: Create test app directory structure
+- [x] **Step 3.1**: Create test app directory structure
   - **Command**: `mkdir -p apps/postgres-test`
   - **Why**: Follow standard app deployment pattern
   - **Reference**: docs/app-deployment-guide.md
 
-- [ ] **Step 3.2**: Create Chart.yml metadata
+- [x] **Step 3.2**: Create Chart.yml metadata
   - **File**: `apps/postgres-test/Chart.yml`
   - **Content**:
     ```yaml
@@ -306,7 +306,7 @@ backup_size = volume_size × compression_ratio × retention_count
     wait_for_ready: true
     ```
 
-- [ ] **Step 3.3**: Create values.yml with Longhorn PVC
+- [x] **Step 3.3**: Create values.yml with Longhorn PVC
   - **File**: `apps/postgres-test/values.yml`
   - **Content**:
     ```yaml
@@ -336,7 +336,7 @@ backup_size = volume_size × compression_ratio × retention_count
         kubernetes.io/os: linux
     ```
 
-- [ ] **Step 3.4**: Create app.yml deployment playbook
+- [x] **Step 3.4**: Create app.yml deployment playbook
   - **File**: `apps/postgres-test/app.yml`
   - **Content**:
     ```yaml
@@ -348,20 +348,21 @@ backup_size = volume_size × compression_ratio × retention_count
         app_values_file: "{{ inventory_dir }}/apps/postgres-test/values.yml"
     ```
 
-- [ ] **Step 3.5**: Create README.md with test procedures
+- [x] **Step 3.5**: Create README.md with test procedures
   - **File**: `apps/postgres-test/README.md`
   - **Content**: Connection instructions, SQL commands, verification steps
   - **Purpose**: Document how to test backup/restore
 
-- [ ] **Step 3.6**: Add vault secret for PostgreSQL password
+- [ ] **Step 3.6**: Add vault secret for PostgreSQL password (USER ACTION REQUIRED)
   - **Command**: `uv run ansible-vault edit group_vars/all/vault.yml`
-  - **Add**: `vault_postgres_test_password: "<generate-random-32-chars>"`
+  - **Add**: `vault_postgres_test_password: "8q5kHwQoxrKn9gbSWSPwgEcyeqi/I9Fe"`
   - **Why**: Secure credential storage
+  - **Note**: Password generated, user must add to encrypted vault file
 
-- [ ] **Step 3.7**: Validate app configuration
+- [x] **Step 3.7**: Validate app configuration
   - **Command**: `make lint-apps`
   - **Checks**: YAML syntax, Helm template rendering
-  - **Fix**: Any errors before deployment
+  - **Result**: All checks passed ✅
 
 - [ ] **Step 3.8**: Deploy PostgreSQL test application
   - **Command**: `make app-deploy APP=postgres-test`
@@ -474,23 +475,26 @@ backup_size = volume_size × compression_ratio × retention_count
   - **Sample**: `SELECT * FROM test_data LIMIT 5;` (verify content)
 
 **Files Created**:
-- `apps/postgres-test/Chart.yml`
-- `apps/postgres-test/values.yml`
-- `apps/postgres-test/app.yml`
-- `apps/postgres-test/README.md`
+- ✅ `apps/postgres-test/Chart.yml`
+- ✅ `apps/postgres-test/values.yml`
+- ✅ `apps/postgres-test/app.yml`
+- ✅ `apps/postgres-test/README.md` (complete testing procedures)
 
 **Files Updated**:
-- `group_vars/all/vault.yml` (add postgres password)
+- ⏳ `group_vars/all/vault.yml` (USER ACTION: add postgres password)
 
 **Success Criteria**:
-- ✅ PostgreSQL deployed successfully
-- ✅ 1000 test rows created
-- ✅ Manual backup completed
-- ✅ Backup visible in MinIO bucket
-- ✅ Volume restored from backup
-- ✅ PV/PVC bound correctly
-- ✅ PostgreSQL started with restored volume
-- ✅ All 1000 rows verified (100% data preservation)
+- ✅ App structure created following standard pattern
+- ✅ Configuration validated (yamllint, lint-apps passed)
+- ⏳ Vault secret added (awaiting user action)
+- ⏳ PostgreSQL deployed successfully
+- ⏳ 1000 test rows created
+- ⏳ Manual backup completed
+- ⏳ Backup visible in MinIO bucket
+- ⏳ Volume restored from backup
+- ⏳ PV/PVC bound correctly
+- ⏳ PostgreSQL started with restored volume
+- ⏳ All 1000 rows verified (100% data preservation)
 
 **RTO (Recovery Time Objective)**: 10-15 minutes for single volume restore
 **RPO (Recovery Point Objective)**: Last backup (max 24 hours with daily backups)
