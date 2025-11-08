@@ -53,66 +53,69 @@ Implement automated backup and restore system for Longhorn persistent volumes us
 
 ### Steps:
 
-- [ ] **Step 1.1**: Create MinIO credentials Kubernetes secret
+- [x] **Step 1.1**: Create MinIO credentials Kubernetes secret
   - **Why**: Store S3 access credentials securely in longhorn-system namespace
-  - **File**: `apps/longhorn/templates/minio-secret.yml`
+  - **Implementation**: Created in `apps/longhorn/prerequisites.yml` using service account credentials
   - **Content**:
     ```yaml
     apiVersion: v1
     kind: Secret
     metadata:
-      name: longhorn-minio-secret
+      name: minio-secret
       namespace: longhorn-system
     type: Opaque
     stringData:
-      AWS_ACCESS_KEY_ID: longhorn-backup
-      AWS_SECRET_ACCESS_KEY: "{{ vault_longhorn_backup_password }}"
+      AWS_ACCESS_KEY_ID: "{{ vault_longhorn_s3_access_key }}"
+      AWS_SECRET_ACCESS_KEY: "{{ vault_longhorn_s3_secret_key }}"
       AWS_ENDPOINTS: https://minio.jardoole.xyz:9000
+      VIRTUAL_HOSTED_STYLE: "false"
     ```
-  - **Note**: Use `stringData` (not `data`) to avoid base64 encoding issues
+  - **Note**: Uses MinIO service account (not user password) for S3 API access
   - **Port**: 9000 is S3 API (NOT 443 which is console)
 
-- [ ] **Step 1.2**: Update Longhorn Helm values for backup target
+- [x] **Step 1.2**: Update Longhorn Helm values for backup target
   - **Why**: Tell Longhorn where to upload backups (MinIO S3 bucket)
-  - **File**: `apps/longhorn/values.yml`
-  - **Add to `defaultSettings` section**:
+  - **Implementation**: Created BackupTarget CRD in `apps/longhorn/prerequisites.yml`
+  - **Content**:
     ```yaml
-    defaultSettings:
-      # Existing settings...
-      defaultReplicaCount: "1"
-      defaultDataLocality: best-effort
-
-      # NEW: Backup target configuration
-      backupTarget: s3://longhorn-backups@us-east-1/
-      backupTargetCredentialSecret: longhorn-minio-secret
-      backupCompressionMethod: lz4  # Faster than gzip
-      backupConcurrentLimit: 2
-      restoreConcurrentLimit: 2
+    apiVersion: longhorn.io/v1beta2
+    kind: BackupTarget
+    metadata:
+      name: default
+      namespace: longhorn-system
+    spec:
+      backupTargetURL: "s3://longhorn-backups@eu-west-1/"
+      credentialSecret: "minio-secret"
+      pollInterval: "300s"
     ```
   - **URL Format**: `s3://bucket@region/` (trailing slash mandatory)
-  - **Region**: Required but ignored by MinIO (use any AWS region)
+  - **Region**: `eu-west-1` matches MinIO configuration
 
-- [ ] **Step 1.3**: Deploy updated Longhorn configuration
+- [x] **Step 1.3**: Deploy updated Longhorn configuration
   - **Command**: `make app-upgrade APP=longhorn`
-  - **Why**: Apply secret creation and backup target settings
+  - **Result**: Secret and BackupTarget created successfully
   - **Wait**: 1-2 minutes for Longhorn to reconcile
 
-- [ ] **Step 1.4**: Verify backup target configured
-  - **Method 1**: Longhorn UI → Settings → General → Backup Target
-  - **Expected**: `s3://longhorn-backups@us-east-1/` with green checkmark
-  - **Method 2**: `kubectl get settings.longhorn.io backup-target -n longhorn-system -o yaml`
-  - **Troubleshooting**: Check Longhorn manager logs if red X appears
+- [x] **Step 1.4**: Verify backup target configured
+  - **Method 1**: Longhorn UI → Backup and Restore → Backup Targets
+  - **Result**: `s3://longhorn-backups@eu-west-1/` shows Available (green checkmark)
+  - **Method 2**: `kubectl get backuptarget default -n longhorn-system`
+  - **Status**: Connected successfully, no errors
 
 **Files Created**:
-- `apps/longhorn/templates/minio-secret.yml`
+- MinIO service account credentials in vault (`vault_longhorn_s3_access_key`, `vault_longhorn_s3_secret_key`)
 
 **Files Updated**:
-- `apps/longhorn/values.yml`
+- `apps/longhorn/prerequisites.yml` - Added MinIO secret and BackupTarget CRD creation
+- `apps/longhorn/values.yml` - Added backup target settings (applied via BackupTarget CRD)
+- `group_vars/nas/main.yml` - Added `minio_service_accounts` configuration
+- `playbooks/minio/05-minio-client-setup.yml` - Added service account creation task
 
 **Success Criteria**:
 - ✅ Secret exists in longhorn-system namespace
 - ✅ Backup target shows connected (green checkmark)
 - ✅ No errors in Longhorn manager logs
+- ✅ MinIO service account created and stored in vault
 
 ---
 
