@@ -1,7 +1,7 @@
 ---
 chart_repository: bitnami
 chart_name: postgresql
-chart_version: 16.5.0
+chart_version: 18.1.8
 release_name: postgres-test
 namespace: test-backups
 description: "PostgreSQL test database for Longhorn backup validation"

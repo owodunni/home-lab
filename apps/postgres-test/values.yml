@@ -1,7 +1,6 @@
 ---
-# Override image to use stable PostgreSQL 16
-image:
-  tag: 16.6.0-debian-12-r3
+# Use chart default image (PostgreSQL 16.4.0)
+# No override needed - chart 15.5.38 has correct defaults
 
 # Small resources for testing
 resources:

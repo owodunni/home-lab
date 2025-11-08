@@ -2,7 +2,7 @@
 # Fix macOS fork safety issue with Python 3.13 + Ansible multiprocessing
 ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
-.PHONY: help setup beelink-setup beelink-storage lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio minio-uninstall k3s-cluster k3s-cluster-check k3s-uninstall kubeconfig-update lint-apps app-deploy app-upgrade app-list app-status apps-deploy-all teardown teardown-check
+.PHONY: help setup beelink-setup beelink-storage lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio minio-uninstall k3s-cluster k3s-cluster-check k3s-uninstall kubeconfig-update lint-apps app-deploy app-upgrade app-list app-status app-delete apps-deploy-all teardown teardown-check
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -165,6 +165,35 @@ app-status: ## 📊 Show status of specific app (usage: make app-status APP=demo
 	echo ""; \
 	echo "Pods:"; \
 	uv run ansible pi-cm5-1 -a "kubectl get pods -n $$namespace -l app.kubernetes.io/instance=$$release" --become || true
+
+app-delete: ## 🗑️  Delete specific app and all resources (usage: make app-delete APP=postgres-test)
+	@if [ -z "$(APP)" ]; then \
+		echo "Error: APP parameter required. Usage: make app-delete APP=<app-name>"; \
+		exit 1; \
+	fi
+	@if [ ! -f "apps/$(APP)/Chart.yml" ]; then \
+		echo "Error: Chart.yml not found for $(APP)"; \
+		exit 1; \
+	fi
+	@namespace=$$(grep '^namespace:' apps/$(APP)/Chart.yml | awk '{print $$2}'); \
+	release=$$(grep '^release_name:' apps/$(APP)/Chart.yml | awk '{print $$2}'); \
+	echo "⚠️  WARNING: This will delete $(APP) and all its resources"; \
+	echo "  - Helm release: $$release"; \
+	echo "  - Namespace: $$namespace"; \
+	echo "  - PVCs and data will be deleted"; \
+	echo ""; \
+	read -p "Are you sure? (yes/no): " answer && [ "$$answer" = "yes" ] || (echo "Cancelled." && exit 1); \
+	echo ""; \
+	echo "Deleting Helm release..."; \
+	uv run ansible pi-cm5-1 -a "helm uninstall $$release -n $$namespace" --become || true; \
+	echo ""; \
+	echo "Removing finalizers from stuck resources..."; \
+	uv run ansible pi-cm5-1 -a "kubectl patch pvc -n $$namespace --all -p '{\"metadata\":{\"finalizers\":null}}' --type=merge" --become || true; \
+	echo ""; \
+	echo "Deleting namespace..."; \
+	uv run ansible pi-cm5-1 -a "kubectl delete namespace $$namespace --force --grace-period=0" --become || true; \
+	echo ""; \
+	echo "✅ App deleted successfully"
 
 apps-deploy-all: ## 🚀 Deploy all apps in apps/ directory
 	@echo "Discovering apps in apps/ directory..."
