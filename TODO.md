@@ -582,8 +582,8 @@ backup_size = volume_size × compression_ratio × retention_count
 - [ ] **Step 5.1**: Final pre-teardown checklist
   - **Verify**: System Backup exists (Longhorn UI → System Backup tab)
   - **Verify**: All volumes have recent backups (< 24 hours)
-  - **Verify**: Metadata exported to git (`docs/cluster-state/` populated)
   - **Verify**: MinIO accessible from laptop: `curl -I https://minio.jardoole.xyz:9000`
+  - **Verify**: All app configurations in git (`apps/` directory up to date)
   - **Commit**: All changes to git
 
 - [ ] **Step 5.2**: Teardown K3s cluster
@@ -621,45 +621,19 @@ backup_size = volume_size × compression_ratio × retention_count
   - **State**: "Detached" (volume definitions exist, data not yet attached)
   - **Example**: `pvc-abc123` (postgres-test volume)
 
-- [ ] **Step 5.7**: Create PVs for restored volumes (manual for now)
-  - **Why**: Kubernetes needs PVs to bind PVCs to Longhorn volumes
-  - **For each volume**:
-    ```yaml
-    apiVersion: v1
-    kind: PersistentVolume
-    metadata:
-      name: <volume-name>-pv
-    spec:
-      capacity:
-        storage: <size>  # Match original
-      volumeMode: Filesystem
-      accessModes:
-        - ReadWriteOnce
-      persistentVolumeReclaimPolicy: Retain
-      storageClassName: longhorn
-      csi:
-        driver: driver.longhorn.io
-        fsType: ext4
-        volumeHandle: <longhorn-volume-name>
-        volumeAttributes:
-          numberOfReplicas: "1"
-    ```
-  - **Apply**: `kubectl apply -f pvs.yml`
-  - **Note**: Phase 6 will automate this step
-
-- [ ] **Step 5.8**: Apply PVC manifests from git
-  - **Why**: Recreate PVCs to bind to restored volumes
-  - **Command**: `kubectl apply -f docs/cluster-state/pvcs.yml`
-  - **Wait**: All PVCs bind to PVs
-  - **Verify**: `kubectl get pvc --all-namespaces` (all "Bound")
-
-- [ ] **Step 5.9**: Redeploy applications
+- [ ] **Step 5.7**: Redeploy applications
+  - **Why**: App deployments automatically create PVCs that bind to restored Longhorn volumes
   - **Command**: `make apps-deploy-all`
   - **Or individual**: `make app-deploy APP=postgres-test`
+  - **What happens**:
+    1. App deployment creates PVC with matching name (e.g., `data-postgres-test-postgresql-0`)
+    2. Longhorn CSI automatically binds PVC to restored volume with matching name
+    3. Pod starts with existing data intact
   - **Wait**: All pods reach Running state
   - **Time**: ~5-10 minutes depending on app count
+  - **Verify PVCs bound**: `kubectl get pvc --all-namespaces` (all "Bound")
 
-- [ ] **Step 5.10**: Verify data integrity
+- [ ] **Step 5.8**: Verify data integrity
   - **PostgreSQL**:
     ```bash
     kubectl exec -it postgres-test-postgresql-0 -n test-backups -- \
@@ -678,113 +652,66 @@ backup_size = volume_size × compression_ratio × retention_count
 - ✅ 100% data integrity verified
 - ✅ PostgreSQL has 1000 test rows
 
-**RTO (Recovery Time Objective)**: 1-2 hours for complete cluster rebuild
+**RTO (Recovery Time Objective)**: 30-45 minutes for complete cluster rebuild
 **RPO (Recovery Point Objective)**: Last backup (max 24 hours with daily backups)
 
 **Time Breakdown**:
 - Teardown: 5 minutes
 - Rebuild K3s: 15-20 minutes
 - System Restore: 1-2 minutes
-- Create PVs: 5 minutes (manual, automated in Phase 6)
-- Apply PVCs: 1 minute
-- Redeploy apps: 5-10 minutes
+- Redeploy apps: 5-10 minutes (PVCs auto-bind to restored volumes)
 - Verification: 5-10 minutes
-- **Total**: ~45-60 minutes (hands-off after automation in Phase 6)
+- **Total**: ~30-45 minutes (mostly hands-off)
 
 ---
 
-## PHASE 6: Create Automation Playbooks
+## PHASE 6: Further Automation (Optional)
 
-**Why**: Eliminate manual steps from Phase 5. Achieve goal: "Run this command, everything is restored."
+**Why**: Eliminate remaining manual step (System Backup restore via UI).
 
-**When**: After Phase 5 proves concept works manually.
+**When**: After Phase 5 proves current workflow works.
 
-### Automation Goals
+**Current State**: Phase 5 is already highly automated with only 1 manual UI step.
 
-**Before**: 20+ manual steps, 2 hours hands-on
-**After**: 3 commands, 90 minutes hands-off
+### Current Workflow (After Phase 4 & 5 Updates)
 
 ```bash
-make k3s-teardown
-make k3s
-make restore-cluster        # NEW: Automated restore
-make apps-deploy-all
-make verify-cluster         # NEW: Automated verification
+make k3s-teardown           # Automated ✅
+make k3s                    # Automated ✅
+# Manual: Restore System Backup via Longhorn UI (1 click) 🖱️
+make apps-deploy-all        # Automated ✅ (PVCs auto-bind)
+# Verify data integrity     # Manual verification
 ```
 
-### Playbooks to Create
+**Current RTO**: 30-45 minutes (1 manual step)
 
-#### Playbook 1: Full Cluster Restore Orchestrator
+### Potential Phase 6 Enhancements
 
-- [ ] **Step 6.1**: Create restore orchestrator playbook
-  - **File**: `playbooks/longhorn/full-cluster-restore.yml`
-  - **Purpose**: Orchestrate entire restore workflow
-  - **Content**: See detailed YAML in expanded view
-  - **Key tasks**:
-    - Verify Longhorn backup target configured
-    - Prompt for manual System Backup restore (UI step)
-    - Wait for volumes to appear
-    - Create PVs for all restored volumes
-    - Apply PVC manifests from git
-    - Wait for PVC binding
+If further automation is desired:
 
-#### Playbook 2: PV Creation Task
+1. **Automate System Backup restore** - Use Longhorn API/kubectl to trigger restore
+2. **Automated verification playbook** - Check data integrity across all apps
+3. **Pre-flight checks** - Verify backup target, MinIO accessibility before restore
 
-- [ ] **Step 6.2**: Create PV creation task file
-  - **File**: `playbooks/longhorn/tasks/create-pv-for-volume.yml`
-  - **Purpose**: Create PV for single Longhorn volume
-  - **Content**: Loop-friendly task for automation
+### Possible Enhancements (If Needed)
 
-#### Playbook 3: Data Verification
+- [ ] **Step 6.1**: Automate System Backup restore
+  - **Research**: Longhorn API or kubectl method to trigger restore programmatically
+  - **Benefit**: Eliminate single remaining manual step
+  - **Note**: Currently requires 1 click in Longhorn UI
 
-- [ ] **Step 6.3**: Create verification playbook
+- [ ] **Step 6.2**: Create verification playbook
   - **File**: `playbooks/longhorn/verify-restore.yml`
-  - **Purpose**: Automated data integrity checks
-  - **Checks**: PostgreSQL row count, other app verification
+  - **Purpose**: Automated data integrity checks across all apps
+  - **Example checks**: PostgreSQL row count, app health endpoints
+  - **Benefit**: Codified verification, faster confidence
 
-#### Makefile Updates
+- [ ] **Step 6.3**: Pre-flight check playbook
+  - **File**: `playbooks/longhorn/pre-restore-checks.yml`
+  - **Checks**: Backup target accessible, recent backups exist, MinIO reachable
+  - **Benefit**: Catch issues before teardown
 
-- [ ] **Step 6.4**: Add Makefile targets
-  - **File**: `Makefile`
-  - **Add**:
-    ```makefile
-    .PHONY: backup-cluster-state restore-cluster verify-cluster
-
-    backup-cluster-state: ## Export cluster state metadata before teardown
-        @echo "📦 Exporting cluster state metadata..."
-        $(ANSIBLE_PLAYBOOK) playbooks/longhorn/backup-cluster-state.yml
-
-    restore-cluster: ## Restore all volumes and PVCs from backup
-        @echo "🔄 Starting cluster restore from backups..."
-        @echo "⚠️  This will require ONE manual step (System Backup restore in Longhorn UI)"
-        $(ANSIBLE_PLAYBOOK) playbooks/longhorn/full-cluster-restore.yml
-
-    verify-cluster: ## Verify data integrity after restore
-        @echo "🔍 Verifying restored data integrity..."
-        $(ANSIBLE_PLAYBOOK) playbooks/longhorn/verify-restore.yml
-    ```
-
-- [ ] **Step 6.5**: Test automation workflow
-  - **Command**: `make restore-cluster` (on already-restored cluster)
-  - **Expected**: Idempotent (no changes if already restored)
-  - **Verify**: Playbook completes without errors
-
-**Files Created**:
-- `playbooks/longhorn/full-cluster-restore.yml`
-- `playbooks/longhorn/tasks/create-pv-for-volume.yml`
-- `playbooks/longhorn/verify-restore.yml`
-
-**Files Updated**:
-- `Makefile` (add 3 new targets)
-
-**Success Criteria**:
-- ✅ `make restore-cluster` orchestrates full restore
-- ✅ Only 1 manual step (System Backup restore in UI)
-- ✅ PVs created automatically for all volumes
-- ✅ `make verify-cluster` confirms data integrity
-- ✅ Total hands-on time < 5 minutes
-
-**Future Enhancement**: Automate System Backup restore via kubectl (currently requires UI)
+**Decision Point**: Current workflow is already efficient (30-45 min RTO, 1 manual step). Proceed with Phase 6 only if the remaining manual step becomes a pain point.
 
 ---
 
