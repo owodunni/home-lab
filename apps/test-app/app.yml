@@ -1,9 +1,0 @@
----
-# Test App Deployment Playbook
-# Demonstrates the standard app deployment pattern
-
-- name: Deploy Test App
-  import_playbook: ../../playbooks/deploy-helm-app.yml
-  vars:
-    app_chart_file: "{{ inventory_dir }}/apps/test-app/Chart.yml"
-    app_values_file: "{{ inventory_dir }}/apps/test-app/values.yml"

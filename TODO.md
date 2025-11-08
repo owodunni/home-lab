@@ -1,352 +1,1124 @@
-# Home Lab Infrastructure TODO
+# Longhorn MinIO Backup & Restore Implementation
 
 ## Overview
 
-Complete home lab infrastructure with K3s Kubernetes cluster, Longhorn distributed storage, and MinIO S3 backup service with secure remote access.
+Implement automated backup and restore system for Longhorn persistent volumes using MinIO S3 storage. Enable complete cluster state preservation - after cluster rebuild, run automated playbooks to restore all volumes and applications from backups.
 
-## Target Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│ K3s Cluster (Tailscale Mesh)                                   │
-│ ├── Control Plane (pi-cm5-1)                                   │
-│ ├── Workers (pi-cm5-2, pi-cm5-3)                              │
-│ └── Storage Worker (Beelink ME mini N150 - future)            │
-│     ├── K3s Worker Node                                        │
-│     ├── Longhorn Storage Provider                              │
-│     └── 6x M.2 SSD slots (up to 24TB)                         │
-└─────────────────────────────────────────────────────────────────┘
-           │ (Encrypted S3 backups via Tailscale VPN)
-           ▼
-┌─────────────────────────────────────┐
-│ Offsite NAS (pi-cm5-4)             │
-│ ├── MinIO S3 (HTTPS + SSE)         │
-│ ├── 2TB XFS Storage                │
-│ └── Tailscale VPN Access           │
-└─────────────────────────────────────┘
-```
-
-## Completed Infrastructure ✅
-
-### Phase 1: Base Configuration
-- **Status:** ✅ Complete
-- **Command:** `make site`
-- **Accomplished:** Pi CM5 base config, PCIe/storage settings, system updates, unattended upgrades
-
-### Phase 4a: NAS Storage Preparation
-- **Status:** ✅ Complete
-- **Accomplished:** XFS filesystems on 2TB drives, persistent mounts, PCIe SATA controller active
-
-### Phase 4b: MinIO S3 Service ✅ **MAJOR BREAKTHROUGH**
-- **Status:** ✅ Complete - **Modular Architecture Working**
-- **Command:** `make minio` (robust uninstall/reinstall cycle working)
-- **Breakthrough:** Complete modular 5-phase installation system:
-  - **Phase 1**: SSL certificate generation (Let's Encrypt + Cloudflare DNS-01)
-  - **Phase 2**: MinIO binary installation and basic setup
-  - **Phase 3**: Basic HTTP configuration (tested after reinstall)
-  - **Phase 4**: SSL integration with HTTPS (reusable for cert changes)
-  - **Phase 5**: MinIO client, buckets, users configuration
-- **Certificate Renewal:** ✅ Automatic renewal (cron) + manual fallback (Phase 4 rerun)
-- **SSL Management:** ✅ Robust certificate permission handling
-- **Access:** http://pi-cm5-4.local:9001 (console), http://pi-cm5-4.local:9000 (API)
-- **Usage Guide:** See `docs/minio-usage.md`
-- **Architecture:** Handles role conflicts, uninstall/reinstall, permission resets
-
-### Phase 5a: Ansible Vault Setup
-- **Status:** ✅ Complete
-- **Command:** Built-in vault functionality
-- **Accomplished:** Encrypted credential management with vault password files, MinIO/K3s credentials secured
-- **Security Impact:** All infrastructure credentials now encrypted at rest with AES256
-
-### Phase 6: K3s Cluster Setup
-- **Status:** ✅ Complete
-- **Command:** `make k3s-cluster` or included in `make site`
-- **Accomplished:**
-  - 3-node HA K3s cluster with embedded etcd consensus
-  - Staggered maintenance schedules for zero-downtime updates (02:00, 02:30, 03:00)
-  - Production-ready configuration with proper networking (Flannel VXLAN)
-  - Comprehensive uninstall playbook for debugging and clean reinstalls
-- **Access:** kubectl via any cluster node (pi-cm5-1, pi-cm5-2, pi-cm5-3)
-- **Documentation:** See `docs/k3s-cluster-setup.md`, `docs/k3s-maintenance-guide.md`
-
-### Phase 6b: Kubernetes Applications
-- **Status:** ✅ Complete - Migrated to standardized apps/ structure
-- **Deployed Apps:**
-  - cert-manager (via 03-core-infrastructure.yml)
-  - longhorn (via 04-storage-systems.yml)
-  - kube-prometheus-stack (via 06-monitoring-stack.yml)
-- **Commands:**
-  - `make app-deploy APP=<name>` - Deploy specific app
-  - `make apps-deploy-all` - Deploy all apps
-  - `make app-list` - List deployed apps
-  - `make app-status APP=<name>` - Show app status
-- **Note:** Old k8s-applications.yml removed in favor of modular apps/ structure
+**End Goal**: `make k3s-teardown && make k3s && make restore-cluster && make apps-deploy-all` = Full cluster rebuild with 100% data preservation.
 
 ---
 
-## Remaining Phases
+## Architecture
 
+**MinIO Location**: pi-cm5-4 (NAS node) - EXTERNAL to K3s cluster
+- No circular dependency: MinIO always available for restore
+- K3s cluster can be completely torn down and rebuilt
+- Backups remain safe on external storage
 
-### Phase 5b: pfSense HAProxy Load Balancer & SSL/TLS Certificates
+**K3s Cluster**: pi-cm5-1, pi-cm5-2, pi-cm5-3 (control plane) + beelink (worker)
+- Longhorn runs on beelink worker node
+- Volumes stored at `/var/lib/longhorn`
+- Backups uploaded to MinIO via S3 API
 
-**Purpose:** Enable external access and automated HTTPS certificates using pfSense HAProxy, dramatically simplifying K3s cluster architecture
+---
 
-**Why pfSense-Centric Approach:**
-- **Simplified K3s**: Re-enable Traefik and ServiceLB for internal routing only
-- **Enterprise-Grade HA**: HAProxy monitors all 3 K3s nodes with health checks
-- **Centralized SSL**: ACME package handles Let's Encrypt certificates at router level
-- **No Single Point of Failure**: Unlike MetalLB approach, pfSense distributes across all nodes
-- **Performance**: SSL termination at network edge reduces K3s resource usage
+## Key Resources
 
-**Architecture:**
+### Official Longhorn Documentation
+- **Backup Target Setup**: https://longhorn.io/docs/1.10.0/snapshots-and-backups/backup-and-restore/set-backup-target/
+- **System Backup**: https://longhorn.io/docs/1.10.0/advanced-resources/system-backup-restore/backup-longhorn-system
+- **System Restore**: https://longhorn.io/docs/1.10.0/advanced-resources/system-backup-restore/restore-longhorn-system
+- **Recurring Backups**: https://longhorn.io/docs/1.10.0/snapshots-and-backups/scheduling-backups-and-snapshots/
+- **Disaster Recovery**: https://longhorn.io/docs/1.10.0/snapshots-and-backups/setup-disaster-recovery-volumes/
+
+### Community Guides
+- **Civo Longhorn + MinIO**: https://www.civo.com/learn/backup-longhorn-volumes-to-a-minio-s3-bucket
+- **SUSE Rancher Blog**: https://www.suse.com/c/rancher_blog/using-minio-as-backup-target-for-rancher-longhorn-2/
+
+### Current Infrastructure
+- **MinIO**: https://minio.jardoole.xyz:9000 (S3 API on pi-cm5-4)
+- **Longhorn UI**: https://longhorn.jardoole.xyz
+- **Existing Bucket**: `longhorn-backups` with object locking
+- **Credentials**: `longhorn-backup` user (vault_longhorn_backup_password in group_vars)
+
+---
+
+## PHASE 1: Configure Longhorn Backup Target
+
+**Why**: Enable Longhorn to store volume backups in external MinIO S3 storage.
+
+**When**: After Longhorn is deployed (part of `make k3s`).
+
+**Reference**: https://longhorn.io/docs/1.10.0/snapshots-and-backups/backup-and-restore/set-backup-target/
+
+### Steps:
+
+- [ ] **Step 1.1**: Create MinIO credentials Kubernetes secret
+  - **Why**: Store S3 access credentials securely in longhorn-system namespace
+  - **File**: `apps/longhorn/templates/minio-secret.yml`
+  - **Content**:
+    ```yaml
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: longhorn-minio-secret
+      namespace: longhorn-system
+    type: Opaque
+    stringData:
+      AWS_ACCESS_KEY_ID: longhorn-backup
+      AWS_SECRET_ACCESS_KEY: "{{ vault_longhorn_backup_password }}"
+      AWS_ENDPOINTS: https://minio.jardoole.xyz:9000
+    ```
+  - **Note**: Use `stringData` (not `data`) to avoid base64 encoding issues
+  - **Port**: 9000 is S3 API (NOT 443 which is console)
+
+- [ ] **Step 1.2**: Update Longhorn Helm values for backup target
+  - **Why**: Tell Longhorn where to upload backups (MinIO S3 bucket)
+  - **File**: `apps/longhorn/values.yml`
+  - **Add to `defaultSettings` section**:
+    ```yaml
+    defaultSettings:
+      # Existing settings...
+      defaultReplicaCount: "1"
+      defaultDataLocality: best-effort
+
+      # NEW: Backup target configuration
+      backupTarget: s3://longhorn-backups@us-east-1/
+      backupTargetCredentialSecret: longhorn-minio-secret
+      backupCompressionMethod: lz4  # Faster than gzip
+      backupConcurrentLimit: 2
+      restoreConcurrentLimit: 2
+    ```
+  - **URL Format**: `s3://bucket@region/` (trailing slash mandatory)
+  - **Region**: Required but ignored by MinIO (use any AWS region)
+
+- [ ] **Step 1.3**: Deploy updated Longhorn configuration
+  - **Command**: `make app-upgrade APP=longhorn`
+  - **Why**: Apply secret creation and backup target settings
+  - **Wait**: 1-2 minutes for Longhorn to reconcile
+
+- [ ] **Step 1.4**: Verify backup target configured
+  - **Method 1**: Longhorn UI → Settings → General → Backup Target
+  - **Expected**: `s3://longhorn-backups@us-east-1/` with green checkmark
+  - **Method 2**: `kubectl get settings.longhorn.io backup-target -n longhorn-system -o yaml`
+  - **Troubleshooting**: Check Longhorn manager logs if red X appears
+
+**Files Created**:
+- `apps/longhorn/templates/minio-secret.yml`
+
+**Files Updated**:
+- `apps/longhorn/values.yml`
+
+**Success Criteria**:
+- ✅ Secret exists in longhorn-system namespace
+- ✅ Backup target shows connected (green checkmark)
+- ✅ No errors in Longhorn manager logs
+
+---
+
+## PHASE 2: Configure Recurring Backups
+
+**Why**: Automate backup schedules to ensure continuous data protection without manual intervention.
+
+**When**: Immediately after Phase 1 succeeds.
+
+**Reference**: https://longhorn.io/docs/1.10.0/snapshots-and-backups/scheduling-backups-and-snapshots/
+
+### Backup Strategy Rationale
+
+**Daily Backups (2 AM, 7-day retention)**:
+- **Why 2 AM**: Low-usage window, minimal performance impact
+- **Why 7 days**: Recent history for accidental deletions, weekly pattern
+- **RPO**: Maximum 24 hours of data loss
+
+**Weekly Backups (Sunday 3 AM, 4-week retention)**:
+- **Why Sunday**: Captures full week of changes
+- **Why 4 weeks**: Monthly rollback capability, compliance
+- **RPO**: Maximum 1 week for long-term restore
+
+**Snapshot Cleanup (Every 6 hours)**:
+- **Why**: Prevent worker node disk exhaustion at `/var/lib/longhorn`
+- **Frequency**: Balances cleanup vs overhead
+- **Critical**: Without this, local snapshots accumulate and fill disk
+
+### Storage Requirements
+
+**Backup Size Formula**:
 ```
-Internet → pfSense HAProxy → K3s Nodes (HTTP internal)
-           ├── SSL Termination (Let's Encrypt ACME)
-           ├── Load Balancing (All 3 nodes)
-           ├── Health Checks (/healthz)
-           └── Host-based Routing
+backup_size = volume_size × compression_ratio × retention_count
 ```
 
-**Implementation Strategy:**
+**Example Calculation** (10Gi PostgreSQL volume):
+- Volume size: 10Gi
+- Compression (lz4): 0.7 ratio (~30% reduction)
+- Daily retention: 7 backups
+- Weekly retention: 4 backups
+- **Formula**: 10Gi × 0.7 × (7 + 4) = **77Gi**
 
-**Step 1: pfSense Package Installation**
-- Install **HAProxy package** for load balancing and SSL termination
-- Install **ACME package** for automated Let's Encrypt certificate management
-- Configure global settings and enable stats monitoring
+**Incremental Backup Efficiency**:
+- First backup: Full 10Gi (compressed to ~7Gi)
+- Subsequent backups: Only changed blocks (~10-20% daily change)
+- **Realistic storage**: ~7Gi (full) + (7 × 1Gi daily) + (4 × 1.5Gi weekly) = **20Gi per volume**
 
-**Step 2: Certificate Management (pfSense ACME + Cloudflare)**
-- Configure ACME account with Let's Encrypt production
-- Set up Cloudflare DNS-01 validation with API token
-- Generate wildcard certificate `*.jardoole.xyz` with auto-renewal
+**MinIO Server Requirements**:
+- Current: 2× SATA drives on pi-cm5-4 (XFS filesystem)
+- Minimum: 500Gi free space for growth
+- Check capacity: `ssh pi-cm5-4 "df -h /mnt/minio-drive1"`
 
-**Step 3: HAProxy Backend Configuration**
-- Create **K3s cluster backend** with all 3 nodes (pi-cm5-1,2,3:80)
-- Create **MinIO backend** with NAS node (pi-cm5-4:9001)
-- Configure HTTP health checks using `/healthz` endpoint
-- Set up round-robin load balancing with automatic failover
+### Steps:
 
-**Step 4: HAProxy Frontend Configuration**
-- Configure HTTPS frontend (port 443) with SSL termination
-- Set up host-based routing:
-  - `minio.jardoole.xyz` → MinIO backend
-  - `api.jardoole.xyz` → MinIO backend
-  - Default → K3s cluster backend
-- Configure HTTP→HTTPS redirect (port 80)
+- [ ] **Step 2.1**: Create recurring job definitions file
+  - **Why**: Define automated backup schedules as Kubernetes CRDs
+  - **File**: `apps/longhorn/templates/recurring-jobs.yml`
+  - **Content**:
+    ```yaml
+    ---
+    # Daily backup at 2 AM (low usage time)
+    apiVersion: longhorn.io/v1beta2
+    kind: RecurringJob
+    metadata:
+      name: daily-backup
+      namespace: longhorn-system
+    spec:
+      cron: "0 2 * * *"
+      task: backup
+      groups:
+        - default  # Auto-applies to all volumes
+      retain: 7
+      concurrency: 2
+      labels:
+        recurring-job: daily-backup
 
-**Step 5: K3s Cluster Simplification**
-- **Re-enable Traefik** in K3s configuration (remove from disable list)
-- **Re-enable ServiceLB** in K3s configuration (remove from disable list)
-- Keep internal routing simple with built-in components
+    ---
+    # Weekly backup on Sunday at 3 AM
+    apiVersion: longhorn.io/v1beta2
+    kind: RecurringJob
+    metadata:
+      name: weekly-backup
+      namespace: longhorn-system
+    spec:
+      cron: "0 3 * * 0"  # Sunday
+      task: backup
+      groups:
+        - default
+      retain: 4
+      concurrency: 1
+      labels:
+        recurring-job: weekly-backup
 
-**Files to Create:**
-- ✅ `docs/pfsense-haproxy-setup.md` - Complete pfSense configuration guide
-- `docs/pfsense-integration-architecture.md` - Architecture documentation
-- ✅ `group_vars/k3s_cluster/k3s.yml` - Updated to re-enable Traefik/ServiceLB
-- `playbooks/k3s-reconfigure.yml` - Apply simplified K3s configuration
+    ---
+    # Snapshot cleanup every 6 hours
+    apiVersion: longhorn.io/v1beta2
+    kind: RecurringJob
+    metadata:
+      name: snapshot-cleanup
+      namespace: longhorn-system
+    spec:
+      cron: "0 */6 * * *"
+      task: snapshot-cleanup
+      groups:
+        - default
+      retain: 1
+      concurrency: 3
+      labels:
+        recurring-job: snapshot-cleanup
+    ```
+  - **CRON format**: `minute hour day_of_month month day_of_week`
+  - **Validation**: Use https://crontab.guru/
 
-**Test Requirements:**
-- [ ] pfSense HAProxy package installed and configured
-- [ ] ACME wildcard certificate `*.jardoole.xyz` issued and renewable
-- [ ] HAProxy health checks showing all K3s nodes as UP
-- [ ] Load balancing functional across all 3 K3s nodes
-- [ ] SSL termination working at pfSense level
-- [ ] MinIO console accessible via https://minio.jardoole.xyz
-- [ ] MinIO API accessible via https://api.jardoole.xyz
-- [ ] Automatic failover when K3s nodes go down
-- [ ] K3s Traefik dashboard accessible internally
+- [ ] **Step 2.2**: Deploy recurring jobs via Helm
+  - **Command**: `make app-upgrade APP=longhorn`
+  - **Why**: Templates in apps/longhorn/templates/ auto-deployed by Helm
+  - **Result**: 3 RecurringJob CRDs created in longhorn-system namespace
 
-**Eliminated Components:**
-- ❌ **MetalLB** - pfSense HAProxy handles external load balancing
-- ❌ **NGINX Ingress** - pfSense HAProxy does SSL termination
-- ❌ **cert-manager** - pfSense ACME handles certificates
+- [ ] **Step 2.3**: Verify recurring jobs created
+  - **Command**: `kubectl get recurringjobs.longhorn.io -n longhorn-system`
+  - **Expected**: 3 jobs (daily-backup, weekly-backup, snapshot-cleanup)
+  - **Check CRON**: `kubectl describe recurringjob daily-backup -n longhorn-system`
 
-**Security Benefits:**
-- **SSL termination at network edge** - Better security boundary
-- **Automatic certificate renewal** - No expiration outages
-- **Health monitoring** - Automatic failover on node failure
-- **Centralized certificate management** - Single point of control
+- [ ] **Step 2.4**: Verify jobs assigned to volumes
+  - **Method 1**: Longhorn UI → Volume tab → Select volume → Recurring Job Schedule
+  - **Expected**: All 3 jobs auto-assigned (due to `groups: [default]`)
+  - **Method 2**: `kubectl get volumes.longhorn.io -n longhorn-system -o yaml | grep recurring-job`
+  - **Labels**: Should show `recurring-job.longhorn.io/daily-backup: enabled`
 
-**Dependencies:** Phase 5a ✅ (Vault for Cloudflare API token)
+- [ ] **Step 2.5**: Monitor first scheduled backup (next day)
+  - **When**: After 2:00 AM next day
+  - **Check**: Longhorn UI → Backup tab
+  - **Expected**: New backup with label `recurring-job=daily-backup`
+  - **Verify MinIO**: `ssh pi-cm5-4 "sudo -u minio /usr/local/bin/mc ls myminio/longhorn-backups/backups/"`
 
-**Links:**
-- ✅ [pfSense HAProxy Setup Guide](docs/pfsense-haproxy-setup.md)
-- [pfSense ACME Documentation](https://docs.netgate.com/pfsense/en/latest/packages/acme/)
-- [HAProxy Health Checks](https://www.haproxy.com/documentation/haproxy-configuration-tutorials/reliability/health-checks/)
+**Files Created**:
+- `apps/longhorn/templates/recurring-jobs.yml`
 
----
-
-### Phase 5c: MinIO Server-Side Encryption (SSE) **NEXT PRIORITY**
-
-**Purpose:** Enable MinIO native encryption for sensitive buckets
-
-**Status:** 🚧 **Ready to implement** - MinIO modular system complete
-
-**Implementation Strategy:**
-- **Phase 6**: Server-side encryption configuration (new modular phase)
-- Configure MinIO Key Encryption Service (KES)
-- Enable SSE-KMS for longhorn-backups and cluster-logs buckets
-- Set up encryption key management and rotation
-- Keep media-storage unencrypted for performance
-
-**Files to Create:**
-- `playbooks/minio/06-minio-encryption.yml` - Server-side encryption phase
-- `playbooks/minio/templates/kes-config.yml.j2` - KES configuration
-- `group_vars/nas/encryption.yml` - Encryption settings and keys
-- KES certificate and key storage in vault
-
-**Test Requirements:**
-- [ ] KES service configured and running alongside MinIO
-- [ ] Sensitive buckets encrypted with SSE-KMS
-- [ ] Encrypted/unencrypted bucket operations functional
-- [ ] Encryption keys secured in ansible vault
-- [ ] Phase 6 integrates with existing modular architecture
-
-**Dependencies:** Phase 4b ✅ (MinIO modular system complete)
-
-**Links:**
-- [MinIO Server-Side Encryption](https://min.io/docs/minio/linux/operations/server-side-encryption.html)
-- [MinIO KES Documentation](https://github.com/minio/kes)
-
----
-
-### Phase 5d: Tailscale VPN Network
-
-**Purpose:** Secure remote access to offsite NAS without port forwarding
-
-**Implementation:**
-- Install Tailscale on all Pi nodes (cluster + NAS)
-- Configure auth keys and Access Control Lists (ACLs)
-- Set up subnet routing for cluster network access
-- Integrate with existing services (MinIO, SSH, future K3s)
-
-**Network Architecture:**
-```
-Management Device → Tailscale Mesh → [Cluster Nodes + Offsite NAS]
-```
-
-**Files to Create:**
-- `playbooks/tailscale-setup.yml` - Installation and configuration
-- `group_vars/all/tailscale.yml` - Network configuration
-- `templates/tailscale-acl.json.j2` - Access control template
-
-**Test Requirements:**
-- [ ] All Pi nodes connected to Tailscale mesh
-- [ ] MinIO accessible via Tailscale IPs/DNS
-- [ ] ACLs restricting access appropriately
-- [ ] Management device can access all services
-
-**Dependencies:** Phase 5a (Vault for auth keys)
-
-**Links:**
-- [Tailscale Documentation](https://tailscale.com/kb/)
-- [K3s Tailscale Integration](https://docs.k3s.io/networking/distributed-multicloud)
+**Success Criteria**:
+- ✅ 3 recurring jobs exist
+- ✅ Jobs auto-assigned to all volumes
+- ✅ First scheduled backup succeeds at 2 AM
+- ✅ Backups visible in MinIO bucket
 
 ---
 
-### Phase 5e: UFW Firewall Configuration
+## PHASE 3: Validate with Test Application
 
-**Purpose:** Defense-in-depth network security for all nodes
+**Why**: Prove backup and restore workflow works before trusting it for production data. Use stateful application with verifiable data.
 
-**Implementation:**
-- Install UFW on all Pi nodes with node-specific rules
-- Configure SSH rate limiting and Tailscale mesh allowance
-- Set up K3s networking ports (API, etcd, Flannel VXLAN)
-- Enable logging and security monitoring
+**When**: After Phase 2 completes and first scheduled backup runs.
 
-**⚠️ K3s Firewall Considerations:**
-K3s recommends disabling firewalls due to networking complexity. We maintain firewalls for security but require careful configuration of Flannel VXLAN (UDP 8472) and pod/service networks (10.42.0.0/16, 10.43.0.0/16).
+### Why PostgreSQL?
+- Common stateful workload (database)
+- Easy to generate test data (SQL INSERT)
+- Simple verification (row count)
+- Well-supported Helm chart (bitnami/postgresql)
 
-**Files to Create:**
-- `playbooks/firewall-config.yml` - UFW configuration
-- `group_vars/cluster/firewall.yml` - K3s firewall rules
-- `group_vars/nas/firewall.yml` - MinIO firewall rules
+### Steps:
 
-**Test Requirements:**
-- [ ] UFW active with SSH rate limiting functional
-- [ ] Tailscale mesh traffic allowed
-- [ ] K3s ports configured for future cluster setup
-- [ ] Flannel VXLAN (UDP 8472) connectivity verified
+- [ ] **Step 3.1**: Create test app directory structure
+  - **Command**: `mkdir -p apps/postgres-test`
+  - **Why**: Follow standard app deployment pattern
+  - **Reference**: docs/app-deployment-guide.md
 
-**Dependencies:** Phase 5d (Tailscale must be configured first)
+- [ ] **Step 3.2**: Create Chart.yml metadata
+  - **File**: `apps/postgres-test/Chart.yml`
+  - **Content**:
+    ```yaml
+    ---
+    chart_repository: bitnami
+    chart_name: postgresql
+    chart_version: 16.5.0
+    release_name: postgres-test
+    namespace: test-backups
+    description: "PostgreSQL test database for Longhorn backup validation"
+    create_namespace: true
+    wait_for_ready: true
+    ```
 
-**Links:**
-- [K3s Firewall Troubleshooting](docs/k3s-firewall-troubleshooting.md) ← Already created
+- [ ] **Step 3.3**: Create values.yml with Longhorn PVC
+  - **File**: `apps/postgres-test/values.yml`
+  - **Content**:
+    ```yaml
+    ---
+    # Small resources for testing
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 200m
+        memory: 512Mi
+
+    auth:
+      postgresPassword: "{{ vault_postgres_test_password }}"
+      username: testuser
+      password: "{{ vault_postgres_test_password }}"
+      database: testdb
+
+    primary:
+      persistence:
+        enabled: true
+        storageClass: longhorn  # Uses our backup-enabled storage
+        size: 2Gi
+
+      nodeSelector:
+        kubernetes.io/os: linux
+    ```
+
+- [ ] **Step 3.4**: Create app.yml deployment playbook
+  - **File**: `apps/postgres-test/app.yml`
+  - **Content**:
+    ```yaml
+    ---
+    - name: Deploy PostgreSQL Test
+      import_playbook: ../../playbooks/deploy-helm-app.yml
+      vars:
+        app_chart_file: "{{ inventory_dir }}/apps/postgres-test/Chart.yml"
+        app_values_file: "{{ inventory_dir }}/apps/postgres-test/values.yml"
+    ```
+
+- [ ] **Step 3.5**: Create README.md with test procedures
+  - **File**: `apps/postgres-test/README.md`
+  - **Content**: Connection instructions, SQL commands, verification steps
+  - **Purpose**: Document how to test backup/restore
+
+- [ ] **Step 3.6**: Add vault secret for PostgreSQL password
+  - **Command**: `uv run ansible-vault edit group_vars/all/vault.yml`
+  - **Add**: `vault_postgres_test_password: "<generate-random-32-chars>"`
+  - **Why**: Secure credential storage
+
+- [ ] **Step 3.7**: Validate app configuration
+  - **Command**: `make lint-apps`
+  - **Checks**: YAML syntax, Helm template rendering
+  - **Fix**: Any errors before deployment
+
+- [ ] **Step 3.8**: Deploy PostgreSQL test application
+  - **Command**: `make app-deploy APP=postgres-test`
+  - **Wait**: Pod reaches Running state (~2-3 minutes)
+  - **Verify PVC**: `kubectl get pvc -n test-backups`
+  - **Verify Longhorn volume**: `kubectl get volumes.longhorn.io -n longhorn-system | grep pvc`
+
+- [ ] **Step 3.9**: Generate test data (1000 rows)
+  - **Connect**:
+    ```bash
+    kubectl run -it --rm psql-client --image=postgres:16 --restart=Never -n test-backups -- \
+      psql -h postgres-test-postgresql.test-backups.svc.cluster.local -U testuser -d testdb
+    ```
+  - **SQL**:
+    ```sql
+    CREATE TABLE test_data (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(100),
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+
+    INSERT INTO test_data (name)
+    SELECT 'User ' || generate_series(1, 1000);
+
+    SELECT COUNT(*) FROM test_data;
+    -- Expected: 1000
+
+    \q
+    ```
+
+- [ ] **Step 3.10**: Create manual backup
+  - **Why**: Test on-demand backup creation
+  - **Method**: Longhorn UI → Volume tab → Find pvc-xxxxx → Create Backup
+  - **Wait**: Status shows "Completed" (~1-2 minutes)
+  - **Note**: Save backup name (e.g., backup-abc123def456)
+
+- [ ] **Step 3.11**: Verify backup in MinIO
+  - **SSH**: `ssh alexanderp@pi-cm5-4`
+  - **Command**: `sudo -u minio /usr/local/bin/mc ls myminio/longhorn-backups/backups/`
+  - **Expected**: Backup directory with timestamp
+  - **Alternative**: MinIO Console at https://minio.jardoole.xyz
+
+- [ ] **Step 3.12**: Delete volume (destructive test)
+  - **WARNING**: This deletes data - ensure backup verified first
+  - **Scale down**: `kubectl scale statefulset postgres-test-postgresql -n test-backups --replicas=0`
+  - **Delete PVC**: `kubectl delete pvc data-postgres-test-postgresql-0 -n test-backups`
+  - **Verify deleted**: Longhorn UI → Volume disappears
+
+- [ ] **Step 3.13**: Restore volume from backup
+  - **Method**: Longhorn UI → Backup tab → Find backup → Click "Restore"
+  - **Volume name**: `postgres-data-restored`
+  - **Wait**: Restore completes (~2-5 minutes)
+  - **Reference**: https://longhorn.io/docs/1.10.0/snapshots-and-backups/backup-and-restore/restore-statefulset/
+
+- [ ] **Step 3.14**: Create PV for restored volume
+  - **Why**: Kubernetes needs PV to bind PVC to Longhorn volume
+  - **Apply**:
+    ```yaml
+    apiVersion: v1
+    kind: PersistentVolume
+    metadata:
+      name: postgres-data-pv
+    spec:
+      capacity:
+        storage: 2Gi
+      volumeMode: Filesystem
+      accessModes:
+        - ReadWriteOnce
+      persistentVolumeReclaimPolicy: Retain
+      storageClassName: longhorn
+      csi:
+        driver: driver.longhorn.io
+        fsType: ext4
+        volumeHandle: postgres-data-restored
+        volumeAttributes:
+          numberOfReplicas: "1"
+          staleReplicaTimeout: "30"
+    ```
+  - **Command**: `kubectl apply -f postgres-pv.yml`
+
+- [ ] **Step 3.15**: Create PVC with volume binding
+  - **Why**: Bind PVC to specific PV (not dynamic provisioning)
+  - **Apply**:
+    ```yaml
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      name: data-postgres-test-postgresql-0
+      namespace: test-backups
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 2Gi
+      storageClassName: longhorn
+      volumeName: postgres-data-pv
+    ```
+  - **Command**: `kubectl apply -f postgres-pvc.yml`
+  - **Verify**: `kubectl get pvc -n test-backups` shows "Bound"
+
+- [ ] **Step 3.16**: Scale up PostgreSQL
+  - **Command**: `kubectl scale statefulset postgres-test-postgresql -n test-backups --replicas=1`
+  - **Wait**: `kubectl wait --for=condition=ready pod/postgres-test-postgresql-0 -n test-backups --timeout=120s`
+
+- [ ] **Step 3.17**: Verify data integrity
+  - **Connect**: Same psql command from Step 3.9
+  - **SQL**: `SELECT COUNT(*) FROM test_data;`
+  - **Expected**: 1000 (all rows preserved!)
+  - **Sample**: `SELECT * FROM test_data LIMIT 5;` (verify content)
+
+**Files Created**:
+- `apps/postgres-test/Chart.yml`
+- `apps/postgres-test/values.yml`
+- `apps/postgres-test/app.yml`
+- `apps/postgres-test/README.md`
+
+**Files Updated**:
+- `group_vars/all/vault.yml` (add postgres password)
+
+**Success Criteria**:
+- ✅ PostgreSQL deployed successfully
+- ✅ 1000 test rows created
+- ✅ Manual backup completed
+- ✅ Backup visible in MinIO bucket
+- ✅ Volume restored from backup
+- ✅ PV/PVC bound correctly
+- ✅ PostgreSQL started with restored volume
+- ✅ All 1000 rows verified (100% data preservation)
+
+**RTO (Recovery Time Objective)**: 10-15 minutes for single volume restore
+**RPO (Recovery Point Objective)**: Last backup (max 24 hours with daily backups)
 
 ---
 
+## PHASE 4: Create System Backup
 
-### Phase 7: Longhorn Distributed Storage
+**Why**: Enable bulk restore of ALL volumes after complete cluster rebuild. System Backup captures all Longhorn CRDs (volumes, settings, recurring jobs) in single backup file.
 
-**Purpose:** Distributed block storage with encrypted MinIO backups
+**When**: After Phase 3 succeeds and before any cluster teardown testing.
 
-**Implementation:**
-- Install Longhorn via Helm on K3s cluster
-- Configure storage classes and replica settings
-- Set up encrypted backup target (MinIO S3 with SSE)
-- Configure backup schedules and retention policies
+**Reference**: https://longhorn.io/docs/1.10.0/advanced-resources/system-backup-restore/backup-longhorn-system
 
-**Files to Create:**
-- `playbooks/longhorn-storage.yml` - Longhorn installation
-- Longhorn backup configuration for encrypted MinIO
+### System Backup vs Volume Backup
 
-**Test Requirements:**
-- [ ] Longhorn UI accessible via K3s ingress
-- [ ] All nodes registered as storage nodes
-- [ ] PVC creation and mounting functional
-- [ ] Encrypted backups to MinIO working
+**Volume Backup**:
+- Backs up: Volume data (blocks)
+- Scope: Single volume
+- Restore: Manual per-volume
 
-**Dependencies:** Phase 6 ✅ (K3s cluster - Complete), Phase 5c (MinIO encryption)
+**System Backup**:
+- Backs up: ALL Longhorn configuration (Volume CRDs, Settings, RecurringJobs, etc.)
+- Scope: Entire Longhorn system
+- Restore: Bulk recreation of all volumes
+- **Key benefit**: After cluster rebuild, restores all volume definitions at once
 
-**Links:**
-- [Longhorn Documentation](https://longhorn.io/docs/)
-- [Longhorn S3 Backup Setup](https://longhorn.io/docs/latest/snapshots-and-backups/backup-and-restore/set-backup-target/)
+### Steps:
+
+- [ ] **Step 4.1**: Create Longhorn System Backup
+  - **Why**: Captures complete cluster state for bulk restore
+  - **Method**: Longhorn UI → System Backup tab → "Create"
+  - **Name**: Auto-generated (system-backup-<timestamp>)
+  - **Stored**: `s3://longhorn-backups/system-backups/system-backup-<timestamp>.zip`
+  - **Wait**: Completes in ~30 seconds (small metadata file)
+
+- [ ] **Step 4.2**: Verify System Backup in MinIO
+  - **SSH**: `ssh alexanderp@pi-cm5-4`
+  - **Command**: `sudo -u minio /usr/local/bin/mc ls myminio/longhorn-backups/system-backups/`
+  - **Expected**: system-backup-<timestamp>.zip file
+  - **Size**: Usually < 1MB (just metadata, not volume data)
+
+- [ ] **Step 4.3**: Create metadata export playbook
+  - **Why**: Export PVC manifests to git for restore automation
+  - **File**: `playbooks/longhorn/backup-cluster-state.yml`
+  - **Content**:
+    ```yaml
+    ---
+    - name: Backup Cluster State Metadata
+      hosts: control_plane[0]
+      gather_facts: false
+      tasks:
+        - name: Create cluster-state directory
+          file:
+            path: "{{ playbook_dir }}/../../docs/cluster-state"
+            state: directory
+
+        - name: Export all PVCs
+          kubernetes.core.k8s_info:
+            kind: PersistentVolumeClaim
+            all_namespaces: true
+            kubeconfig: /etc/rancher/k3s/k3s.yaml
+          register: pvcs
+
+        - name: Save PVC manifests
+          copy:
+            content: "{{ pvcs | to_nice_yaml }}"
+            dest: "{{ playbook_dir }}/../../docs/cluster-state/pvcs.yml"
+
+        - name: Export Longhorn volumes metadata
+          kubernetes.core.k8s_info:
+            kind: Volume
+            namespace: longhorn-system
+            api_version: longhorn.io/v1beta2
+            kubeconfig: /etc/rancher/k3s/k3s.yaml
+          register: volumes
+
+        - name: Save volume manifest
+          copy:
+            content: "{{ volumes | to_nice_yaml }}"
+            dest: "{{ playbook_dir }}/../../docs/cluster-state/volumes.yml"
+    ```
+
+- [ ] **Step 4.4**: Add Makefile target for metadata backup
+  - **File**: `Makefile`
+  - **Add**:
+    ```makefile
+    backup-cluster-state: ## Export cluster state before teardown
+        @echo "Exporting cluster state metadata..."
+        $(ANSIBLE_PLAYBOOK) playbooks/longhorn/backup-cluster-state.yml
+    ```
+
+- [ ] **Step 4.5**: Run metadata export
+  - **Command**: `make backup-cluster-state`
+  - **Result**: Creates `docs/cluster-state/pvcs.yml` and `volumes.yml`
+  - **Commit**: Add to git for version control
+
+- [ ] **Step 4.6**: Trigger final volume backups
+  - **Why**: Ensure latest data backed up before teardown
+  - **Method 1**: Wait for scheduled recurring backup (2 AM)
+  - **Method 2**: Manual backup via Longhorn UI (Volume → Select all → Create Backup)
+  - **Verify**: All volumes have recent backup (< 24 hours old)
+
+- [ ] **Step 4.7**: Document current application state
+  - **Command**: `make app-list`
+  - **Save**: List of all deployed Helm releases
+  - **Purpose**: Know what to redeploy after restore
+
+**Files Created**:
+- `playbooks/longhorn/backup-cluster-state.yml`
+- `docs/cluster-state/pvcs.yml` (auto-generated)
+- `docs/cluster-state/volumes.yml` (auto-generated)
+
+**Files Updated**:
+- `Makefile` (add backup-cluster-state target)
+
+**Success Criteria**:
+- ✅ System Backup created in Longhorn UI
+- ✅ System Backup file in MinIO system-backups/ directory
+- ✅ PVC manifests exported to git
+- ✅ All volumes have recent backups
 
 ---
 
-## Quick Reference
+## PHASE 5: Test Full Cluster Rebuild
 
-### Current Commands
+**Why**: Ultimate validation - complete cluster teardown and rebuild with 100% state preservation from backups.
+
+**When**: After Phase 4 completes, during planned maintenance window.
+
+**WARNING**: This destroys entire K3s cluster. Ensure all backups verified before proceeding.
+
+**Reference**: https://longhorn.io/docs/1.10.0/advanced-resources/system-backup-restore/restore-longhorn-system
+
+### Steps:
+
+- [ ] **Step 5.1**: Final pre-teardown checklist
+  - **Verify**: System Backup exists (Longhorn UI → System Backup tab)
+  - **Verify**: All volumes have recent backups (< 24 hours)
+  - **Verify**: Metadata exported to git (`docs/cluster-state/` populated)
+  - **Verify**: MinIO accessible from laptop: `curl -I https://minio.jardoole.xyz:9000`
+  - **Commit**: All changes to git
+
+- [ ] **Step 5.2**: Teardown K3s cluster
+  - **Command**: `make k3s-teardown`
+  - **Result**: K3s completely removed from all nodes
+  - **Time**: ~5 minutes
+  - **MinIO**: Remains untouched on pi-cm5-4 (external storage preserved)
+
+- [ ] **Step 5.3**: Rebuild K3s cluster
+  - **Command**: `make k3s`
+  - **Result**: Fresh cluster with:
+    - K3s v1.34.1 (3-node HA)
+    - cert-manager (Phase 3)
+    - Longhorn (Phase 4)
+    - kube-prometheus-stack (Phase 6)
+  - **Time**: ~15-20 minutes
+  - **Verify**: `kubectl get nodes` (all nodes Ready)
+
+- [ ] **Step 5.4**: Verify Longhorn backup target persisted
+  - **Why**: Backup target configuration survives rebuild (from group_vars)
+  - **Check**: Longhorn UI → Settings → Backup Target
+  - **Expected**: `s3://longhorn-backups@us-east-1/` (green checkmark)
+  - **If not configured**: Re-run Phase 1 steps
+
+- [ ] **Step 5.5**: Restore Longhorn System Backup
+  - **Why**: Recreates ALL volume definitions from pre-teardown state
+  - **Method**: Longhorn UI → System Backup tab → Find latest → Click "Restore"
+  - **Wait**: System restore completes (~1-2 minutes)
+  - **Result**: All volume CRDs recreated in longhorn-system namespace
+  - **Reference**: https://longhorn.io/docs/1.10.0/advanced-resources/system-backup-restore/restore-longhorn-system
+
+- [ ] **Step 5.6**: Verify volumes restored in Longhorn
+  - **Command**: `kubectl get volumes.longhorn.io -n longhorn-system`
+  - **Expected**: All volumes from pre-teardown state
+  - **State**: "Detached" (volume definitions exist, data not yet attached)
+  - **Example**: `pvc-abc123` (postgres-test volume)
+
+- [ ] **Step 5.7**: Create PVs for restored volumes (manual for now)
+  - **Why**: Kubernetes needs PVs to bind PVCs to Longhorn volumes
+  - **For each volume**:
+    ```yaml
+    apiVersion: v1
+    kind: PersistentVolume
+    metadata:
+      name: <volume-name>-pv
+    spec:
+      capacity:
+        storage: <size>  # Match original
+      volumeMode: Filesystem
+      accessModes:
+        - ReadWriteOnce
+      persistentVolumeReclaimPolicy: Retain
+      storageClassName: longhorn
+      csi:
+        driver: driver.longhorn.io
+        fsType: ext4
+        volumeHandle: <longhorn-volume-name>
+        volumeAttributes:
+          numberOfReplicas: "1"
+    ```
+  - **Apply**: `kubectl apply -f pvs.yml`
+  - **Note**: Phase 6 will automate this step
+
+- [ ] **Step 5.8**: Apply PVC manifests from git
+  - **Why**: Recreate PVCs to bind to restored volumes
+  - **Command**: `kubectl apply -f docs/cluster-state/pvcs.yml`
+  - **Wait**: All PVCs bind to PVs
+  - **Verify**: `kubectl get pvc --all-namespaces` (all "Bound")
+
+- [ ] **Step 5.9**: Redeploy applications
+  - **Command**: `make apps-deploy-all`
+  - **Or individual**: `make app-deploy APP=postgres-test`
+  - **Wait**: All pods reach Running state
+  - **Time**: ~5-10 minutes depending on app count
+
+- [ ] **Step 5.10**: Verify data integrity
+  - **PostgreSQL**:
+    ```bash
+    kubectl exec -it postgres-test-postgresql-0 -n test-backups -- \
+      psql -U testuser -d testdb -c "SELECT COUNT(*) FROM test_data;"
+    ```
+  - **Expected**: 1000 rows
+  - **Sample data**: `SELECT * FROM test_data LIMIT 5;`
+  - **Other apps**: Application-specific verification
+
+**Success Criteria**:
+- ✅ Cluster rebuilt successfully
+- ✅ System Backup restored
+- ✅ All volume definitions recreated
+- ✅ All PVCs bound to restored volumes
+- ✅ All applications redeployed
+- ✅ 100% data integrity verified
+- ✅ PostgreSQL has 1000 test rows
+
+**RTO (Recovery Time Objective)**: 1-2 hours for complete cluster rebuild
+**RPO (Recovery Point Objective)**: Last backup (max 24 hours with daily backups)
+
+**Time Breakdown**:
+- Teardown: 5 minutes
+- Rebuild K3s: 15-20 minutes
+- System Restore: 1-2 minutes
+- Create PVs: 5 minutes (manual, automated in Phase 6)
+- Apply PVCs: 1 minute
+- Redeploy apps: 5-10 minutes
+- Verification: 5-10 minutes
+- **Total**: ~45-60 minutes (hands-off after automation in Phase 6)
+
+---
+
+## PHASE 6: Create Automation Playbooks
+
+**Why**: Eliminate manual steps from Phase 5. Achieve goal: "Run this command, everything is restored."
+
+**When**: After Phase 5 proves concept works manually.
+
+### Automation Goals
+
+**Before**: 20+ manual steps, 2 hours hands-on
+**After**: 3 commands, 90 minutes hands-off
+
 ```bash
-# Infrastructure management
-make site-check         # Preview all changes
-make site               # Apply base infrastructure (includes MinIO + K3s parallel)
-make minio              # Deploy MinIO S3 service standalone
-make k3s-cluster        # Deploy K3s HA cluster standalone
-make k3s-uninstall      # Uninstall K3s for debugging
-make teardown           # Complete infrastructure removal
-make upgrade            # System updates
-
-# K8s application management
-make apps-deploy-all    # Deploy all apps in apps/ directory
-make app-deploy APP=... # Deploy specific app
-make app-upgrade APP=.. # Upgrade specific app
-make app-list           # List deployed Helm releases
-make app-status APP=... # Show detailed app status
-make lint-apps          # Lint and validate all app configs
-
-# Development
-make setup              # Install dependencies
-make lint               # Run linting and syntax checks
-make precommit          # Pre-commit hooks
+make k3s-teardown
+make k3s
+make restore-cluster        # NEW: Automated restore
+make apps-deploy-all
+make verify-cluster         # NEW: Automated verification
 ```
 
-### Hardware Configuration
-- **pi-cm5-1**: K3s control plane ✅ (HA cluster running)
-- **pi-cm5-2, pi-cm5-3**: K3s workers ✅ (HA cluster running)
-- **pi-cm5-4**: MinIO NAS ✅ (2TB XFS storage, offsite via Tailscale)
-- **Beelink ME mini N150** (future): K3s storage worker with Longhorn (6x M.2, up to 24TB)
+### Playbooks to Create
 
-### Phase Dependencies
-```
-5a (Vault) → 5b (SSL) → 5c (MinIO Encryption)
-            ↓
-5d (Tailscale) → 5e (Firewall) → 6 (K3s) ✅ → 7 (Longhorn)
+#### Playbook 1: Full Cluster Restore Orchestrator
+
+- [ ] **Step 6.1**: Create restore orchestrator playbook
+  - **File**: `playbooks/longhorn/full-cluster-restore.yml`
+  - **Purpose**: Orchestrate entire restore workflow
+  - **Content**: See detailed YAML in expanded view
+  - **Key tasks**:
+    - Verify Longhorn backup target configured
+    - Prompt for manual System Backup restore (UI step)
+    - Wait for volumes to appear
+    - Create PVs for all restored volumes
+    - Apply PVC manifests from git
+    - Wait for PVC binding
+
+#### Playbook 2: PV Creation Task
+
+- [ ] **Step 6.2**: Create PV creation task file
+  - **File**: `playbooks/longhorn/tasks/create-pv-for-volume.yml`
+  - **Purpose**: Create PV for single Longhorn volume
+  - **Content**: Loop-friendly task for automation
+
+#### Playbook 3: Data Verification
+
+- [ ] **Step 6.3**: Create verification playbook
+  - **File**: `playbooks/longhorn/verify-restore.yml`
+  - **Purpose**: Automated data integrity checks
+  - **Checks**: PostgreSQL row count, other app verification
+
+#### Makefile Updates
+
+- [ ] **Step 6.4**: Add Makefile targets
+  - **File**: `Makefile`
+  - **Add**:
+    ```makefile
+    .PHONY: backup-cluster-state restore-cluster verify-cluster
+
+    backup-cluster-state: ## Export cluster state metadata before teardown
+        @echo "📦 Exporting cluster state metadata..."
+        $(ANSIBLE_PLAYBOOK) playbooks/longhorn/backup-cluster-state.yml
+
+    restore-cluster: ## Restore all volumes and PVCs from backup
+        @echo "🔄 Starting cluster restore from backups..."
+        @echo "⚠️  This will require ONE manual step (System Backup restore in Longhorn UI)"
+        $(ANSIBLE_PLAYBOOK) playbooks/longhorn/full-cluster-restore.yml
+
+    verify-cluster: ## Verify data integrity after restore
+        @echo "🔍 Verifying restored data integrity..."
+        $(ANSIBLE_PLAYBOOK) playbooks/longhorn/verify-restore.yml
+    ```
+
+- [ ] **Step 6.5**: Test automation workflow
+  - **Command**: `make restore-cluster` (on already-restored cluster)
+  - **Expected**: Idempotent (no changes if already restored)
+  - **Verify**: Playbook completes without errors
+
+**Files Created**:
+- `playbooks/longhorn/full-cluster-restore.yml`
+- `playbooks/longhorn/tasks/create-pv-for-volume.yml`
+- `playbooks/longhorn/verify-restore.yml`
+
+**Files Updated**:
+- `Makefile` (add 3 new targets)
+
+**Success Criteria**:
+- ✅ `make restore-cluster` orchestrates full restore
+- ✅ Only 1 manual step (System Backup restore in UI)
+- ✅ PVs created automatically for all volumes
+- ✅ `make verify-cluster` confirms data integrity
+- ✅ Total hands-on time < 5 minutes
+
+**Future Enhancement**: Automate System Backup restore via kubectl (currently requires UI)
+
+---
+
+## PHASE 7: Documentation
+
+**Why**: Enable future team members and future self to recover cluster. Document processes, troubleshooting, and lessons learned.
+
+**When**: After Phase 6 automation is tested and working.
+
+### Documents to Create
+
+- [ ] **Step 7.1**: Create disaster recovery guide
+  - **File**: `docs/longhorn-disaster-recovery.md`
+  - **Sections**:
+    - Overview and architecture (MinIO external storage)
+    - Recovery scenarios (app deletion, worker failure, cluster rebuild, MinIO failure)
+    - Prerequisites (fresh cluster, Longhorn installed, backup target configured)
+    - Full cluster rebuild procedure (automated with make commands)
+    - Single volume restore procedure (via UI or CRD)
+    - Troubleshooting common issues
+    - RTO/RPO objectives
+    - Edge cases and gotchas
+  - **Reference**: Phase 5 manual steps, Phase 6 automation
+
+- [ ] **Step 7.2**: Update Longhorn app README
+  - **File**: `apps/longhorn/README.md`
+  - **Add section**: "Backup Configuration"
+  - **Document**:
+    - MinIO S3 backup target configuration
+    - Recurring job schedules (daily/weekly)
+    - Storage requirements and capacity planning
+    - Link to disaster recovery guide
+  - **Add section**: "Disaster Recovery"
+  - **Link**: To docs/longhorn-disaster-recovery.md
+
+- [ ] **Step 7.3**: Update app deployment guide
+  - **File**: `docs/app-deployment-guide.md`
+  - **Add section**: "Persistent Storage Best Practices"
+  - **Document**:
+    - Always use Longhorn storage class for stateful apps
+    - Automatic backups via recurring jobs
+    - Testing restore before production deployment
+    - Monitoring backup health
+  - **Link**: To Longhorn backup documentation
+
+- [ ] **Step 7.4**: Update TODO.md with completion
+  - **File**: `TODO.md` (this file)
+  - **Add**: "Phase 7: Longhorn MinIO Backup ✅ Complete"
+  - **Update**: Quick Reference section with new make commands
+  - **Document**: Lessons learned section
+
+- [ ] **Step 7.5**: Update CLAUDE.md project instructions
+  - **File**: `CLAUDE.md`
+  - **Update**: "Deploying a New App" section
+  - **Add**: Note about automatic backups for stateful apps
+  - **Add**: Link to disaster recovery procedures
+
+**Files Created**:
+- `docs/longhorn-disaster-recovery.md`
+
+**Files Updated**:
+- `apps/longhorn/README.md`
+- `docs/app-deployment-guide.md`
+- `TODO.md` (this file)
+- `CLAUDE.md`
+
+**Success Criteria**:
+- ✅ Disaster recovery guide complete and accurate
+- ✅ All app documentation updated with backup info
+- ✅ New team member could recover cluster using docs alone
+- ✅ Lessons learned documented for future reference
+
+---
+
+## OPTIONAL FUTURE: Offsite Backup Replication
+
+**Why**: Protect against MinIO server (pi-cm5-4) catastrophic failure. Implement 3-2-1 backup rule (3 copies, 2 media types, 1 offsite).
+
+**When**: After Phase 7 complete and working in production.
+
+**Priority**: Medium (home lab acceptable risk, but recommended for production)
+
+### Current State
+
+**Copies**: 2 (Longhorn volumes + MinIO backups)
+**Media types**: 2 (NVMe/SSD on worker + SATA on NAS)
+**Offsite**: 0 ❌
+
+**Risk**: If pi-cm5-4 fails, all backups lost
+
+### Implementation Options
+
+**Option 1: MinIO Site Replication (Recommended)**
+- Configure MinIO-to-MinIO replication
+- Target: Cloud storage (Backblaze B2, AWS S3, Wasabi)
+- Automatic sync of longhorn-backups bucket
+- Cost: ~$5-10/month for 500GB (Backblaze B2)
+- Reference: https://min.io/docs/minio/linux/operations/replication.html
+
+**Option 2: Scheduled mc mirror**
+- Cron job: `mc mirror myminio/longhorn-backups cloud-bucket/longhorn-backups`
+- Frequency: Daily after recurring backup completes
+- Simpler setup than site replication
+- Manual retry on failures
+
+**Option 3: Rclone to Cloud**
+- Universal tool for cloud sync
+- Supports many providers (S3, B2, Google Drive, etc.)
+- Cron: `rclone sync /mnt/minio-drive1/data/longhorn-backups cloud:backups`
+- More flexible but requires additional software
+
+### Steps (Future)
+
+- [ ] Research cloud storage providers (cost, egress fees)
+- [ ] Choose replication strategy (site replication vs mc mirror vs rclone)
+- [ ] Configure MinIO or cron job for offsite sync
+- [ ] Test restore from offsite backup
+- [ ] Document offsite backup in disaster recovery guide
+- [ ] Set up monitoring/alerting for replication failures
+
+**Success Criteria** (when implemented):
+- ✅ Backups replicated to cloud storage
+- ✅ 3-2-1 backup rule compliance
+- ✅ Can restore cluster from cloud backups if pi-cm5-4 fails
+- ✅ Replication monitored and alerting configured
+
+---
+
+## Simplified Execution Flow
+
+### One-Time Setup
+
+```bash
+# 1. Deploy cluster with Longhorn
+make k3s
+
+# 2. Configure Longhorn backup target (Phase 1)
+# Edit apps/longhorn/values.yml and apps/longhorn/templates/minio-secret.yml
+make app-upgrade APP=longhorn
+
+# 3. Deploy recurring backup jobs (Phase 2)
+# Create apps/longhorn/templates/recurring-jobs.yml
+make app-upgrade APP=longhorn
+
+# 4. Deploy test application (Phase 3)
+make app-deploy APP=postgres-test
+
+# 5. Test single volume restore (Phase 3)
+# Follow Phase 3 manual steps
+
+# 6. Create System Backup (Phase 4)
+# Longhorn UI → System Backup → Create
 ```
 
-### Key Resources
-- **Project Structure:** `docs/project-structure.md`
-- **Git Guidelines:** `docs/git-commit-guidelines.md`
-- **MinIO Usage:** `docs/minio-usage.md`
-- **K3s Setup:** `docs/k3s-cluster-setup.md`
-- **K3s Maintenance:** `docs/k3s-maintenance-guide.md`
-- **K3s Firewall:** `docs/k3s-firewall-troubleshooting.md`
+### Regular Operations
+
+```bash
+# Daily backups run automatically at 2 AM (no action needed)
+
+# Before major cluster changes:
+make backup-cluster-state   # Export metadata to git
+git add docs/cluster-state/ && git commit -m "Update cluster state"
+
+# Check backup health:
+# Longhorn UI → Backup tab (verify recent backups exist)
+```
+
+### Disaster Recovery (Full Cluster Rebuild)
+
+```bash
+# 1. Teardown cluster
+make k3s-teardown
+
+# 2. Rebuild cluster (includes Longhorn with backup target)
+make k3s
+
+# 3. Automated restore (Phase 6 automation)
+make restore-cluster
+# NOTE: Requires ONE manual step - System Backup restore in Longhorn UI
+
+# 4. Redeploy applications
+make apps-deploy-all
+
+# 5. Verify data integrity
+make verify-cluster
+
+# Expected time: ~90 minutes hands-off, ~5 minutes hands-on
+```
+
+### Single Application Restore
+
+```bash
+# If single app deleted but cluster still running:
+
+# 1. Restore volume via Longhorn UI
+# Backup tab → Find backup → Restore
+
+# 2. Create PV and PVC (or use automation from Phase 6)
+kubectl apply -f pv.yml
+kubectl apply -f pvc.yml
+
+# 3. Redeploy application
+make app-deploy APP=<app-name>
+
+# 4. Verify data
+# Application-specific verification
+
+# Expected time: 10-15 minutes
+```
+
+---
+
+## Storage Requirements Summary
+
+### MinIO Server (pi-cm5-4)
+
+**Current Setup**:
+- 2× SATA drives with XFS filesystem
+- Paths: `/mnt/minio-drive1`, `/mnt/minio-drive2`
+- Bucket: `longhorn-backups` with object locking
+
+**Required Capacity**:
+- Minimum: 500Gi free space
+- Recommended: 1TB for growth
+
+**Check Current**:
+```bash
+ssh alexanderp@pi-cm5-4 "df -h /mnt/minio-drive1"
+```
+
+**Calculation**:
+- 3 production volumes @ 10Gi each = 30Gi raw
+- Compression ratio: 0.7 (lz4)
+- Retention: 11 backups (7 daily + 4 weekly)
+- **Formula**: 30Gi × 0.7 × 11 = 231Gi
+- **With growth buffer (2x)**: 462Gi minimum
+
+### Worker Node (Beelink)
+
+**Current Setup**:
+- 6TB NVMe drives with LUKS encryption
+- LVM: longhorn-vg
+- Mount: `/var/lib/longhorn`
+
+**Required Capacity**:
+- Formula: 3× total PVC size (replicas + snapshots)
+- Example: 30Gi PVCs = 90Gi minimum
+
+**Check Current**:
+```bash
+ansible workers -m shell -a "df -h /var/lib/longhorn" --become
+ansible workers -m shell -a "lvs" --become
+```
+
+### Network Bandwidth
+
+**Requirements**:
+- Minimum: 100Mbps
+- Recommended: 1Gbps (current setup has this)
+
+**Usage**:
+- Full backup: ~2GB per 2Gi volume = ~30 seconds @ 1Gbps
+- Incremental: ~200MB per backup = ~3 seconds
+
+---
+
+## Progress Tracking
+
+**Current Status**: Phase 0 - Not Started
+
+### Completion Checklist
+
+- [ ] Phase 1: Configure Longhorn Backup Target
+- [ ] Phase 2: Configure Recurring Backups
+- [ ] Phase 3: Validate with Test Application
+- [ ] Phase 4: Create System Backup
+- [ ] Phase 5: Test Full Cluster Rebuild
+- [ ] Phase 6: Create Automation Playbooks
+- [ ] Phase 7: Documentation
+- [ ] Optional: Offsite Backup Replication
+
+### Lessons Learned (To Be Filled)
+
+*After each phase, document:*
+- What worked well
+- What was more difficult than expected
+- Time estimates vs actual
+- Gotchas encountered
+- Improvements for next time
+
+---
+
+## Key Takeaways
+
+1. **No Circular Dependency**: MinIO on pi-cm5-4 is external to K3s cluster - perfect architecture
+2. **System Backup is Key**: Bulk restore vs manual per-volume saves hours
+3. **Automation Achieves Goal**: "Run this command" = ~90 minutes hands-off restore
+4. **Single Manual Step**: System Backup restore in UI (could be automated via kubectl in future)
+5. **RTO/RPO Acceptable**: 90 minutes / 24 hours for home lab
+6. **Offsite Optional**: 3-2-1 rule recommended but not critical for home lab
+
+**Ultimate Goal Achieved**: Complete cluster rebuild with preserved state via automated playbooks.

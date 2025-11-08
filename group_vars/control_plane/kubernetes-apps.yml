@@ -26,9 +26,10 @@ minio_certificate_name: "minio-internal-tls"
 minio_certificate_secret_name: "minio-internal-tls-secret"
 
 # MinIO internal domain configuration
-minio_internal_domain: "minio-internal.jardoole.xyz"
+minio_internal_domain: "minio.jardoole.xyz"
 minio_additional_domains:
   - "minio-nas.jardoole.xyz"
+  - "nas.jardoole.xyz"
   - "s3-internal.jardoole.xyz"
 
 # MinIO server configuration
