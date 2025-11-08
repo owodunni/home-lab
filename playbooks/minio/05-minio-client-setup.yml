@@ -69,6 +69,18 @@
           Created buckets:
           {{ bucket_list.stdout }}
 
+    - name: Create MinIO service accounts
+      ansible.builtin.shell:
+        cmd: >-
+          sudo -u minio /usr/local/bin/mc admin user svcacct add myminio {{ item.user }}
+          --access-key '{{ item.access_key }}'
+          --secret-key '{{ item.secret_key }}'
+          || sudo -u minio /usr/local/bin/mc admin user svcacct info myminio {{ item.access_key }} > /dev/null 2>&1
+      loop: "{{ minio_service_accounts }}"
+      register: svcacct_result
+      changed_when: "'Access Key:' in svcacct_result.stdout"
+      when: minio_service_accounts is defined
+
     - name: Display Phase 5 completion
       ansible.builtin.debug:
         msg: |
@@ -79,6 +91,7 @@
           ✓ Connection tested: SUCCESS
           ✓ Buckets created: {{ minio_buckets | length }}
           ✓ Users configured: {{ minio_users | length }}
+          ✓ Service accounts created: {{ minio_service_accounts | default([]) | length }}
 
           MinIO is now fully operational!
 

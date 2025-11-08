@@ -4,7 +4,7 @@
 
 # Pi CM5 configuration for NAS node - storage node requiring M.2 controller
 # PCIe enabled for M.2 SATA/NVMe controller support
-pi_cm5_config_pcie_enabled: true  # Required for M.2 SATA controller support
+pi_cm5_config_pcie_enabled: true # Required for M.2 SATA controller support
 
 # PCIe generation speed for NAS node
 # 3 = PCIe Gen3 for maximum NVMe performance (~2x faster than Gen2)
@@ -46,7 +46,7 @@ minio_server_port: 9000
 minio_console_port: 443
 minio_enable_tls: true
 # Server bind configuration - bind to all interfaces for external access
-minio_server_addr: ""  # Empty = bind to all interfaces (0.0.0.0)
+minio_server_addr: "" # Empty = bind to all interfaces (0.0.0.0)
 # Client connection configuration - use proper domain name for SSL certificate compatibility
 minio_server_address: "{{ minio_internal_domain }}"
 # Certificate files will be provided via symlinks from minio-complete.yml
@@ -78,12 +78,19 @@ minio_users:
       - name: media-storage
         policy: read-only
 
+# MinIO service accounts (S3 API access keys)
+minio_service_accounts:
+  - user: longhorn-backup
+    access_key: "{{ vault_longhorn_s3_access_key }}"
+    secret_key: "{{ vault_longhorn_s3_secret_key }}"
+    description: "Longhorn backup S3 access"
+
 # Disable cgroups for NAS
 pi_cm5_config_cgroup_enabled: false
 
 # SSL Certificate configuration for NAS services
 # Domain for internal MinIO access with SSL
-minio_internal_domain: "minio-test1.jardoole.xyz"
+minio_internal_domain: "minio.jardoole.xyz"
 
 # Let's Encrypt configuration
 letsencrypt_email: "{{ vault_letsencrypt_email }}"
