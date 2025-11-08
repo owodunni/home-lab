@@ -504,11 +504,11 @@ backup_size = volume_size × compression_ratio × retention_count
 
 ---
 
-## PHASE 4: Create System Backup
+## PHASE 4: Automated System Backup
 
 **Why**: Enable bulk restore of ALL volumes after complete cluster rebuild. System Backup captures all Longhorn CRDs (volumes, settings, recurring jobs) in single backup file.
 
-**When**: After Phase 3 succeeds and before any cluster teardown testing.
+**When**: After Phase 3 succeeds. System backups run automatically every week.
 
 **Reference**: https://longhorn.io/docs/1.10.0/advanced-resources/system-backup-restore/backup-longhorn-system
 
@@ -527,98 +527,43 @@ backup_size = volume_size × compression_ratio × retention_count
 
 ### Steps:
 
-- [ ] **Step 4.1**: Create Longhorn System Backup
-  - **Why**: Captures complete cluster state for bulk restore
-  - **Method**: Longhorn UI → System Backup tab → "Create"
-  - **Name**: Auto-generated (system-backup-<timestamp>)
-  - **Stored**: `s3://longhorn-backups/system-backups/system-backup-<timestamp>.zip`
-  - **Wait**: Completes in ~30 seconds (small metadata file)
+- [ ] **Step 4.1**: Deploy system backup RecurringJob (USER ACTION REQUIRED)
+  - **Command**: `make app-upgrade APP=longhorn`
+  - **Why**: Adds weekly-system-backup RecurringJob to cluster
+  - **Schedule**: Weekly Sunday 4 AM (after weekly volume backup at 3 AM)
+  - **Policy**: `if-not-present` - only backs up volumes without recent backups
+  - **Retention**: 4 weeks (matches weekly volume backup)
+  - **Result**: RecurringJob CRD created in longhorn-system namespace
 
-- [ ] **Step 4.2**: Verify System Backup in MinIO
-  - **SSH**: `ssh alexanderp@pi-cm5-4`
-  - **Command**: `sudo -u minio /usr/local/bin/mc ls myminio/longhorn-backups/system-backups/`
-  - **Expected**: system-backup-<timestamp>.zip file
-  - **Size**: Usually < 1MB (just metadata, not volume data)
+- [ ] **Step 4.2**: Verify system backup job created
+  - **Command**: `kubectl get recurringjobs.longhorn.io -n longhorn-system`
+  - **Expected**: 4 jobs (daily-backup, weekly-backup, snapshot-cleanup, weekly-system-backup)
+  - **Check details**: `kubectl describe recurringjob weekly-system-backup -n longhorn-system`
+  - **Verify**: Shows `cron: 0 4 * * 0` and `task: system-backup`
 
-- [ ] **Step 4.3**: Create metadata export playbook
-  - **Why**: Export PVC manifests to git for restore automation
-  - **File**: `playbooks/longhorn/backup-cluster-state.yml`
-  - **Content**:
-    ```yaml
-    ---
-    - name: Backup Cluster State Metadata
-      hosts: control_plane[0]
-      gather_facts: false
-      tasks:
-        - name: Create cluster-state directory
-          file:
-            path: "{{ playbook_dir }}/../../docs/cluster-state"
-            state: directory
+- [ ] **Step 4.3**: Monitor first system backup (USER VALIDATION PENDING)
+  - **When**: After Sunday 4:00 AM
+  - **Check**: Longhorn UI → System Backup tab
+  - **Expected**: New system backup with label `recurring-job=weekly-system-backup`
+  - **Verify MinIO**: `ssh alexanderp@pi-cm5-4 "sudo -u minio /usr/local/bin/mc ls myminio/longhorn-backups/system-backups/"`
+  - **Expected**: system-backup-<timestamp>.zip file (~1MB, just metadata)
 
-        - name: Export all PVCs
-          kubernetes.core.k8s_info:
-            kind: PersistentVolumeClaim
-            all_namespaces: true
-            kubeconfig: /etc/rancher/k3s/k3s.yaml
-          register: pvcs
-
-        - name: Save PVC manifests
-          copy:
-            content: "{{ pvcs | to_nice_yaml }}"
-            dest: "{{ playbook_dir }}/../../docs/cluster-state/pvcs.yml"
-
-        - name: Export Longhorn volumes metadata
-          kubernetes.core.k8s_info:
-            kind: Volume
-            namespace: longhorn-system
-            api_version: longhorn.io/v1beta2
-            kubeconfig: /etc/rancher/k3s/k3s.yaml
-          register: volumes
-
-        - name: Save volume manifest
-          copy:
-            content: "{{ volumes | to_nice_yaml }}"
-            dest: "{{ playbook_dir }}/../../docs/cluster-state/volumes.yml"
-    ```
-
-- [ ] **Step 4.4**: Add Makefile target for metadata backup
-  - **File**: `Makefile`
-  - **Add**:
-    ```makefile
-    backup-cluster-state: ## Export cluster state before teardown
-        @echo "Exporting cluster state metadata..."
-        $(ANSIBLE_PLAYBOOK) playbooks/longhorn/backup-cluster-state.yml
-    ```
-
-- [ ] **Step 4.5**: Run metadata export
-  - **Command**: `make backup-cluster-state`
-  - **Result**: Creates `docs/cluster-state/pvcs.yml` and `volumes.yml`
-  - **Commit**: Add to git for version control
-
-- [ ] **Step 4.6**: Trigger final volume backups
-  - **Why**: Ensure latest data backed up before teardown
-  - **Method 1**: Wait for scheduled recurring backup (2 AM)
-  - **Method 2**: Manual backup via Longhorn UI (Volume → Select all → Create Backup)
-  - **Verify**: All volumes have recent backup (< 24 hours old)
-
-- [ ] **Step 4.7**: Document current application state
-  - **Command**: `make app-list`
-  - **Save**: List of all deployed Helm releases
-  - **Purpose**: Know what to redeploy after restore
-
-**Files Created**:
-- `playbooks/longhorn/backup-cluster-state.yml`
-- `docs/cluster-state/pvcs.yml` (auto-generated)
-- `docs/cluster-state/volumes.yml` (auto-generated)
+- [ ] **Step 4.4**: Verify all volumes have recent backups
+  - **When**: Before any cluster teardown testing
+  - **Check**: Longhorn UI → Backup tab
+  - **Verify**: All volumes have backup < 24 hours old
+  - **Purpose**: Ensure data is safe before destructive testing
 
 **Files Updated**:
-- `Makefile` (add backup-cluster-state target)
+- `apps/longhorn/prerequisites.yml` - Added weekly-system-backup RecurringJob
 
 **Success Criteria**:
-- ✅ System Backup created in Longhorn UI
-- ✅ System Backup file in MinIO system-backups/ directory
-- ✅ PVC manifests exported to git
-- ✅ All volumes have recent backups
+- ✅ RecurringJob created (weekly-system-backup)
+- ⏳ First system backup runs Sunday 4 AM
+- ⏳ System backup visible in MinIO system-backups/ directory
+- ⏳ All volumes have recent backups before Phase 5
+
+**Note**: Applications are deployed via K3s playbooks (apps/ directory). No separate PVC export needed - System Backup captures all volume definitions.
 
 ---
 

@@ -114,3 +114,23 @@
           recurring-job: snapshot-cleanup
     state: present
     kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Create weekly system backup recurring job
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: longhorn.io/v1beta2
+      kind: RecurringJob
+      metadata:
+        name: weekly-system-backup
+        namespace: longhorn-system
+      spec:
+        cron: "0 4 * * 0"
+        task: system-backup
+        retain: 4
+        concurrency: 1
+        labels:
+          recurring-job: weekly-system-backup
+        parameters:
+          volume-backup-policy: if-not-present
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
