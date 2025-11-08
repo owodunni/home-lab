@@ -270,6 +270,26 @@ persistence:
   accessMode: ReadWriteOnce
 ```
 
+**Automatic Backups**: All Longhorn volumes are automatically backed up to external MinIO storage:
+- **Daily backups**: 2:00 AM (7-day retention)
+- **Weekly backups**: Sunday 3:00 AM (4-week retention)
+- **Backup location**: MinIO S3 on pi-cm5-4 (external to cluster)
+
+**Best Practices**:
+1. **Size appropriately**: Request only what you need (impacts backup time/storage)
+2. **Use ReadWriteOnce**: Most apps should use RWO (single-node access)
+3. **Monitor usage**: Check Longhorn UI for volume capacity
+4. **Test restores**: Validate backup/restore workflow for critical data
+
+**Storage Classes**:
+- `longhorn` (default): Distributed storage with automatic backups
+- `local-path`: Local-only storage (no replication, no backups)
+
+**Related Documentation**:
+- [Longhorn README](../apps/longhorn/README.md) - Backup configuration details
+- [Disaster Recovery Guide](./longhorn-disaster-recovery.md) - Recovery procedures
+- [PostgreSQL Test Example](../apps/postgres-test/README.md) - Complete backup/restore example
+
 ## Troubleshooting
 
 ### App Won't Deploy

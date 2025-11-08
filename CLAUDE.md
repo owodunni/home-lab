@@ -310,6 +310,9 @@ make app-status APP=<app-name>
 - **All secrets use vault** - Reference `{{ vault_app_secret }}` pattern
 - **HTTPS ingress** - Use cert-manager annotations for auto TLS
 - **ResourceQuota compliance** - All containers MUST specify resource limits
+- **Persistent storage** - Use `storageClass: longhorn` for automatic backups to MinIO S3
+  - Daily backups (2 AM), weekly backups (Sunday 3 AM)
+  - See [Disaster Recovery Guide](docs/longhorn-disaster-recovery.md) for restore procedures
 
 See [App Deployment Guide](docs/app-deployment-guide.md) for complete workflow.
 

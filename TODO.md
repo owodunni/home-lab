@@ -395,7 +395,7 @@ backup_size = volume_size × compression_ratio × retention_count
     ```
   - **Status**: ✅ 1000 rows inserted successfully, ready for backup
 
-- [ ] **Step 3.10**: Create manual backup
+- [x] **Step 3.10**: Create manual backup (SKIPPED)
   - **Why**: Test on-demand backup creation
   - **Method**: Longhorn UI → Volume tab → Find pvc-xxxxx → Create Backup
   - **Wait**: Status shows "Completed" (~1-2 minutes)
@@ -594,13 +594,14 @@ backup_size = volume_size × compression_ratio × retention_count
 
 - [ ] **Step 5.3**: Rebuild K3s cluster
   - **Command**: `make k3s`
-  - **Result**: Fresh cluster with:
+  - **Result**: Fresh cluster with infrastructure only:
     - K3s v1.34.1 (3-node HA)
-    - cert-manager (Phase 3)
-    - Longhorn (Phase 4)
-    - kube-prometheus-stack (Phase 6)
+    - cert-manager (TLS certificates)
+    - Longhorn (storage system)
+    - Platform foundation (namespaces, quotas, network policies)
   - **Time**: ~15-20 minutes
   - **Verify**: `kubectl get nodes` (all nodes Ready)
+  - **Note**: Applications (including Prometheus) deployed separately in Step 5.7
 
 - [ ] **Step 5.4**: Verify Longhorn backup target persisted
   - **Why**: Backup target configuration survives rebuild (from group_vars)

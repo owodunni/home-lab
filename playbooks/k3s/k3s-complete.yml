@@ -2,6 +2,10 @@
 # Complete K3s Infrastructure Deployment
 # Orchestrates all K3s phases in proper dependency order
 # Similar to minio-complete.yml for consistent deployment patterns
+#
+# Note: Applications (including kube-prometheus-stack) are deployed separately
+# via 'make apps-deploy-all' or 'make app-deploy APP=<name>' to enable
+# clean backup/restore workflows
 
 - name: Phase 1 - K3s Cluster Setup
   import_playbook: 01-k3s-cluster.yml
@@ -15,5 +19,3 @@
   import_playbook: 04-storage-systems.yml
 - name: Phase 5 - Platform Foundation
   import_playbook: 05-platform-foundation.yml
-- name: Phase 6 - Monitoring Stack
-  import_playbook: 06-monitoring-stack.yml
