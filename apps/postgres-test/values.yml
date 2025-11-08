@@ -1,4 +1,8 @@
 ---
+# Override image to use stable PostgreSQL 16
+image:
+  tag: 16.6.0-debian-12-r3
+
 # Small resources for testing
 resources:
   requests:
