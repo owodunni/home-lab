@@ -364,13 +364,14 @@ backup_size = volume_size × compression_ratio × retention_count
   - **Checks**: YAML syntax, Helm template rendering
   - **Result**: All checks passed ✅
 
-- [ ] **Step 3.8**: Deploy PostgreSQL test application
+- [x] **Step 3.8**: Deploy PostgreSQL test application
   - **Command**: `make app-deploy APP=postgres-test`
   - **Wait**: Pod reaches Running state (~2-3 minutes)
   - **Verify PVC**: `kubectl get pvc -n test-backups`
   - **Verify Longhorn volume**: `kubectl get volumes.longhorn.io -n longhorn-system | grep pvc`
+  - **Status**: Deployed successfully using chart 18.1.8 (PostgreSQL 18.0.0)
 
-- [ ] **Step 3.9**: Generate test data (1000 rows)
+- [x] **Step 3.9**: Generate test data (1000 rows)
   - **Connect**:
     ```bash
     kubectl run -it --rm psql-client --image=postgres:16 --restart=Never -n test-backups -- \
@@ -392,12 +393,14 @@ backup_size = volume_size × compression_ratio × retention_count
 
     \q
     ```
+  - **Status**: ✅ 1000 rows inserted successfully, ready for backup
 
 - [ ] **Step 3.10**: Create manual backup
   - **Why**: Test on-demand backup creation
   - **Method**: Longhorn UI → Volume tab → Find pvc-xxxxx → Create Backup
   - **Wait**: Status shows "Completed" (~1-2 minutes)
   - **Note**: Save backup name (e.g., backup-abc123def456)
+  - **SKIPPED**: Using automatic daily backup (runs 2:00 AM) instead. Proceed to Step 3.11 tomorrow.
 
 - [ ] **Step 3.11**: Verify backup in MinIO
   - **SSH**: `ssh alexanderp@pi-cm5-4`
@@ -487,10 +490,10 @@ backup_size = volume_size × compression_ratio × retention_count
 - ✅ App structure created following standard pattern
 - ✅ Configuration validated (yamllint, lint-apps passed)
 - ⏳ Vault secret added (awaiting user action)
-- ⏳ PostgreSQL deployed successfully
-- ⏳ 1000 test rows created
-- ⏳ Manual backup completed
-- ⏳ Backup visible in MinIO bucket
+- ✅ PostgreSQL deployed successfully (chart 18.1.8)
+- ✅ 1000 test rows created and ready for backup
+- ⏳ Automatic backup runs tonight (2:00 AM)
+- ⏳ Backup visible in MinIO bucket (verify tomorrow)
 - ⏳ Volume restored from backup
 - ⏳ PV/PVC bound correctly
 - ⏳ PostgreSQL started with restored volume
