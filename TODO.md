@@ -139,9 +139,10 @@ Implement automated backup and restore system for Longhorn persistent volumes us
 - **Why 4 weeks**: Monthly rollback capability, compliance
 - **RPO**: Maximum 1 week for long-term restore
 
-**Snapshot Cleanup (Every 6 hours)**:
+**Snapshot Cleanup (Once daily at 6 AM)**:
 - **Why**: Prevent worker node disk exhaustion at `/var/lib/longhorn`
-- **Frequency**: Balances cleanup vs overhead
+- **Frequency**: Once daily is optimal for home lab (stable volumes, daily backups)
+- **Context**: Production with 10+ volumes may need hourly cleanup
 - **Critical**: Without this, local snapshots accumulate and fill disk
 
 ### Storage Requirements
@@ -210,14 +211,14 @@ backup_size = volume_size × compression_ratio × retention_count
         recurring-job: weekly-backup
 
     ---
-    # Snapshot cleanup every 6 hours
+    # Snapshot cleanup once daily at 6 AM
     apiVersion: longhorn.io/v1beta2
     kind: RecurringJob
     metadata:
       name: snapshot-cleanup
       namespace: longhorn-system
     spec:
-      cron: "0 */6 * * *"
+      cron: "0 6 * * *"
       task: snapshot-cleanup
       groups:
         - default
