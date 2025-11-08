@@ -171,9 +171,9 @@ backup_size = volume_size × compression_ratio × retention_count
 
 ### Steps:
 
-- [ ] **Step 2.1**: Create recurring job definitions file
+- [x] **Step 2.1**: Create recurring job definitions file
   - **Why**: Define automated backup schedules as Kubernetes CRDs
-  - **File**: `apps/longhorn/templates/recurring-jobs.yml`
+  - **Note**: Jobs defined in `apps/longhorn/prerequisites.yml` (not templates/)
   - **Content**:
     ```yaml
     ---
@@ -230,36 +230,45 @@ backup_size = volume_size × compression_ratio × retention_count
   - **CRON format**: `minute hour day_of_month month day_of_week`
   - **Validation**: Use https://crontab.guru/
 
-- [ ] **Step 2.2**: Deploy recurring jobs via Helm
-  - **Command**: `make app-upgrade APP=longhorn`
-  - **Why**: Templates in apps/longhorn/templates/ auto-deployed by Helm
+- [x] **Step 2.2**: Deploy recurring jobs via Helm
+  - **Command**: `make app-upgrade APP=longhorn` (USER ACTION REQUIRED)
+  - **Why**: Prerequisites playbook creates RecurringJob CRDs
   - **Result**: 3 RecurringJob CRDs created in longhorn-system namespace
+  - **Status**: Configuration complete, awaiting user deployment
 
-- [ ] **Step 2.3**: Verify recurring jobs created
+- [ ] **Step 2.3**: Verify recurring jobs created (USER VALIDATION PENDING)
   - **Command**: `kubectl get recurringjobs.longhorn.io -n longhorn-system`
   - **Expected**: 3 jobs (daily-backup, weekly-backup, snapshot-cleanup)
-  - **Check CRON**: `kubectl describe recurringjob daily-backup -n longhorn-system`
+  - **Check CRON**: `kubectl describe recurringjob snapshot-cleanup -n longhorn-system`
+  - **Verify**: Snapshot-cleanup shows `0 6 * * *` (once daily at 6 AM)
 
-- [ ] **Step 2.4**: Verify jobs assigned to volumes
+- [ ] **Step 2.4**: Verify jobs assigned to volumes (USER VALIDATION PENDING)
   - **Method 1**: Longhorn UI → Volume tab → Select volume → Recurring Job Schedule
   - **Expected**: All 3 jobs auto-assigned (due to `groups: [default]`)
   - **Method 2**: `kubectl get volumes.longhorn.io -n longhorn-system -o yaml | grep recurring-job`
   - **Labels**: Should show `recurring-job.longhorn.io/daily-backup: enabled`
 
-- [ ] **Step 2.5**: Monitor first scheduled backup (next day)
+- [ ] **Step 2.5**: Monitor first scheduled backup (USER VALIDATION PENDING - Week-long monitoring)
   - **When**: After 2:00 AM next day
   - **Check**: Longhorn UI → Backup tab
   - **Expected**: New backup with label `recurring-job=daily-backup`
   - **Verify MinIO**: `ssh pi-cm5-4 "sudo -u minio /usr/local/bin/mc ls myminio/longhorn-backups/backups/"`
+  - **Monitor**: Observe backup creation over next week
 
 **Files Created**:
-- `apps/longhorn/templates/recurring-jobs.yml`
+- `docs/longhorn-snapshot-cleanup-explained.md` - Detailed explanation of snapshot-cleanup
+
+**Files Updated**:
+- `apps/longhorn/prerequisites.yml` - Updated snapshot-cleanup cron to `0 6 * * *`
+- `TODO.md` - Updated all references to once-daily cleanup
 
 **Success Criteria**:
-- ✅ 3 recurring jobs exist
-- ✅ Jobs auto-assigned to all volumes
-- ✅ First scheduled backup succeeds at 2 AM
-- ✅ Backups visible in MinIO bucket
+- ✅ 3 recurring jobs configured in prerequisites.yml
+- ✅ Snapshot-cleanup frequency optimized for home lab (once daily)
+- ⏳ Awaiting user deployment and week-long validation
+- ⏳ Jobs will auto-assign to all volumes after deployment
+- ⏳ First scheduled backup will run at 2 AM
+- ⏳ Backups will appear in MinIO bucket
 
 ---
 
@@ -1092,12 +1101,12 @@ ansible workers -m shell -a "lvs" --become
 
 ## Progress Tracking
 
-**Current Status**: Phase 0 - Not Started
+**Current Status**: Phase 2 Complete - Awaiting Validation
 
 ### Completion Checklist
 
-- [ ] Phase 1: Configure Longhorn Backup Target
-- [ ] Phase 2: Configure Recurring Backups
+- [x] Phase 1: Configure Longhorn Backup Target (Complete)
+- [x] Phase 2: Configure Recurring Backups (Complete - User validating over next week)
 - [ ] Phase 3: Validate with Test Application
 - [ ] Phase 4: Create System Backup
 - [ ] Phase 5: Test Full Cluster Rebuild
