@@ -54,3 +54,63 @@
         pollInterval: "300s"
     state: present
     kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Create daily backup recurring job
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: longhorn.io/v1beta2
+      kind: RecurringJob
+      metadata:
+        name: daily-backup
+        namespace: longhorn-system
+      spec:
+        cron: "0 2 * * *"
+        task: backup
+        groups:
+          - default
+        retain: 7
+        concurrency: 2
+        labels:
+          recurring-job: daily-backup
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Create weekly backup recurring job
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: longhorn.io/v1beta2
+      kind: RecurringJob
+      metadata:
+        name: weekly-backup
+        namespace: longhorn-system
+      spec:
+        cron: "0 3 * * 0"
+        task: backup
+        groups:
+          - default
+        retain: 4
+        concurrency: 1
+        labels:
+          recurring-job: weekly-backup
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Create snapshot cleanup recurring job
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: longhorn.io/v1beta2
+      kind: RecurringJob
+      metadata:
+        name: snapshot-cleanup
+        namespace: longhorn-system
+      spec:
+        cron: "0 6 * * *"
+        task: snapshot-cleanup
+        groups:
+          - default
+        retain: 1
+        concurrency: 3
+        labels:
+          recurring-job: snapshot-cleanup
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
