@@ -1,0 +1,10 @@
+---
+# Chart metadata for Radarr
+chart_repository: bjw-s
+chart_name: app-template
+chart_version: 3.0.4
+release_name: radarr
+namespace: media
+description: "Movie collection manager and automation"
+create_namespace: true
+wait_for_ready: true

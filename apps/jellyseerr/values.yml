@@ -1,0 +1,97 @@
+---
+# Helm values for Jellyseerr
+# Uses bjw-s app-template pattern
+
+controllers:
+  jellyseerr:
+    containers:
+      app:
+        image:
+          repository: fallenbagel/jellyseerr
+          tag: 1.7.0
+          pullPolicy: IfNotPresent
+
+        env:
+          - name: TZ
+            value: "Europe/Amsterdam"
+          - name: LOG_LEVEL
+            value: "info"
+
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 100m
+            memory: 256Mi
+
+        probes:
+          liveness:
+            enabled: true
+            custom: true
+            spec:
+              httpGet:
+                path: /api/v1/status
+                port: 5055
+              initialDelaySeconds: 30
+              periodSeconds: 10
+              timeoutSeconds: 5
+          readiness:
+            enabled: true
+            custom: true
+            spec:
+              httpGet:
+                path: /api/v1/status
+                port: 5055
+              initialDelaySeconds: 15
+              periodSeconds: 10
+              timeoutSeconds: 5
+
+service:
+  app:
+    controller: jellyseerr
+    ports:
+      http:
+        port: 5055
+
+ingress:
+  app:
+    enabled: true
+    className: traefik
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - host: jellyseerr.jardoole.xyz
+        paths:
+          - path: /
+            pathType: Prefix
+            service:
+              identifier: app
+              port: http
+    tls:
+      - secretName: jellyseerr-tls
+        hosts:
+          - jellyseerr.jardoole.xyz
+
+persistence:
+  config:
+    enabled: true
+    type: persistentVolumeClaim
+    storageClass: longhorn
+    accessMode: ReadWriteOnce
+    size: 500Mi
+    retain: true
+    globalMounts:
+      - path: /app/config
+
+# Node affinity for Beelink node
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - beelink-1

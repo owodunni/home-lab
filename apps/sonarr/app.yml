@@ -1,0 +1,8 @@
+---
+# Sonarr deployment playbook
+- name: Deploy Sonarr
+  import_playbook: ../../playbooks/deploy-helm-app.yml
+  vars:
+    app_chart_file: "{{ inventory_dir }}/apps/sonarr/Chart.yml"
+    app_values_file: "{{ inventory_dir }}/apps/sonarr/values.yml"
+    prerequisites_playbook: "{{ inventory_dir }}/apps/media-stack/_common/prerequisites.yml"
