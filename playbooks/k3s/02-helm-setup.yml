@@ -150,6 +150,22 @@
       register: helm_repo_prometheus
       failed_when: false
 
+    - name: Add Jellyfin repository (media server)
+      kubernetes.core.helm_repository:
+        name: jellyfin
+        repo_url: https://jellyfin.github.io/jellyfin-helm
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: helm_repo_jellyfin
+      failed_when: false
+
+    - name: Add bjw-s repository (app-template for media stack)
+      kubernetes.core.helm_repository:
+        name: bjw-s
+        repo_url: https://bjw-s.github.io/helm-charts
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: helm_repo_bjw_s
+      failed_when: false
+
     - name: Update all Helm repositories
       ansible.builtin.command:
         cmd: helm repo update
