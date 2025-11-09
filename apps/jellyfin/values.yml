@@ -19,52 +19,42 @@ resources:
     memory: 512Mi
 
 service:
-  main:
-    type: ClusterIP
-    ports:
-      http:
-        port: 8096
+  type: ClusterIP
+  port: 8096
 
 ingress:
-  main:
-    enabled: true
-    ingressClassName: traefik
-    annotations:
-      traefik.ingress.kubernetes.io/router.entrypoints: websecure
-      cert-manager.io/cluster-issuer: letsencrypt-prod
-    hosts:
-      - host: jellyfin.jardoole.xyz
-        paths:
-          - path: /
-            pathType: Prefix
-    tls:
-      - secretName: jellyfin-tls
-        hosts:
-          - jellyfin.jardoole.xyz
+  enabled: true
+  className: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: jellyfin.jardoole.xyz
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: jellyfin-tls
+      hosts:
+        - jellyfin.jardoole.xyz
 
 persistence:
   config:
     enabled: true
-    type: pvc
     storageClass: longhorn
     accessMode: ReadWriteOnce
     size: 2Gi
-    retain: true
 
   cache:
     enabled: true
-    type: pvc
     storageClass: longhorn
     accessMode: ReadWriteOnce
     size: 5Gi
-    retain: false  # Cache can be recreated
 
   media:
     enabled: true
     type: pvc
     existingClaim: media-stack-data
-    mountPath: /data
-    readOnly: true  # Jellyfin only reads media
 
 # Node affinity for Beelink node
 affinity:
@@ -75,7 +65,7 @@ affinity:
             - key: kubernetes.io/hostname
               operator: In
               values:
-                - beelink-1
+                - beelink
 
 # Security context
 podSecurityContext:

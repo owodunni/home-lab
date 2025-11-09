@@ -161,7 +161,7 @@
     - name: Add bjw-s repository (app-template for media stack)
       kubernetes.core.helm_repository:
         name: bjw-s
-        repo_url: https://bjw-s.github.io/helm-charts
+        repo_url: https://bjw-s-labs.github.io/helm-charts
         kubeconfig: /etc/rancher/k3s/k3s.yaml
       register: helm_repo_bjw_s
       failed_when: false

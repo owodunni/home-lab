@@ -46,6 +46,10 @@
     kubeconfig: /etc/rancher/k3s/k3s.yaml
   register: init_job_status
 
+- name: Check if job is already complete
+  ansible.builtin.set_fact:
+    job_is_complete: "{{ init_job_status.resources | length > 0 and init_job_status.resources[0].status.succeeded | default(0) > 0 }}"
+
 - name: Initialize media stack directory structure
   kubernetes.core.k8s:
     definition:
@@ -58,7 +62,6 @@
           app: media-stack
           managed-by: ansible
       spec:
-        ttlSecondsAfterFinished: 300 # Cleanup job 5 minutes after completion
         backoffLimit: 3
         template:
           metadata:
@@ -66,6 +69,15 @@
               app: media-stack-init
           spec:
             restartPolicy: OnFailure
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                    - matchExpressions:
+                        - key: kubernetes.io/hostname
+                          operator: In
+                          values:
+                            - beelink
             containers:
               - name: init-directories
                 image: busybox:1.36
@@ -99,7 +111,7 @@
                   claimName: media-stack-data
     state: present
     kubeconfig: /etc/rancher/k3s/k3s.yaml
-  when: init_job_status.resources | length == 0
+  when: not job_is_complete
 
 - name: Wait for directory initialization job to complete
   kubernetes.core.k8s_info:
@@ -113,4 +125,4 @@
       type: Complete
       status: "True"
     wait_timeout: 300
-  when: init_job_status.resources | length == 0
+  when: not job_is_complete

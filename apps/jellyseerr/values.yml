@@ -94,4 +94,4 @@ affinity:
             - key: kubernetes.io/hostname
               operator: In
               values:
-                - beelink-1
+                - beelink
