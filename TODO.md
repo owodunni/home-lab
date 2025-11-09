@@ -69,6 +69,334 @@ Each app deploys via: `make app-deploy APP=<name>` (Chart.yml + values.yml + app
 
 ---
 
+## Getting Started Guide 🚀
+
+**Prerequisites**: All apps deployed successfully via `make apps-deploy-all`
+
+This guide walks you through initial configuration after deployment. Total setup time: ~90 minutes.
+
+### Step 1: Access Your Applications
+
+All applications are available via HTTPS with automatic TLS certificates:
+
+| Application | URL | Purpose |
+|-------------|-----|---------|
+| **qBittorrent** | https://qbittorrent.jardoole.xyz | Torrent download client |
+| **Prowlarr** | https://prowlarr.jardoole.xyz | Indexer/tracker manager |
+| **Radarr** | https://radarr.jardoole.xyz | Movie automation |
+| **Sonarr** | https://sonarr.jardoole.xyz | TV show automation |
+| **Jellyfin** | https://jellyfin.jardoole.xyz | Media streaming server |
+| **Jellyseerr** | https://jellyseerr.jardoole.xyz | User request interface |
+
+### Step 2: Configure qBittorrent (15 minutes)
+
+**Why first?** All other apps need qBittorrent to download content.
+
+1. **Login**: https://qbittorrent.jardoole.xyz
+   - Default credentials: `admin` / `adminadmin`
+
+2. **Change Password**:
+   - Tools → Options → Web UI → Authentication
+   - Set strong password
+
+3. **Configure Download Paths**:
+   - Tools → Options → Downloads:
+     - **Default Save Path**: `/data/torrents`
+     - **Keep incomplete torrents in**: `/data/torrents/incomplete`
+
+4. **Create Categories**:
+   - Right-click in transfer list → Add category
+   - **Category 1**:
+     - Name: `movies`
+     - Save path: `/data/torrents/movies`
+   - **Category 2**:
+     - Name: `tv`
+     - Save path: `/data/torrents/tv`
+
+5. **Configure Seeding Limits**:
+   - Tools → Options → BitTorrent → Seeding Limits:
+     - **Ratio**: `2.0` (seed to 200%)
+     - **Seeding time**: `10080` minutes (7 days)
+     - **Then**: Pause torrent
+
+### Step 3: Configure Prowlarr (20 minutes)
+
+**Why second?** Prowlarr provides indexers for Radarr/Sonarr to search.
+
+1. **Complete Initial Setup**: https://prowlarr.jardoole.xyz
+   - Follow setup wizard
+   - Create authentication (username/password)
+
+2. **Add Indexers**:
+   - Settings → Indexers → Add Indexer
+   - Add public trackers:
+     - **1337x** (general)
+     - **The Pirate Bay** (general)
+     - **YTS** (movies)
+     - **EZTV** (TV shows)
+   - Test each indexer before saving
+
+3. **Save API Key** (for later):
+   - Settings → General → Security
+   - Copy **API Key** (needed for Radarr/Sonarr in next steps)
+
+### Step 4: Configure Radarr (20 minutes)
+
+**Why third?** Radarr needs Prowlarr for searches and qBittorrent for downloads.
+
+1. **Complete Initial Setup**: https://radarr.jardoole.xyz
+   - Follow setup wizard
+   - Create authentication
+
+2. **Add Root Folder**:
+   - Settings → Media Management → Root Folders → Add
+   - Path: `/data/media/movies`
+
+3. **Enable Hardlinks** (CRITICAL for storage efficiency):
+   - Settings → Media Management → File Management
+   - **Enable**: "Use Hardlinks instead of Copy"
+
+4. **Add Download Client**:
+   - Settings → Download Clients → Add → qBittorrent
+     - **Name**: qBittorrent
+     - **Host**: `qbittorrent-app` (internal DNS)
+     - **Port**: `8080`
+     - **Username**: `admin`
+     - **Password**: (your qBittorrent password)
+     - **Category**: `movies`
+   - Test and Save
+
+5. **Connect Prowlarr**:
+   - Settings → Indexers → Add → Prowlarr
+     - **Sync Level**: Full Sync
+     - **URL**: `http://prowlarr-app:9696`
+     - **API Key**: (from Prowlarr Step 3)
+   - Test and Save
+
+6. **Save Radarr API Key**:
+   - Settings → General → Security
+   - Copy **API Key** (needed for Prowlarr and Jellyseerr)
+
+7. **Return to Prowlarr** to complete connection:
+   - Prowlarr → Settings → Apps → Add → Radarr
+     - **Sync Level**: Full Sync
+     - **URL**: `http://radarr-app:7878`
+     - **API Key**: (Radarr API key from step 6)
+   - Test and Save
+
+### Step 5: Configure Sonarr (20 minutes)
+
+**Same pattern as Radarr but for TV shows.**
+
+1. **Complete Initial Setup**: https://sonarr.jardoole.xyz
+   - Create authentication
+
+2. **Add Root Folder**:
+   - Settings → Media Management → Root Folders → Add
+   - Path: `/data/media/tv`
+
+3. **Enable Hardlinks**:
+   - Settings → Media Management → File Management
+   - **Enable**: "Use Hardlinks instead of Copy"
+
+4. **Add Download Client**:
+   - Settings → Download Clients → Add → qBittorrent
+     - **Host**: `qbittorrent-app`
+     - **Port**: `8080`
+     - **Username/Password**: (qBittorrent credentials)
+     - **Category**: `tv`
+
+5. **Connect Prowlarr**:
+   - Settings → Indexers → Add → Prowlarr
+     - **URL**: `http://prowlarr-app:9696`
+     - **API Key**: (from Prowlarr)
+
+6. **Save Sonarr API Key**:
+   - Settings → General → Security → API Key
+
+7. **Return to Prowlarr**:
+   - Prowlarr → Settings → Apps → Add → Sonarr
+     - **URL**: `http://sonarr-app:8989`
+     - **API Key**: (Sonarr API key)
+
+### Step 6: Configure Jellyfin (15 minutes)
+
+**Media streaming server - what users actually interact with.**
+
+1. **Initial Setup Wizard**: https://jellyfin.jardoole.xyz
+   - Select language
+   - Create **admin account** (save credentials!)
+
+2. **Add Media Libraries**:
+   - **Movies Library**:
+     - Content type: Movies
+     - Folder: `/data/media/movies`
+     - Metadata: TMDB (The Movie Database)
+   - **TV Shows Library**:
+     - Content type: Shows
+     - Folder: `/data/media/tv`
+     - Metadata: TheTVDB
+
+3. **Configure Remote Access**:
+   - Already configured via ingress (https://jellyfin.jardoole.xyz)
+
+4. **Create API Key** (for Jellyseerr):
+   - Dashboard → Advanced → API Keys → New
+   - **Name**: Jellyseerr
+   - Copy and save the API key
+
+5. **Optional - Create User Accounts**:
+   - Dashboard → Users → Add User
+   - Create accounts for family members
+
+### Step 7: Configure Jellyseerr (10 minutes)
+
+**User-friendly request interface - Netflix-like UI for requesting content.**
+
+1. **Initial Setup**: https://jellyseerr.jardoole.xyz
+
+2. **Connect to Jellyfin**:
+   - **URL**: `http://jellyfin-app:8096`
+   - **API Key**: (from Jellyfin Step 4)
+   - Sign in with your Jellyfin admin account
+
+3. **Connect to Radarr**:
+   - Settings → Services → Radarr → Add Server
+     - **Server Name**: Radarr
+     - **URL**: `http://radarr-app:7878`
+     - **API Key**: (from Radarr Step 6)
+     - **Quality Profile**: HD-1080p
+     - **Root Folder**: `/data/media/movies`
+   - Test and Save
+
+4. **Connect to Sonarr**:
+   - Settings → Services → Sonarr → Add Server
+     - **Server Name**: Sonarr
+     - **URL**: `http://sonarr-app:8989`
+     - **API Key**: (from Sonarr Step 6)
+     - **Quality Profile**: HD-1080p
+     - **Root Folder**: `/data/media/tv`
+   - Test and Save
+
+5. **Configure User Permissions** (optional):
+   - Settings → Users
+   - Set request limits per user (e.g., 10 movies/week)
+
+### Step 8: Test End-to-End Workflow (30 minutes)
+
+**Verify the complete automation pipeline works.**
+
+1. **Request Test Content**:
+   - Open Jellyseerr: https://jellyseerr.jardoole.xyz
+   - Search: "Big Buck Bunny" (open-source test film)
+   - Click "Request"
+   - Verify status shows "Requested"
+
+2. **Monitor in Radarr**:
+   - Open Radarr: https://radarr.jardoole.xyz
+   - Activity → Queue: Should show search/download
+   - Wait for download to start
+
+3. **Monitor in qBittorrent**:
+   - Open qBittorrent: https://qbittorrent.jardoole.xyz
+   - Torrent should appear in "movies" category
+   - Wait for completion (5-30 minutes)
+
+4. **Verify Import**:
+   - Radarr → Activity → History: Should show "Import completed"
+   - Radarr → Movies: Movie should have checkmark
+
+5. **Check Jellyfin**:
+   - Open Jellyfin: https://jellyfin.jardoole.xyz
+   - Library should auto-refresh (or manually: Dashboard → Scan Library)
+   - Movie should appear in Movies library
+   - Click and test playback
+
+6. **Verify Hardlinks** (CRITICAL):
+   ```bash
+   kubectl exec -n media deployment/radarr -- ls -li /data/torrents/movies/ /data/media/movies/
+   ```
+   - Compare inode numbers for the same file
+   - **Same inode = SUCCESS** (hardlink, no duplicate storage)
+   - **Different inode = PROBLEM** (copy occurred, check Radarr hardlink setting)
+
+7. **Confirm Jellyseerr Status**:
+   - Jellyseerr: Request should show "Available"
+
+### Success Checklist ✅
+
+After completing all steps, verify:
+
+- [ ] All apps accessible via HTTPS URLs
+- [ ] qBittorrent categories configured (movies, tv)
+- [ ] Prowlarr has working indexers
+- [ ] Radarr connected to Prowlarr and qBittorrent
+- [ ] Sonarr connected to Prowlarr and qBittorrent
+- [ ] Jellyfin has Movies and TV libraries
+- [ ] Jellyseerr connected to all services
+- [ ] Test content requested, downloaded, and plays in Jellyfin
+- [ ] Hardlinks verified (same inode numbers)
+- [ ] qBittorrent still seeding completed downloads
+
+### Common First-Time Issues
+
+**"qBittorrent login fails"**
+- Default credentials: `admin` / `adminadmin`
+- Check pod logs: `kubectl logs -n media deployment/qbittorrent`
+
+**"Radarr can't find movies"**
+- Check Prowlarr indexers are working (test search)
+- Verify Prowlarr → Apps shows Radarr as synced
+
+**"Download stuck at 0%"**
+- Check indexer has seeders (Prowlarr → Indexers → Test)
+- Verify qBittorrent has internet access
+- Check disk space: `kubectl exec -n media deployment/radarr -- df -h /data`
+
+**"Jellyfin library empty after import"**
+- Manually scan: Dashboard → Scan Library
+- Check permissions: Files should be readable
+- Verify path: `/data/media/movies` (not `/data/torrents/movies`)
+
+**"Storage usage doubled (hardlinks not working)"**
+- Check Radarr: Settings → Media Management → "Use Hardlinks" is ON
+- Verify all apps mount same PVC (media-stack-data)
+- Confirm same filesystem: `df /data/torrents /data/media` (same device)
+
+### Storage Paths Reference
+
+**For configuration reference - all paths are on shared `/data` PVC:**
+
+```
+/data/
+├── torrents/              # qBittorrent downloads here
+│   ├── incomplete/       # Partial downloads
+│   ├── movies/          # Completed movie downloads (qBittorrent category)
+│   └── tv/              # Completed TV downloads (qBittorrent category)
+└── media/               # Final media library (Jellyfin reads from here)
+    ├── movies/          # Radarr hardlinks from torrents/movies/
+    └── tv/              # Sonarr hardlinks from torrents/tv/
+```
+
+**Why this matters**: Hardlinks allow the same file to exist in both locations without using double storage. qBittorrent keeps seeding from `/data/torrents/`, while Jellyfin streams from `/data/media/`.
+
+### What's Next?
+
+**After successful test:**
+- Start requesting real content via Jellyseerr
+- Configure quality profiles in Radarr/Sonarr (4K, remux, etc.)
+- Set up user accounts in Jellyfin for family
+- Configure notifications (Discord, Telegram) for new content
+- Review storage usage weekly
+
+**Advanced features** (see Phase 11):
+- VPN for qBittorrent privacy
+- Hardware transcoding for Jellyfin (Intel QuickSync)
+- Bazarr for subtitle automation
+- Lidarr + Navidrome for music
+
+---
+
 ## Phase 1: Preparation & Planning ⏳
 
 **Goal**: Understand architecture and verify prerequisites.
