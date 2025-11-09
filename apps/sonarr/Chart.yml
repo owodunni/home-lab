@@ -2,7 +2,7 @@
 # Chart metadata for Sonarr
 chart_repository: bjw-s
 chart_name: app-template
-chart_version: 3.0.4
+chart_version: 3.7.3
 release_name: sonarr
 namespace: media
 description: "TV show collection manager and automation"

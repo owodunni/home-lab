@@ -2,7 +2,7 @@
 # Chart metadata for Jellyseerr
 chart_repository: bjw-s
 chart_name: app-template
-chart_version: 3.0.4
+chart_version: 3.7.3
 release_name: jellyseerr
 namespace: media
 description: "Request management system for Jellyfin with Radarr/Sonarr integration"

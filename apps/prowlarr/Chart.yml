@@ -2,7 +2,7 @@
 # Chart metadata for Prowlarr
 chart_repository: bjw-s
 chart_name: app-template
-chart_version: 3.0.4
+chart_version: 3.7.3
 release_name: prowlarr
 namespace: media
 description: "Indexer manager for Radarr and Sonarr"

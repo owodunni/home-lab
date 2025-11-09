@@ -3,6 +3,19 @@
 # Shared storage infrastructure for all media applications
 # Creates namespace, PVC, and initializes directory structure
 
+- name: Create media namespace
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: media
+        labels:
+          name: media
+          managed-by: ansible
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
 - name: Create media-stack-data PersistentVolumeClaim
   kubernetes.core.k8s:
     definition:

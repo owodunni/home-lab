@@ -2,7 +2,7 @@
 # Chart metadata for Jellyfin
 chart_repository: jellyfin
 chart_name: jellyfin
-chart_version: 2.0.0
+chart_version: 2.5.0
 release_name: jellyfin
 namespace: media
 description: "Media streaming server with web interface"
