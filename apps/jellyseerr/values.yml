@@ -21,9 +21,6 @@ controllers:
           requests:
             cpu: 50m
             memory: 128Mi
-          limits:
-            cpu: 100m
-            memory: 256Mi
 
         probes:
           liveness:
@@ -33,7 +30,7 @@ controllers:
               httpGet:
                 path: /api/v1/status
                 port: 5055
-              initialDelaySeconds: 30
+              initialDelaySeconds: 60
               periodSeconds: 10
               timeoutSeconds: 5
           readiness:
@@ -43,7 +40,7 @@ controllers:
               httpGet:
                 path: /api/v1/status
                 port: 5055
-              initialDelaySeconds: 15
+              initialDelaySeconds: 45
               periodSeconds: 10
               timeoutSeconds: 5
 
@@ -85,13 +82,14 @@ persistence:
     globalMounts:
       - path: /app/config
 
-# Node affinity for Beelink node
-affinity:
-  nodeAffinity:
-    requiredDuringSchedulingIgnoredDuringExecution:
-      nodeSelectorTerms:
-        - matchExpressions:
-            - key: kubernetes.io/hostname
-              operator: In
-              values:
-                - beelink
+# Node affinity for Beelink node (where storage is attached)
+defaultPodOptions:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values:
+                  - beelink
