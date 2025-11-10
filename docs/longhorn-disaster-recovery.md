@@ -331,6 +331,63 @@ make app-upgrade APP=longhorn
 ```bash
 kubectl get volumes.longhorn.io -n longhorn-system
 # Should show all volumes from pre-teardown state
+
+kubectl get pv
+# Volumes will be in "Released" state (orphaned, need rebinding)
+```
+
+#### 4.5. Automated Volume Recovery (NEW)
+
+**Problem**: System Backup restores volume data but leaves PVs in "Released" state. Without this step, `make apps-deploy-all` would create NEW empty volumes instead of using restored data.
+
+**Solution**: Automated playbook rebinds Released PVs:
+
+```bash
+make recover-volumes
+```
+
+**What this does**:
+1. Scans for all Released PVs
+2. Clears claimRef from each PV (makes them Available)
+3. Recreates PVCs with original names
+4. Waits for automatic binding to complete
+
+**Time**: ~1-2 minutes
+
+**Output example**:
+```
+═══════════════════════════════════════════════════════
+Volume Recovery Summary
+═══════════════════════════════════════════════════════
+Total PVs: 8
+Released PVs to recover: 6
+═══════════════════════════════════════════════════════
+  ✓ media/jellyfin-config (2Gi)
+  ✓ media/radarr-config (1Gi)
+  ✓ media/sonarr-config (1Gi)
+  ✓ media/prowlarr-config (500Mi)
+  ✓ media/qbittorrent-config (500Mi)
+  ✓ media/media-stack-data (1Ti)
+═══════════════════════════════════════════════════════
+```
+
+**Verify**:
+```bash
+kubectl get pv
+# All PVs should now show "Bound" status
+
+kubectl get pvc --all-namespaces
+# PVCs created and bound to restored volumes
+```
+
+**Manual Alternative** (if playbook fails):
+```bash
+# 1. Clear claimRefs
+for pv in $(kubectl get pv -o json | jq -r '.items[] | select(.status.phase=="Released") | .metadata.name'); do
+  kubectl patch pv $pv --type json -p '[{"op": "remove", "path": "/spec/claimRef"}]'
+done
+
+# 2. Manually create PVCs (see Procedure 1 for details)
 ```
 
 #### 5. Redeploy Applications
@@ -342,11 +399,11 @@ make apps-deploy-all
 # make app-deploy APP=kube-prometheus-stack
 ```
 
-**What happens**:
-1. App deployment creates PVC (e.g., `data-postgres-test-postgresql-0`)
-2. Longhorn CSI driver finds restored volume with matching name
-3. PVC automatically binds to restored volume
-4. Pod starts with existing data intact
+**What happens now**:
+1. App deployment looks for existing PVC (created in step 4.5)
+2. Finds PVC already bound to restored volume
+3. Pod starts immediately with existing data intact
+4. No new volumes created, no data loss
 
 **Time**: ~5-10 minutes
 

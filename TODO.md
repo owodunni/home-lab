@@ -119,6 +119,45 @@ All applications are available via HTTPS with automatic TLS certificates:
      - **Seeding time**: `10080` minutes (7 days)
      - **Then**: Pause torrent
 
+6. **Enable Seeding (Connection Settings)**:
+   - Tools → Options → Connection:
+     - **Listening Port**: `6881` (matches exposed LoadBalancer port)
+     - **Check** ✅ "Use UPnP / NAT-PMP port forwarding from my router"
+     - Click **Save**
+
+7. **Configure pfSense UPnP** (if using pfSense router):
+
+   **Install UPnP Package:**
+   - pfSense → System → Package Manager → Available Packages
+   - Search "miniupnpd" → Install
+
+   **Enable UPnP:**
+   - pfSense → Services → UPnP & NAT-PMP
+   - **Enable**: ✅ Enable UPnP & NAT-PMP
+   - **Allow UPnP Port Mapping**: ✅ Checked
+   - **Allow NAT-PMP Port Mapping**: ✅ Checked
+   - **External Interface**: WAN
+   - **Internal Interface**: LAN
+
+   **Add UPnP ACL** (Access Control List):
+   ```
+   allow 1024-65535 192.168.0.0/24 1024-65535
+   deny 0-65535 0.0.0.0/0 0-65535
+   ```
+   - Click **Save** and **Apply Changes**
+
+8. **Test Port Connection**:
+   - qBittorrent → Tools → Options → Connection
+   - Click **"Test Port"** button
+   - Should show: "Port is open" ✅
+   - Verify in pfSense → Status → UPnP & NAT-PMP
+   - Should see port mapping for 192.168.0.166-169:6881
+
+**Alternative (Manual Port Forward):** If you don't want to use UPnP:
+- Uncheck UPnP in qBittorrent
+- Configure router port forward: External 6881 (TCP+UDP) → 192.168.0.166:6881
+- qBittorrent will work but requires manual configuration when ports change
+
 ### Step 3: Configure Prowlarr (20 minutes)
 
 **Why second?** Prowlarr provides indexers for Radarr/Sonarr to search.
@@ -230,11 +269,11 @@ All applications are available via HTTPS with automatic TLS certificates:
 2. **Add Media Libraries**:
    - **Movies Library**:
      - Content type: Movies
-     - Folder: `/data/media/movies`
+     - Folder: `/media/media/movies` (Note: Jellyfin mounts PVC at `/media`)
      - Metadata: TMDB (The Movie Database)
    - **TV Shows Library**:
      - Content type: Shows
-     - Folder: `/data/media/tv`
+     - Folder: `/media/media/tv`
      - Metadata: TheTVDB
 
 3. **Configure Remote Access**:
@@ -353,10 +392,13 @@ After completing all steps, verify:
 - Verify qBittorrent has internet access
 - Check disk space: `kubectl exec -n media deployment/radarr -- df -h /data`
 
-**"Jellyfin library empty after import"**
+**"Jellyfin library empty after import"** or **"Jellyfin can't read /data/media/movies"**
+- **Correct paths for Jellyfin**: `/media/media/movies` and `/media/media/tv`
+  - Jellyfin uses official chart that mounts PVC at `/media` (not `/data`)
+  - Other apps (Radarr/Sonarr/qBittorrent) mount at `/data`
+  - Same PVC, different mount points
 - Manually scan: Dashboard → Scan Library
-- Check permissions: Files should be readable
-- Verify path: `/data/media/movies` (not `/data/torrents/movies`)
+- Check permissions: Files should be readable by UID 1000
 
 **"Storage usage doubled (hardlinks not working)"**
 - Check Radarr: Settings → Media Management → "Use Hardlinks" is ON

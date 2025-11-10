@@ -97,6 +97,12 @@ kubeconfig-update: ## 🔑 Update local kubeconfig from control plane node
 	@echo "Testing connection..."
 	@kubectl cluster-info
 
+recover-volumes: ## 🔄 Recover Released PVs after Longhorn System Restore
+	@echo "Recovering Released PersistentVolumes..."
+	@echo "This will rebind orphaned volumes after Longhorn System Restore"
+	@echo ""
+	$(ANSIBLE_PLAYBOOK) playbooks/k8s/recover-volumes.yml
+
 lint-apps: ## 📋 Lint and validate all app configurations
 	@echo "=== Linting YAML Files ==="
 	@find apps/ -name 'values*.yml' -type f ! -path 'apps/_common/*' | while read file; do \
