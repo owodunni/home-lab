@@ -53,12 +53,26 @@ affinity:
               values:
                 - beelink
 
-# Security context
+# Security context with Intel GPU access for hardware transcoding
 podSecurityContext:
   runAsUser: 1000
   runAsGroup: 1000
   fsGroup: 1000
+  supplementalGroups:
+    - 44   # video group - grants access to /dev/dri
+    - 992  # render group - grants access to GPU render nodes
 
 securityContext:
   allowPrivilegeEscalation: false
   readOnlyRootFilesystem: false
+
+# Intel QuickSync hardware transcoding - mount /dev/dri for GPU access
+volumes:
+  - name: dri-device
+    hostPath:
+      path: /dev/dri
+      type: Directory
+
+volumeMounts:
+  - name: dri-device
+    mountPath: /dev/dri

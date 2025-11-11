@@ -24,16 +24,17 @@
         cache_valid_time: 3600
 
     # Install Intel media drivers for VA-API hardware acceleration
-    # Why intel-media-va-driver-non-free: Includes proprietary codecs (H.264, HEVC)
+    # Why intel-media-va-driver: Intel iHD driver for modern GPUs (GEN8+)
     # Why vainfo: Validation tool to check supported VA-API profiles
     # Why intel-gpu-tools: Monitoring tool (intel_gpu_top) to verify GPU usage
+    # Note: On Debian, the package is intel-media-va-driver (not -non-free suffix)
     - name: Install Intel media drivers and tools
       ansible.builtin.apt:
         name:
-          - intel-media-va-driver-non-free  # Intel iHD driver for modern GPUs
-          - vainfo                           # VA-API information tool
-          - intel-gpu-tools                  # GPU monitoring (intel_gpu_top)
-          - firmware-misc-nonfree            # Additional firmware for Intel GPUs
+          - intel-media-va-driver    # Intel iHD driver for modern GPUs
+          - vainfo                    # VA-API information tool
+          - intel-gpu-tools           # GPU monitoring (intel_gpu_top)
+          - firmware-misc-nonfree     # Additional firmware for Intel GPUs
         state: present
 
     # Verify /dev/dri/renderD128 exists (render node for hardware acceleration)
