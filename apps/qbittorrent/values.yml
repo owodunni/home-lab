@@ -34,9 +34,10 @@ controllers:
               httpGet:
                 path: /
                 port: 8080
-              initialDelaySeconds: 60
+              initialDelaySeconds: 90
               periodSeconds: 10
               timeoutSeconds: 5
+              failureThreshold: 5
           readiness:
             enabled: true
             custom: true
@@ -44,9 +45,96 @@ controllers:
               httpGet:
                 path: /
                 port: 8080
-              initialDelaySeconds: 45
+              initialDelaySeconds: 60
               periodSeconds: 10
               timeoutSeconds: 5
+              failureThreshold: 5
+
+      gluetun:
+        image:
+          repository: ghcr.io/qdm12/gluetun
+          tag: v3.40.0
+          pullPolicy: IfNotPresent
+
+        env:
+          - name: VPN_SERVICE_PROVIDER
+            value: "protonvpn"
+          - name: VPN_TYPE
+            value: "openvpn"
+          - name: OPENVPN_USER
+            valueFrom:
+              secretKeyRef:
+                name: protonvpn-secret
+                key: openvpn-username
+          - name: OPENVPN_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: protonvpn-secret
+                key: openvpn-password
+          - name: SERVER_COUNTRIES
+            value: "Sweden"
+          - name: VPN_PORT_FORWARDING
+            value: "on"
+          - name: VPN_PORT_FORWARDING_PROVIDER
+            value: "protonvpn"
+          - name: PORT_FORWARD_ONLY
+            value: "on"
+          - name: DOT
+            value: "off"
+          - name: DNS_ADDRESS
+            value: "9.9.9.9"
+          - name: FIREWALL_OUTBOUND_SUBNETS
+            value: "10.42.0.0/16,10.43.0.0/16"
+          - name: DNS_KEEP_NAMESERVER
+            value: "on"
+          - name: LOG_LEVEL
+            value: "info"
+          - name: HEALTH_VPN_DURATION_INITIAL
+            value: "120s"
+
+        securityContext:
+          capabilities:
+            add:
+              - NET_ADMIN
+              - SYS_MODULE
+          allowPrivilegeEscalation: false
+
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+
+      port-manager:
+        image:
+          repository: snoringdragon/gluetun-qbittorrent-port-manager
+          tag: "1.3"
+          pullPolicy: IfNotPresent
+
+        env:
+          - name: QBITTORRENT_SERVER
+            value: "localhost"
+          - name: QBITTORRENT_PORT
+            value: "8080"
+          - name: QBITTORRENT_USER
+            value: "admin"
+          - name: QBITTORRENT_PASS
+            valueFrom:
+              secretKeyRef:
+                name: qbittorrent-secret
+                key: password
+          - name: PORT_FORWARDED
+            value: "/tmp/gluetun/forwarded_port"
+
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 50m
+            memory: 64Mi
 
 service:
   app:
@@ -54,25 +142,6 @@ service:
     ports:
       http:
         port: 8080
-      bittorrent:
-        enabled: true
-        port: 6881
-        protocol: TCP
-        targetPort: 6881
-  bittorrent:
-    controller: qbittorrent
-    type: LoadBalancer
-    ports:
-      bittorrent-tcp:
-        enabled: true
-        port: 6881
-        protocol: TCP
-        targetPort: 6881
-      bittorrent-udp:
-        enabled: true
-        port: 6881
-        protocol: UDP
-        targetPort: 6881
 
 ingress:
   app:
@@ -111,6 +180,12 @@ persistence:
     existingClaim: media-stack-data
     globalMounts:
       - path: /data
+
+  gluetun-data:
+    enabled: true
+    type: emptyDir
+    globalMounts:
+      - path: /tmp/gluetun
 
 # Node affinity for Beelink node (where storage is attached)
 defaultPodOptions:

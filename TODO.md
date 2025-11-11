@@ -432,7 +432,7 @@ After completing all steps, verify:
 - Review storage usage weekly
 
 **Advanced features** (see Phase 11):
-- VPN for qBittorrent privacy
+- ✅ VPN for qBittorrent privacy (ProtonVPN configured)
 - Hardware transcoding for Jellyfin (Intel QuickSync)
 - Bazarr for subtitle automation
 - Lidarr + Navidrome for music
@@ -934,11 +934,13 @@ kubectl exec -n media deployment/qbittorrent -- ls -la /data
   - Same bjw-s/app-template pattern
   - Connects to Radarr/Sonarr for library sync
 
-- [ ] **Configure VPN for qBittorrent** (privacy)
-  - Add Gluetun sidecar container to qBittorrent pod
-  - Route torrent traffic through VPN tunnel
-  - Requires VPN provider (Mullvad, NordVPN, etc.)
-  - Reference: <https://github.com/qdm12/gluetun>
+- [x] **Configure VPN for qBittorrent** (privacy) ✅
+  - Gluetun sidecar with ProtonVPN OpenVPN configured
+  - All torrent traffic routed through VPN tunnel
+  - Automatic port forwarding via port-manager sidecar
+  - Server: Sweden
+  - Credentials managed via ansible-vault
+  - Requires localhost auth bypass in qBittorrent Web UI
 
 - [ ] **Enable hardware transcoding** (Jellyfin)
   - Beelink N150 has Intel QuickSync (hardware acceleration)

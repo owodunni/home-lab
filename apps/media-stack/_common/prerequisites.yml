@@ -16,6 +16,41 @@
     state: present
     kubeconfig: /etc/rancher/k3s/k3s.yaml
 
+- name: Create ProtonVPN Secret for qBittorrent
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: protonvpn-secret
+        namespace: media
+        labels:
+          app: qbittorrent
+          managed-by: ansible
+      type: Opaque
+      stringData:
+        openvpn-username: "{{ vault_protonvpn_username }}"
+        openvpn-password: "{{ vault_protonvpn_password }}"
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Create qBittorrent Credentials Secret
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: qbittorrent-secret
+        namespace: media
+        labels:
+          app: qbittorrent
+          managed-by: ansible
+      type: Opaque
+      stringData:
+        password: "{{ vault_qbittorrent_password }}"
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
 - name: Create media-stack-data PersistentVolumeClaim
   kubernetes.core.k8s:
     definition:
