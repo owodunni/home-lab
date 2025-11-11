@@ -69,9 +69,34 @@ Each app deploys via: `make app-deploy APP=<name>` (Chart.yml + values.yml + app
 
 ---
 
+## ✅ Deployment Status
+
+**All core applications successfully deployed!**
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| Storage Infrastructure | ✅ Complete | 1TB media PVC, directory structure initialized |
+| qBittorrent | ✅ Deployed | Download client with ProtonVPN integration |
+| Prowlarr | ✅ Deployed | Indexer management |
+| Radarr | ✅ Deployed | Movie automation |
+| Sonarr | ✅ Deployed | TV show automation |
+| Jellyfin | ✅ Deployed | Media streaming (config PVC expanded to 10Gi) |
+| Jellyseerr | ✅ Deployed | Request management |
+| ProtonVPN | ✅ Configured | OpenVPN with automatic port forwarding |
+
+**Recent Fixes:**
+- ✅ Jellyfin disk full issue resolved (expanded config PVC 2Gi → 10Gi)
+- ✅ ProtonVPN port forwarding working correctly
+
+**Next Steps:** Complete initial configuration using the Getting Started Guide below.
+
+---
+
 ## Getting Started Guide 🚀
 
-**Prerequisites**: All apps deployed successfully via `make apps-deploy-all`
+**Purpose**: Post-deployment manual configuration via web UI
+
+**Prerequisites**: All apps deployed successfully (see Deployment Status above)
 
 This guide walks you through initial configuration after deployment. Total setup time: ~90 minutes.
 
@@ -439,364 +464,9 @@ After completing all steps, verify:
 
 ---
 
-## Phase 1: Preparation & Planning ⏳
+## Remaining Tasks
 
-**Goal**: Understand architecture and verify prerequisites.
-
-- [ ] **Review architecture and data flow**
-  - Read architecture overview above
-  - Understand hardlinks requirement (single PVC for `/data`)
-  - Review application purposes and integration points
-
-- [ ] **Verify Helm repositories** (automated in `make k3s`)
-
-  Repos already added in `playbooks/k3s/02-helm-setup.yml`:
-  - `jellyfin`: https://jellyfin.github.io/jellyfin-helm
-  - `bjw-s`: https://bjw-s.github.io/helm-charts (app-template pattern)
-
-  Verify: `helm repo list` (should show jellyfin, bjw-s)
-
-- [ ] **Check storage capacity**
-
-  ```bash
-  # Open: https://longhorn.jardoole.xyz
-  # Beelink: 3x 2TB NVMe = ~5.4TB usable
-  # Current usage: Check UI
-  # Plan: Start with 1TB media PVC, expand if needed
-  ```
-
-**Note**: Namespace and PVC creation are automated via shared prerequisites (`apps/media-stack/_common/prerequisites.yml`) referenced by each media app deployment.
-
----
-
-## Phase 2: Storage Foundation 📦
-
-**Goal**: Understand automated storage setup.
-
-**Storage automatically created** by `apps/media-stack/_common/prerequisites.yml`:
-- **Namespace**: `media` (with labels)
-- **PVC**: `media-stack-data` (1TB Longhorn RWO)
-- **Directory structure**: Initialized via Kubernetes Job
-  - `/data/torrents/movies/`
-  - `/data/torrents/tv/`
-  - `/data/torrents/incomplete/`
-  - `/data/media/movies/`
-  - `/data/media/tv/`
-
-**When it runs**: Automatically when first media app deploys (e.g., `make app-deploy APP=qbittorrent`)
-
-**Verification** (after first app deployment):
-
-```bash
-# Check PVC created
-kubectl get pvc -n media
-
-# Check directory initialization job
-kubectl get jobs -n media
-
-# Verify directory structure (via any media app pod)
-kubectl exec -n media deployment/qbittorrent -- ls -la /data
-```
-
----
-
-## Phase 3: Download Infrastructure (qBittorrent) 🌐
-
-**Goal**: Deploy download client for torrent management.
-
-- [ ] **Create qBittorrent app directory**
-
-  ```bash
-  mkdir -p apps/qbittorrent
-  cd apps/qbittorrent
-  ```
-
-- [ ] **Add vault secret**
-
-  ```bash
-  uv run ansible-vault edit group_vars/all/vault.yml
-  # Add: vault_qbittorrent_password: "strong-password-here"
-  ```
-
-- [ ] **Create Chart.yml**
-      See apps/qbittorrent/Chart.yml - bjw-s/app-template v3.0.4
-
-- [ ] **Create values.yml**
-      See apps/qbittorrent/values.yml with:
-  - LinuxServer.io image (lscr.io/linuxserver/qbittorrent:4.6.3)
-  - Resources: 200m CPU / 512Mi RAM
-  - Config PVC: 500Mi
-  - Data mount: media-stack-data at `/data`
-  - Node affinity: Beelink
-
-- [ ] **Create app.yml and README.md**
-      Standard pattern using deploy-helm-app.yml
-
-- [ ] **Deploy qBittorrent**
-
-  ```bash
-  make app-deploy APP=qbittorrent
-  kubectl get pods -n media -l app.kubernetes.io/name=qbittorrent
-  ```
-
-- [ ] **Configure qBittorrent** (manual UI steps)
-
-  ```bash
-  # Open: https://qbittorrent.jardoole.xyz
-  # Login: admin / adminadmin
-  ```
-
-  - Change password: Tools → Options → Web UI → Authentication
-  - Set download path: Tools → Options → Downloads:
-    - Default Save Path: `/data/torrents`
-    - Keep incomplete in: `/data/torrents/incomplete`
-  - Create categories:
-    - Name: `movies`, Path: `/data/torrents/movies`
-    - Name: `tv`, Path: `/data/torrents/tv`
-  - Configure seeding limits: Tools → Options → BitTorrent → Seeding Limits:
-    - Ratio: 2.0
-    - Seeding time: 10080 minutes (7 days)
-
----
-
-## Phase 4: Indexer Management (Prowlarr) 🔍
-
-**Goal**: Deploy centralized indexer/tracker manager.
-
-- [ ] **Create Prowlarr app directory**
-
-  ```bash
-  mkdir -p apps/prowlarr
-  ```
-
-- [ ] **Create Chart.yml, values.yml, app.yml**
-  - bjw-s/app-template v3.0.4
-  - LinuxServer.io image: prowlarr:1.13.3
-  - Resources: 50m CPU / 128Mi RAM
-  - Config PVC: 500Mi
-  - Node affinity: Beelink
-
-- [ ] **Deploy Prowlarr**
-
-  ```bash
-  make app-deploy APP=prowlarr
-  ```
-
-- [ ] **Configure indexers** (manual UI steps)
-
-  ```bash
-  # Open: https://prowlarr.jardoole.xyz
-  ```
-
-  - Settings → Indexers → Add Indexers
-  - Add public torrent indexers:
-    - 1337x
-    - The Pirate Bay
-    - RARBG alternatives (YTS, EZTV, etc.)
-  - Test each indexer
-
-- [ ] **Note Prowlarr API key** (for Radarr/Sonarr)
-
-  ```bash
-  # In UI: Settings → General → Security → API Key
-  # Copy key
-  uv run ansible-vault edit group_vars/all/vault.yml
-  # Add: vault_prowlarr_api_key: "<api-key-from-ui>"
-  ```
-
----
-
-## Phase 5: Movie Automation (Radarr) 🎬
-
-**Goal**: Deploy movie download automation.
-
-- [ ] **Create Radarr app directory**
-
-  ```bash
-  mkdir -p apps/radarr
-  ```
-
-- [ ] **Create Chart.yml, values.yml, app.yml**
-  - bjw-s/app-template v3.0.4
-  - LinuxServer.io image: radarr:5.3.6
-  - Resources: 100m CPU / 256Mi RAM
-  - Config PVC: 1Gi
-  - Data mount: media-stack-data at `/data`
-  - Node affinity: Beelink
-
-- [ ] **Deploy Radarr**
-
-  ```bash
-  make app-deploy APP=radarr
-  ```
-
-- [ ] **Configure Radarr** (manual UI steps at <https://radarr.jardoole.xyz>)
-
-  **Media Management**:
-  - Settings → Media Management → Root Folders → Add: `/data/media/movies`
-  - Settings → Media Management → File Management → Enable "Use Hardlinks instead of Copy"
-
-  **Download Client**:
-  - Settings → Download Clients → Add → qBittorrent
-  - Host: `qbittorrent.media.svc.cluster.local`, Port: `8080`
-  - Username: `admin`, Password: (from vault), Category: `movies`
-
-  **Indexers (Prowlarr)**:
-  - Settings → Indexers → Add → Prowlarr
-  - Server: `http://prowlarr.media.svc.cluster.local:9696`
-  - API Key: (from vault), Sync Level: `Full Sync`
-
-  **Quality Profile**:
-  - Settings → Profiles → Edit "HD-1080p"
-  - Enable: 1080p Bluray/WEB, Disable: 4K (Pi hardware limitation)
-
-- [ ] **Note Radarr API key**
-
-  ```bash
-  # Settings → General → Security → API Key
-  uv run ansible-vault edit group_vars/all/vault.yml
-  # Add: vault_radarr_api_key: "<api-key-from-ui>"
-  ```
-
----
-
-## Phase 6: TV Show Automation (Sonarr) 📺
-
-**Goal**: Deploy TV show download automation.
-
-- [ ] **Create Sonarr app directory**
-
-  ```bash
-  mkdir -p apps/sonarr
-  ```
-
-- [ ] **Create Chart.yml, values.yml, app.yml**
-  - bjw-s/app-template v3.0.4
-  - LinuxServer.io image: sonarr:4.0.2
-  - Resources: 100m CPU / 256Mi RAM
-  - Config PVC: 1Gi
-  - Data mount: media-stack-data at `/data`
-  - Node affinity: Beelink
-
-- [ ] **Deploy Sonarr**
-
-  ```bash
-  make app-deploy APP=sonarr
-  ```
-
-- [ ] **Configure Sonarr** (manual UI steps at <https://sonarr.jardoole.xyz>)
-
-  Same pattern as Radarr:
-  - **Series Folder**: `/data/media/tv`
-  - **Download Client**: qBittorrent (category: `tv`)
-  - **Indexers**: Prowlarr integration
-  - **Quality Profile**: HD-1080p
-  - **Hardlinks**: Enable in Settings → Media Management
-
-- [ ] **Note Sonarr API key**
-
-  ```bash
-  # Add to vault: vault_sonarr_api_key
-  ```
-
----
-
-## Phase 7: Media Server (Jellyfin) 📺
-
-**Goal**: Deploy streaming media server.
-
-- [ ] **Create Jellyfin app directory**
-
-  ```bash
-  mkdir -p apps/jellyfin
-  ```
-
-- [ ] **Create Chart.yml**
-  - Repository: jellyfin/jellyfin
-  - Chart: jellyfin
-  - Version: 2.0.0
-
-- [ ] **Create values.yml**
-  - Official Jellyfin image: 10.8.13
-  - Resources: 500m CPU / 512Mi RAM (transcoding needs more)
-  - Config PVC: 2Gi
-  - Cache PVC: 5Gi
-  - Media mount: media-stack-data at `/data` (read-only recommended)
-  - Ingress: jellyfin.jardoole.xyz with TLS
-  - Node affinity: Beelink
-
-- [ ] **Deploy Jellyfin**
-
-  ```bash
-  make app-deploy APP=jellyfin
-  ```
-
-- [ ] **Initial setup wizard at <https://jellyfin.jardoole.xyz>**
-  - Create admin account
-  - Add library: Movies (folder: `/data/media/movies`, metadata: TMDB/TVDB)
-  - Add library: TV Shows (folder: `/data/media/tv`)
-  - Create user accounts for family
-
-- [ ] **Note Jellyfin API key** (for Jellyseerr)
-
-  ```bash
-  # Dashboard → Advanced → API Keys → New API Key
-  # Name: Jellyseerr
-  uv run ansible-vault edit group_vars/all/vault.yml
-  # Add: vault_jellyfin_api_key: "<api-key-from-ui>"
-  ```
-
----
-
-## Phase 8: Request Management (Jellyseerr) 🎭
-
-**Goal**: Deploy user-friendly request interface.
-
-- [ ] **Create Jellyseerr app directory**
-
-  ```bash
-  mkdir -p apps/jellyseerr
-  ```
-
-- [ ] **Create Chart.yml**
-  - Repository: fallenbagel (OCI)
-  - Chart: jellyseerr-chart
-  - Version: 2.7.0
-
-- [ ] **Create values.yml**
-  - Image: fallenbagel/jellyseerr:1.7.0
-  - Resources: 100m CPU / 256Mi RAM
-  - Config PVC: 500Mi
-  - Ingress: jellyseerr.jardoole.xyz with TLS
-  - Node affinity: Beelink
-
-- [ ] **Deploy Jellyseerr**
-
-  ```bash
-  make app-deploy APP=jellyseerr
-  ```
-
-- [ ] **Configure Jellyseerr at <https://jellyseerr.jardoole.xyz>**
-
-  **Jellyfin Connection**:
-  - Server: `http://jellyfin.media.svc.cluster.local:8096`
-  - API Key: (from vault), then sign in with Jellyfin account
-
-  **Radarr Connection**:
-  - Settings → Services → Radarr → Add Server
-  - URL: `http://radarr.media.svc.cluster.local:7878`
-  - API Key: (from vault), Profile: `HD-1080p`, Root: `/data/media/movies`
-
-  **Sonarr Connection**:
-  - Settings → Services → Sonarr → Add Server
-  - URL: `http://sonarr.media.svc.cluster.local:8989`
-  - API Key: (from vault), Profile: `HD-1080p`, Root: `/data/media/tv`
-
-  **User Permissions**: Configure request limits/auto-approve as needed
-
----
-
-## Phase 9: Testing & Validation 🧪
+### Testing & Validation 🧪
 
 **Goal**: Verify complete automation pipeline works end-to-end.
 
@@ -868,7 +538,7 @@ kubectl exec -n media deployment/qbittorrent -- ls -la /data
 
 ---
 
-## Phase 10: Documentation & Handoff 📖
+### Documentation & Handoff 📖
 
 **Goal**: Document system for future maintenance.
 
@@ -925,7 +595,7 @@ kubectl exec -n media deployment/qbittorrent -- ls -la /data
 
 ---
 
-## Phase 11: Optional Enhancements 🚀
+### Optional Enhancements 🚀
 
 **Goal**: Advanced features for power users.
 
@@ -933,14 +603,6 @@ kubectl exec -n media deployment/qbittorrent -- ls -la /data
   - Only if multilingual subtitles needed
   - Same bjw-s/app-template pattern
   - Connects to Radarr/Sonarr for library sync
-
-- [x] **Configure VPN for qBittorrent** (privacy) ✅
-  - Gluetun sidecar with ProtonVPN OpenVPN configured
-  - All torrent traffic routed through VPN tunnel
-  - Automatic port forwarding via port-manager sidecar
-  - Server: Sweden
-  - Credentials managed via ansible-vault
-  - Requires localhost auth bypass in qBittorrent Web UI
 
 - [ ] **Enable hardware transcoding** (Jellyfin)
   - Beelink N150 has Intel QuickSync (hardware acceleration)
