@@ -1,0 +1,18 @@
+---
+# Complete Beelink Server Configuration
+# Orchestrates all beelink-specific setup in proper dependency order
+# Similar to k3s-complete.yml for consistent deployment patterns
+#
+# Usage: make beelink-complete
+#
+# Why: Provides single command to configure entire beelink server from scratch
+# Useful for disaster recovery or reprovisioning scenarios
+
+- name: Phase 1 - Initial Setup (passwordless sudo)
+  import_playbook: 01-initial-setup.yml
+
+- name: Phase 2 - Storage Configuration (LUKS encrypted LVM)
+  import_playbook: 02-storage-config.yml
+
+- name: Phase 3 - GPU Drivers Setup (Intel QuickSync)
+  import_playbook: 03-gpu-drivers-setup.yml

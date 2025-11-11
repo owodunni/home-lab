@@ -1,0 +1,107 @@
+---
+# Intel GPU drivers setup for hardware transcoding (QuickSync)
+# Installs Intel media drivers and validation tools for Jellyfin hardware acceleration
+# Usage: make beelink-gpu-setup
+#
+# Why: Intel N150 has QuickSync for hardware video transcoding (H.264, HEVC, VP9, AV1 decode)
+# Reduces CPU usage from 80%+ to <10% during video streaming/transcoding
+#
+# Learn more:
+# - Intel Media Driver: https://github.com/intel/media-driver
+# - VA-API: https://www.freedesktop.org/wiki/Software/vaapi/
+# - Intel QuickSync: https://www.intel.com/content/www/us/en/architecture-and-technology/quick-sync-video/quick-sync-video-general.html
+
+- name: Setup Intel GPU drivers for hardware transcoding
+  hosts: beelink
+  become: true
+
+  tasks:
+    # Update package cache to get latest driver versions
+    # cache_valid_time: only update if cache older than 1 hour
+    - name: Update apt package cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    # Install Intel media drivers for VA-API hardware acceleration
+    # Why intel-media-va-driver-non-free: Includes proprietary codecs (H.264, HEVC)
+    # Why vainfo: Validation tool to check supported VA-API profiles
+    # Why intel-gpu-tools: Monitoring tool (intel_gpu_top) to verify GPU usage
+    - name: Install Intel media drivers and tools
+      ansible.builtin.apt:
+        name:
+          - intel-media-va-driver-non-free  # Intel iHD driver for modern GPUs
+          - vainfo                           # VA-API information tool
+          - intel-gpu-tools                  # GPU monitoring (intel_gpu_top)
+          - firmware-misc-nonfree            # Additional firmware for Intel GPUs
+        state: present
+
+    # Verify /dev/dri/renderD128 exists (render node for hardware acceleration)
+    # Why: This device must exist for Jellyfin container to access GPU
+    # Fail early if hardware not detected rather than discovering later in Kubernetes
+    - name: Check if Intel GPU render device exists
+      ansible.builtin.stat:
+        path: /dev/dri/renderD128
+      register: render_device
+      failed_when: not render_device.stat.exists
+
+    # Get video group ID for Kubernetes supplementalGroups configuration
+    # Why: Container needs to be member of video group to access /dev/dri
+    # GID varies by distribution (commonly 44, but need to check)
+    - name: Get video group ID
+      ansible.builtin.command: getent group video
+      register: video_group_result
+      changed_when: false
+      failed_when: video_group_result.rc != 0
+
+    # Get render group ID for Kubernetes supplementalGroups configuration
+    # Why: Modern systems use render group for GPU access (more secure than video group)
+    # GID commonly 109, but need to check actual value
+    - name: Get render group ID
+      ansible.builtin.command: getent group render
+      register: render_group_result
+      changed_when: false
+      failed_when: render_group_result.rc != 0
+
+    # Test VA-API driver to verify Intel QuickSync is accessible
+    # Why: Validates driver installation and hardware support before Kubernetes config
+    # Should show H.264, HEVC, VP9, AV1 profiles for N150
+    - name: Test VA-API driver functionality
+      ansible.builtin.command: vainfo --display drm --device /dev/dri/renderD128
+      register: vainfo_result
+      changed_when: false
+      failed_when: vainfo_result.rc != 0
+
+    # Display detected group IDs for manual use in Jellyfin values.yml
+    # Why: User needs these GIDs to configure supplementalGroups in Kubernetes
+    # Values must match host system for container to access /dev/dri
+    - name: Display detected video and render group IDs
+      ansible.builtin.debug:
+        msg:
+          - "==================================================================="
+          - "Intel GPU drivers installed successfully!"
+          - "==================================================================="
+          - ""
+          - "Video group ID: {{ video_group_result.stdout.split(':')[2] }}"
+          - "Render group ID: {{ render_group_result.stdout.split(':')[2] }}"
+          - ""
+          - "Add these to apps/jellyfin/values.yml under podSecurityContext:"
+          - ""
+          - "podSecurityContext:"
+          - "  runAsUser: 1000"
+          - "  runAsGroup: 1000"
+          - "  fsGroup: 1000"
+          - "  supplementalGroups:"
+          - "    - {{ video_group_result.stdout.split(':')[2] }}  # video group"
+          - "    - {{ render_group_result.stdout.split(':')[2] }}  # render group"
+          - ""
+          - "Supported codecs (from vainfo):"
+          - "{{ vainfo_result.stdout_lines | select('search', 'VAProfile') | list | join('\n') }}"
+          - ""
+          - "==================================================================="
+          - "Next steps:"
+          - "1. Update apps/jellyfin/values.yml with GIDs above"
+          - "2. Add /dev/dri hostPath volume mount"
+          - "3. Deploy: make app-deploy APP=jellyfin"
+          - "4. Configure Jellyfin Web UI for Intel QuickSync"
+          - "==================================================================="

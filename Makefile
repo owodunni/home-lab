@@ -2,7 +2,7 @@
 # Fix macOS fork safety issue with Python 3.13 + Ansible multiprocessing
 ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
-.PHONY: help setup beelink-setup beelink-storage lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio minio-uninstall k3s-cluster k3s-cluster-check k3s-uninstall kubeconfig-update lint-apps app-deploy app-upgrade app-list app-status app-delete apps-deploy-all teardown teardown-check
+.PHONY: help setup beelink-setup beelink-storage beelink-complete beelink-gpu-setup lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio minio-uninstall k3s-cluster k3s-cluster-check k3s-uninstall kubeconfig-update lint-apps app-deploy app-upgrade app-list app-status app-delete apps-deploy-all teardown teardown-check
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -17,7 +17,7 @@ setup: ## 🔧 Install all dependencies (Python + Ansible collections + roles)
 
 beelink-setup: ## 🖥️ Configure passwordless sudo on beelink (first-time setup)
 	@echo "Configuring passwordless sudo on beelink..."
-	$(ANSIBLE_PLAYBOOK) playbooks/beelink-setup.yml --ask-become-pass --limit beelink
+	$(ANSIBLE_PLAYBOOK) playbooks/beelink/01-initial-setup.yml --ask-become-pass --limit beelink
 
 beelink-storage: ## 💽 Configure LUKS-encrypted LVM storage for Longhorn on beelink
 	@echo "⚠️  WARNING: This will format NVMe drives on beelink!"
@@ -29,7 +29,15 @@ beelink-storage: ## 💽 Configure LUKS-encrypted LVM storage for Longhorn on be
 	@read -p "Are you sure you want to continue? (yes/no): " answer && [ "$$answer" = "yes" ] || (echo "Cancelled." && exit 1)
 	@echo ""
 	@echo "Configuring Beelink storage with LUKS + LVM + ext4..."
-	$(ANSIBLE_PLAYBOOK) playbooks/beelink-storage-config.yml --diff
+	$(ANSIBLE_PLAYBOOK) playbooks/beelink/02-storage-config.yml --diff
+
+beelink-complete: ## 🖥️ Complete beelink server configuration (all phases)
+	@echo "Running complete beelink server configuration..."
+	$(ANSIBLE_PLAYBOOK) playbooks/beelink/beelink-complete.yml --ask-become-pass --limit beelink
+
+beelink-gpu-setup: ## 🎬 Setup Intel GPU drivers for hardware transcoding (QuickSync)
+	@echo "Installing Intel GPU drivers for hardware transcoding..."
+	$(ANSIBLE_PLAYBOOK) playbooks/beelink/03-gpu-drivers-setup.yml --diff
 
 lint: ## 🔍 Run all linting and syntax checks
 	@echo "Running yamllint..."
