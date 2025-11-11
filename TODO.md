@@ -605,10 +605,91 @@ After completing all steps, verify:
   - Connects to Radarr/Sonarr for library sync
 
 - [ ] **Enable hardware transcoding** (Jellyfin)
-  - Beelink N150 has Intel QuickSync (hardware acceleration)
-  - Pass through /dev/dri to container
-  - Configure in Jellyfin: Dashboard → Playback → Transcoding
-  - Enables 4K transcoding to 1080p for mobile devices
+
+  Beelink N150 has Intel QuickSync for hardware-accelerated video transcoding. This reduces CPU usage from 80%+ to <10% during streaming.
+
+  **Phase 1: Organize Beelink Playbooks**
+  - [ ] Create `playbooks/beelink/` directory (following k3s/minio pattern)
+  - [ ] Move existing playbooks: `beelink-setup.yml`, `beelink-storage-config.yml`
+  - [ ] Rename with numbered prefixes: `01-initial-setup.yml`, `02-storage-config.yml`
+  - [ ] Create `beelink-complete.yml` orchestration playbook
+  - [ ] Update Makefile targets to use new paths
+
+  **WHY**: Scalable organization as we add more beelink-specific configuration. Follows established patterns in `playbooks/k3s/` and `playbooks/minio/`.
+
+  **Phase 2: Create Host Prerequisites Playbook**
+  - [ ] Create `playbooks/beelink/03-gpu-drivers-setup.yml`
+  - [ ] Install Intel media drivers (intel-media-va-driver-non-free)
+  - [ ] Install validation tools (intel-gpu-tools, vainfo)
+  - [ ] Verify hardware support (check /dev/dri/renderD128 exists)
+  - [ ] Detect and register video/render group IDs
+  - [ ] Test VA-API functionality with vainfo
+  - [ ] Add Makefile target: `make beelink-gpu-setup`
+
+  **WHY**: Ansible ensures idempotent, reproducible setup vs manual SSH commands. Playbook validates prerequisites before touching Kubernetes.
+
+  **Learn more**: [Intel Media Driver](https://github.com/intel/media-driver), [VA-API](https://www.freedesktop.org/wiki/Software/vaapi/)
+
+  **Phase 3: Validate Prerequisites**
+  - [ ] Run playbook: `make beelink-gpu-setup`
+  - [ ] Review output for detected video/render GIDs
+  - [ ] Verify QuickSync profiles available (H.264, HEVC, VP9, AV1 decode)
+  - [ ] Document detected GID values for next phase
+
+  **WHY**: Catch hardware/driver issues before Kubernetes changes. Confirms Intel N150 QuickSync is accessible.
+
+  **Learn more**: [Intel QuickSync](https://www.intel.com/content/www/us/en/architecture-and-technology/quick-sync-video/quick-sync-video-general.html)
+
+  **Phase 4: Update Jellyfin Kubernetes Config**
+  - [ ] Add /dev/dri hostPath volume mount to `apps/jellyfin/values.yml`
+  - [ ] Configure supplementalGroups with detected GIDs (from Phase 3)
+  - [ ] Maintain existing security context (no privilege escalation needed)
+
+  **WHY**: Container needs group membership to access /dev/dri devices. SupplementalGroups grants access without privilege escalation.
+
+  **Learn more**: [Kubernetes Security Context](https://kubernetes.io/docs/tasks/configure-pod-container/security-context/), [Device Plugins](https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/device-plugins/)
+
+  **Phase 5: Deploy and Verify**
+  - [ ] Deploy updated Jellyfin: `make app-deploy APP=jellyfin`
+  - [ ] Verify device access: `kubectl exec -n media deployment/jellyfin -- ls -l /dev/dri/`
+  - [ ] Test VA-API driver: `kubectl exec -n media deployment/jellyfin -- /usr/lib/jellyfin-ffmpeg/vainfo --display drm --device /dev/dri/renderD128`
+
+  **WHY**: Validate permissions work before configuring Jellyfin. Confirms container can access GPU.
+
+  **Phase 6: Configure Jellyfin Web UI**
+  - [ ] Navigate to Dashboard → Playback → Transcoding
+  - [ ] Set Hardware acceleration: **Intel QuickSync (QSV)**
+  - [ ] Set VA-API device: **/dev/dri/renderD128**
+  - [ ] Enable hardware decoding: H.264, HEVC, VP9, AV1 ✓
+  - [ ] Enable hardware encoding: H.264, HEVC ✓ (VP9/AV1 encode not supported on N150)
+
+  **WHY**: Jellyfin must be explicitly configured to use hardware acceleration. Default is software transcoding.
+
+  **Learn more**: [Jellyfin Hardware Acceleration](https://jellyfin.org/docs/general/administration/hardware-acceleration/intel)
+
+  **Phase 7: Test and Validate**
+  - [ ] Monitor GPU usage: `ssh beelink` → `intel_gpu_top`
+  - [ ] Test transcode by playing HEVC/4K video (forces transcode)
+  - [ ] Verify CPU usage: `kubectl top pod -n media` (should be <10% during transcode)
+  - [ ] Check logs: `kubectl logs -n media deployment/jellyfin | grep -i "vaapi\|qsv"`
+
+  **WHY**: Confirm hardware transcoding actually working, not silently falling back to software.
+
+  **Learn more**: [Intel GPU Tools](https://gitlab.freedesktop.org/drm/igt-gpu-tools)
+
+  **Phase 8: Documentation**
+  - [ ] Update `apps/jellyfin/README.md` with hardware transcoding section
+  - [ ] Document playbook execution order
+  - [ ] Add troubleshooting guide for common permission issues
+  - [ ] Link to Intel/Jellyfin documentation
+
+  **WHY**: Future reference for reinstalls or troubleshooting. Follows `docs/playbook-guidelines.md` standards.
+
+  **Expected Results**:
+  - ✅ CPU usage during transcode: 80%+ → <10%
+  - ✅ GPU Video/Render engines: 60-90% during transcode
+  - ✅ Smooth 4K → 1080p transcoding
+  - ✅ Multiple simultaneous 1080p transcodes possible
 
 - [ ] **Add music library** (Lidarr + Navidrome)
   - Lidarr: Music automation (like Radarr for music)
