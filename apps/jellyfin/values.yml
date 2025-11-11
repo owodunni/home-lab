@@ -35,13 +35,7 @@ persistence:
     enabled: true
     storageClass: longhorn
     accessMode: ReadWriteOnce
-    size: 2Gi
-
-  cache:
-    enabled: true
-    storageClass: longhorn
-    accessMode: ReadWriteOnce
-    size: 5Gi
+    size: 10Gi  # Expanded from 2Gi to accommodate transcodes
 
   media:
     enabled: true

@@ -17,16 +17,19 @@ Jellyfin provides a beautiful web interface for streaming your media library wit
 
 ### Storage
 
-- **Config volume**: 2Gi Longhorn PVC for Jellyfin database and settings
-- **Cache volume**: 5Gi Longhorn PVC for transcoding cache (not backed up)
+- **Config volume**: 10Gi Longhorn PVC for Jellyfin database, settings, and transcodes
+  - Contains SQLite database, configuration, logs, and transcode cache
+  - Increased from 2Gi to prevent disk full issues during streaming
 - **Media volume**: Shared `media-stack-data` PVC mounted read-only at `/data`
   - `/data/media/movies/` - Movie library
   - `/data/media/tv/` - TV show library
 
+**Note**: The Jellyfin Helm chart does not support a separate cache volume. All data including transcodes goes to `/config`.
+
 ### Resources
 
-- **CPU**: 250m request, 500m limit (transcoding may need more)
-- **Memory**: 256Mi request, 512Mi limit
+- **No resource limits**: Removed to prevent streaming issues during transcoding
+- Jellyfin will use available CPU/memory as needed for transcoding
 
 ### Node Placement
 
@@ -109,6 +112,28 @@ Web UI → Dashboard → Scan Library (refresh metadata)
 
 ## Troubleshooting
 
+### Application frozen / database errors
+
+**Symptom**: Web UI becomes unresponsive, "couldn't access server" errors, or database errors in logs.
+
+**Likely cause**: `/config` volume full (transcodes filled disk).
+
+**Check disk space**:
+```bash
+kubectl exec -n media deployment/jellyfin -- df -h /config
+```
+
+**Fix**:
+```bash
+# Delete old transcode files
+kubectl exec -n media deployment/jellyfin -- rm -rf /config/transcodes/*
+
+# Restart pod
+kubectl rollout restart deployment/jellyfin -n media
+```
+
+**Prevention**: Jellyfin's "Clean Transcode Directory" scheduled task should auto-delete old transcodes, but can fail if disk is 100% full. The `/config` volume is sized at 10Gi to provide buffer space.
+
 ### Videos won't play
 
 **Check file permissions**:
@@ -128,9 +153,10 @@ kubectl exec -n media deployment/jellyfin -- ls -lh /data/media/movies/
 kubectl logs -n media deployment/jellyfin | grep -i transcode
 ```
 
-**Check cache space**:
+**Check transcode space**:
 ```bash
-kubectl exec -n media deployment/jellyfin -- df -h /cache
+kubectl exec -n media deployment/jellyfin -- df -h /config
+kubectl exec -n media deployment/jellyfin -- du -sh /config/transcodes/
 ```
 
 ### Can't access web UI
