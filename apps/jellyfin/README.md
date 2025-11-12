@@ -1,179 +1,316 @@
 # Jellyfin
 
-Netflix-like media streaming server for movies and TV shows.
+Media streaming server with Intel QuickSync hardware transcoding for efficient video processing.
 
 ## Overview
 
-Jellyfin provides a beautiful web interface for streaming your media library with support for transcoding, metadata fetching, and multi-user management.
+Jellyfin provides a Netflix-like web interface for streaming your media library with support for:
+- Hardware-accelerated transcoding (Intel QuickSync)
+- Metadata fetching from TheMovieDB
+- Multi-user management with viewing permissions
+- Browser and mobile app streaming
+
+## Architecture
+
+**Image**: LinuxServer.io Jellyfin 10.10.3 (Ubuntu-based with GLIBC 2.39)
+- **Why LinuxServer.io**: Official Jellyfin image uses Debian 11 (GLIBC 2.31) which is incompatible with Debian 12 host drivers required for Intel N150
+- **Chart**: bjw-s/app-template v3.7.3 (supports hostPath volumes for driver mounting)
+
+**Hardware Transcoding**:
+- Intel N150 (Alder Lake-N, Gen 12) GPU with QuickSync
+- VA-API iHD driver (host version May 2024)
+- Low Power encoding mode (`-low_power 1`)
+- Resource: `gpu.intel.com/i915: 1`
 
 ## Dependencies
 
-- **Longhorn**: For persistent configuration and cache storage
-- **cert-manager**: For TLS certificates
-- **Traefik**: For ingress routing
-- **Media stack shared storage**: `media-stack-data` PVC (created by prerequisites)
+**Infrastructure** (one-time setup):
+1. **Beelink GPU drivers**: Run `make beelink-gpu-setup` to install Intel media drivers
+2. **Helm repositories**: NFD and Intel repos added via `make k3s-helm-setup`
+
+**Runtime Dependencies** (auto-deployed):
+- **Node Feature Discovery (NFD)**: Labels nodes with GPU capabilities
+- **Intel Device Plugins Operator**: Exposes GPU as Kubernetes resource
+- **GpuDevicePlugin CR**: Shares GPU among up to 10 containers
+
+**Storage**:
+- **Longhorn**: Persistent config storage with automatic backups to MinIO
+- **cert-manager**: TLS certificate for HTTPS ingress
+- **Traefik**: Ingress routing
+
+**Media Source**:
+- **media-stack-data PVC**: Shared 1TB volume with movie/TV library
+
+## Deployment
+
+### Prerequisites (Auto-Deployed)
+
+Prerequisites deploy automatically before Jellyfin via `prerequisites.yml`:
+```bash
+apps/jellyfin/
+├── nfd/                    # Node Feature Discovery
+├── gpu-plugin/             # Intel Device Plugins Operator
+└── prerequisites.yml       # Deploys both automatically
+```
+
+### Deploy Jellyfin
+
+```bash
+# Full deployment (includes prerequisites)
+make app-deploy APP=jellyfin
+```
+
+The deployment will:
+1. Deploy NFD to label GPU-capable nodes
+2. Deploy Intel GPU plugin operator
+3. Create GpuDevicePlugin CR to advertise GPU
+4. Deploy Jellyfin with hardware transcoding
+
+## Hardware Transcoding Setup
+
+### Host Configuration
+
+**GPU Driver Mounts** (automated via values.yml):
+```yaml
+/dev/dri → /dev/dri                           # GPU device access
+/usr/lib/x86_64-linux-gnu/dri → container     # VA-API iHD driver (May 2024)
+/usr/lib/x86_64-linux-gnu/libigdgmm.so.12     # Intel Graphics Memory Management lib
+```
+
+**Why host drivers?**
+Container's bundled drivers (Nov 2023) don't support Intel N150. Host drivers (May 2024) are newer and compatible.
+
+### Jellyfin UI Configuration
+
+Navigate to: **Dashboard → Playback → Transcoding**
+
+```
+Hardware acceleration: Intel QuickSync (QSV)
+
+Enable hardware decoding for:
+☑ H264
+☑ HEVC
+☑ VP9
+☑ AV1
+
+Hardware encoding options:
+☑ Enable hardware encoding
+☑ Enable Intel Low-Power H.264 hardware encoder
+☑ Enable Intel Low-Power HEVC hardware encoder
+☑ Allow encoding in HEVC format
+```
+
+### Verification
+
+**Check GPU usage during transcoding:**
+```bash
+# On beelink host (while playing video that needs transcoding)
+ssh beelink
+sudo intel_gpu_top
+
+# Look for:
+# Video: 97-99% (HIGH = hardware encoding working)
+# Render/3D: 0-5% (should be minimal)
+```
+
+**Check ffmpeg uses hardware:**
+```bash
+kubectl logs -n media -l app.kubernetes.io/name=jellyfin --tail=200 | grep ffmpeg
+
+# Should see:
+# -init_hw_device vaapi=va:,vendor_id=0x8086,driver=iHD
+# -codec:v:0 h264_qsv -low_power 1
+```
+
+**Performance Expectations:**
+- GPU Video engine: 97-99% utilization
+- CPU usage: ~30-40% (audio transcoding + HLS segmentation)
+- Without hardware: CPU 80-100% (video transcoding on CPU)
 
 ## Configuration
 
 ### Storage
 
-- **Config volume**: 10Gi Longhorn PVC for Jellyfin database, settings, and transcodes
-  - Contains SQLite database, configuration, logs, and transcode cache
-  - Increased from 2Gi to prevent disk full issues during streaming
-- **Media volume**: Shared `media-stack-data` PVC mounted read-only at `/data`
-  - `/data/media/movies/` - Movie library
-  - `/data/media/tv/` - TV show library
+```yaml
+config: 10Gi Longhorn PVC
+  /config/data/       # SQLite database, settings
+  /config/cache/      # Metadata cache
+  /config/transcodes/ # HLS segments (auto-cleaned)
 
-**Note**: The Jellyfin Helm chart does not support a separate cache volume. All data including transcodes goes to `/config`.
+media: media-stack-data PVC (shared, read-only)
+  /media/media/movies/ # Radarr movie library
+  /media/media/tv/     # Sonarr TV library
+```
 
 ### Resources
 
-- **No resource limits**: Removed to prevent streaming issues during transcoding
-- Jellyfin will use available CPU/memory as needed for transcoding
+```yaml
+requests:
+  cpu: 200m
+  memory: 512Mi
+  gpu.intel.com/i915: 1  # Intel GPU allocation
+
+limits:
+  cpu: 2000m             # CPU for audio transcoding
+  memory: 2Gi
+  gpu.intel.com/i915: 1
+```
 
 ### Node Placement
 
-- **Affinity**: Runs on `beelink-1` node (where media storage is available)
-
-## Deployment
-
-```bash
-make app-deploy APP=jellyfin
+```yaml
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - beelink  # Node with Intel GPU
 ```
 
 ## Access
 
 - **URL**: https://jellyfin.jardoole.xyz
 
-## Initial Setup
+## Initial Setup Wizard
 
-After deployment, complete the setup wizard at https://jellyfin.jardoole.xyz:
+After first deployment, complete setup at https://jellyfin.jardoole.xyz:
 
 ### 1. Create Admin Account
-
 - Username: (your choice)
 - Password: (strong password)
 
-### 2. Add Movie Library
+### 2. Configure Hardware Transcoding
+- Dashboard → Playback → Transcoding
+- Follow "Hardware Transcoding Setup" section above
 
+### 3. Add Movie Library
 - Content type: Movies
-- Display name: Movies
-- Folder: `/data/media/movies`
-- Enable metadata providers:
-  - TheMovieDB
-  - TheTVDB
-  - Open Movie Database
+- Folder: `/media/media/movies`
+- Metadata: TheMovieDB, TheTVDB, OMDb
 
-### 3. Add TV Show Library
-
+### 4. Add TV Show Library
 - Content type: Shows
-- Display name: TV Shows
-- Folder: `/data/media/tv`
-- Enable metadata providers:
-  - TheMovieDB
-  - TheTVDB
+- Folder: `/media/media/tv`
+- Metadata: TheMovieDB, TheTVDB
 
-### 4. Create User Accounts
-
-- Dashboard → Users → Add User
-- Configure viewing permissions per user
-
-### 5. Note API Key (for Jellyseerr)
-
-- Dashboard → Advanced → API Keys → New API Key
+### 5. Generate API Key (for Jellyseerr)
+- Dashboard → Advanced → API Keys → New
 - Name: Jellyseerr
-- Save to vault: `vault_jellyfin_api_key`
-
-## Integration
-
-**Used by**:
-- Jellyseerr (request management)
-
-**Reads from**:
-- `/data/media/` (populated by Radarr/Sonarr)
+- Store in vault: `vault_jellyfin_api_key`
 
 ## Maintenance
 
 ### Update Version
 
-1. Edit `values.yml` to change image tag
-2. Redeploy: `make app-deploy APP=jellyfin`
+```bash
+# Edit image tag in values.yml
+vim apps/jellyfin/values.yml
+
+# Redeploy
+make app-deploy APP=jellyfin
+```
 
 ### Check Status
 
 ```bash
+# Pod status
 kubectl get pods -n media -l app.kubernetes.io/name=jellyfin
-kubectl logs -n media deployment/jellyfin -f
+
+# Logs
+kubectl logs -n media -l app.kubernetes.io/name=jellyfin -f
+
+# GPU allocation
+kubectl describe pod -n media -l app.kubernetes.io/name=jellyfin | grep gpu.intel.com
 ```
 
-### Scan Library
+### Clean Transcode Cache
 
-Web UI → Dashboard → Scan Library (refresh metadata)
+```bash
+# Check disk usage
+kubectl exec -n media -l app.kubernetes.io/name=jellyfin -- df -h /config
+
+# Clear transcode cache
+kubectl exec -n media -l app.kubernetes.io/name=jellyfin -- rm -rf /config/cache/transcodes/*
+```
 
 ## Troubleshooting
 
-### Application frozen / database errors
+### Videos won't play / high CPU usage
 
-**Symptom**: Web UI becomes unresponsive, "couldn't access server" errors, or database errors in logs.
-
-**Likely cause**: `/config` volume full (transcodes filled disk).
-
-**Check disk space**:
+**Check hardware transcoding is enabled:**
 ```bash
-kubectl exec -n media deployment/jellyfin -- df -h /config
+# Verify GPU resources
+kubectl describe pod -n media -l app.kubernetes.io/name=jellyfin | grep -A 5 "Limits:"
+
+# Check ffmpeg command
+kubectl logs -n media -l app.kubernetes.io/name=jellyfin --tail=200 | grep "h264_qsv\|h264_vaapi"
+
+# Monitor GPU usage
+ssh beelink
+sudo intel_gpu_top  # Video engine should be 97-99% during transcode
 ```
 
-**Fix**:
-```bash
-# Delete old transcode files
-kubectl exec -n media deployment/jellyfin -- rm -rf /config/transcodes/*
+**If GPU shows 0% usage:**
+1. Check Jellyfin UI: Dashboard → Playback → Transcoding
+2. Ensure "Intel QuickSync (QSV)" is selected
+3. Enable hardware decoding for H264, HEVC, VP9
+4. Force transcode: Set max bitrate to 2 Mbps in player settings
 
-# Restart pod
+### Disk full errors
+
+```bash
+# Check space
+kubectl exec -n media -l app.kubernetes.io/name=jellyfin -- df -h /config
+
+# Clean transcodes
+kubectl exec -n media -l app.kubernetes.io/name=jellyfin -- rm -rf /config/cache/transcodes/*
+
+# Restart
 kubectl rollout restart deployment/jellyfin -n media
 ```
 
-**Prevention**: Jellyfin's "Clean Transcode Directory" scheduled task should auto-delete old transcodes, but can fail if disk is 100% full. The `/config` volume is sized at 10Gi to provide buffer space.
+### Hardware transcoding not initializing
 
-### Videos won't play
-
-**Check file permissions**:
+**Check driver access:**
 ```bash
-kubectl exec -n media deployment/jellyfin -- ls -lh /data/media/movies/
-# Files should be readable (644 or 755)
+POD=$(kubectl get pod -n media -l app.kubernetes.io/name=jellyfin -o jsonpath='{.items[0].metadata.name}')
+
+# Verify device readable
+kubectl exec -n media $POD -- test -r /dev/dri/renderD128 && echo "✓ GPU accessible" || echo "✗ GPU not accessible"
+
+# Check host drivers mounted
+kubectl exec -n media $POD -- ls -lh /usr/lib/jellyfin-ffmpeg/lib/dri/
+# Should show: iHD_drv_video.so (18MB, May 2024 timestamp)
+
+# Verify libigdgmm library
+kubectl exec -n media $POD -- ls -lh /usr/lib/x86_64-linux-gnu/libigdgmm.so.12
 ```
 
-**Try Direct Play**:
-- Playback Settings → Disable transcoding
-- H.264 works on all devices, H.265 may require transcoding
-
-### Transcoding errors
-
-**Check logs**:
+**Test VA-API manually:**
 ```bash
-kubectl logs -n media deployment/jellyfin | grep -i transcode
+kubectl exec -n media $POD -- /usr/lib/jellyfin-ffmpeg/ffmpeg -hide_banner -v verbose \
+  -init_hw_device vaapi=va:/dev/dri/renderD128,driver=iHD \
+  -f lavfi -i testsrc=duration=1:size=192x108 \
+  -vf 'format=nv12,hwupload' -c:v h264_vaapi -f null - 2>&1 | grep -i "vaapi\|driver"
+
+# Expected: "VAAPI driver: Intel iHD driver... va_openDriver() returns 0"
 ```
 
-**Check transcode space**:
-```bash
-kubectl exec -n media deployment/jellyfin -- df -h /config
-kubectl exec -n media deployment/jellyfin -- du -sh /config/transcodes/
-```
+## Integration
 
-### Can't access web UI
+**Provides media to**:
+- Jellyseerr (request management interface)
 
-**Check ingress**:
-```bash
-kubectl get ingress -n media
-kubectl describe ingress jellyfin -n media
-```
-
-**Check certificate**:
-```bash
-kubectl get certificate -n media
-```
+**Reads media from**:
+- `/media/media/movies/` (populated by Radarr)
+- `/media/media/tv/` (populated by Sonarr)
 
 ## References
 
 - [Jellyfin Documentation](https://jellyfin.org/docs/)
-- [Jellyfin Helm Chart](https://github.com/jellyfin/jellyfin-helm)
-- [Hardware Acceleration](https://jellyfin.org/docs/general/administration/hardware-acceleration.html)
+- [Intel Hardware Acceleration](https://jellyfin.org/docs/general/post-install/transcoding/hardware-acceleration/intel)
+- [bjw-s app-template](https://bjw-s.github.io/helm-charts/docs/app-template/)
+- [Intel Device Plugins](https://intel.github.io/intel-device-plugins-for-kubernetes/)
