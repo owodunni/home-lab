@@ -1,0 +1,10 @@
+---
+# Chart metadata for Node Feature Discovery
+chart_repository: nfd
+chart_name: node-feature-discovery
+chart_version: 0.18.3
+release_name: node-feature-discovery
+namespace: node-feature-discovery
+description: "Detects hardware features and labels nodes for device plugins"
+create_namespace: true
+wait_for_ready: true

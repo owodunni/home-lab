@@ -1,78 +1,143 @@
 ---
 # Helm values for Jellyfin
-# Uses official Jellyfin Helm chart
+# Uses bjw-s app-template pattern with hardware transcoding support
 
-image:
-  repository: jellyfin/jellyfin
-  tag: 10.8.13
-  pullPolicy: IfNotPresent
+controllers:
+  jellyfin:
+    containers:
+      app:
+        image:
+          repository: lscr.io/linuxserver/jellyfin
+          tag: 10.10.3
+          pullPolicy: IfNotPresent
 
-env:
-  TZ: "Europe/Amsterdam"
+        env:
+          - name: PUID
+            value: "1000"
+          - name: PGID
+            value: "1000"
+          - name: TZ
+            value: "Europe/Amsterdam"
+
+        # Request Intel GPU for QuickSync hardware transcoding
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+            gpu.intel.com/i915: 1
+          limits:
+            cpu: 2000m
+            memory: 2Gi
+            gpu.intel.com/i915: 1
+
+        probes:
+          liveness:
+            enabled: true
+            custom: true
+            spec:
+              httpGet:
+                path: /health
+                port: 8096
+              initialDelaySeconds: 60
+              periodSeconds: 30
+              timeoutSeconds: 5
+          readiness:
+            enabled: true
+            custom: true
+            spec:
+              httpGet:
+                path: /health
+                port: 8096
+              initialDelaySeconds: 30
+              periodSeconds: 10
+              timeoutSeconds: 5
 
 service:
-  type: ClusterIP
-  port: 8096
+  app:
+    controller: jellyfin
+    ports:
+      http:
+        port: 8096
 
 ingress:
-  enabled: true
-  className: traefik
-  annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: websecure
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-  hosts:
-    - host: jellyfin.jardoole.xyz
-      paths:
-        - path: /
-          pathType: Prefix
-  tls:
-    - secretName: jellyfin-tls
-      hosts:
-        - jellyfin.jardoole.xyz
+  app:
+    enabled: true
+    className: traefik
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - host: jellyfin.jardoole.xyz
+        paths:
+          - path: /
+            pathType: Prefix
+            service:
+              identifier: app
+              port: http
+    tls:
+      - secretName: jellyfin-tls
+        hosts:
+          - jellyfin.jardoole.xyz
 
 persistence:
   config:
     enabled: true
+    type: persistentVolumeClaim
     storageClass: longhorn
     accessMode: ReadWriteOnce
     size: 10Gi  # Expanded from 2Gi to accommodate transcodes
+    retain: true
+    globalMounts:
+      - path: /config
 
   media:
     enabled: true
-    type: pvc
+    type: persistentVolumeClaim
     existingClaim: media-stack-data
+    globalMounts:
+      - path: /media
 
-# Node affinity for Beelink node
-affinity:
-  nodeAffinity:
-    requiredDuringSchedulingIgnoredDuringExecution:
-      nodeSelectorTerms:
-        - matchExpressions:
-            - key: kubernetes.io/hostname
-              operator: In
-              values:
-                - beelink
+  # Mount /dev/dri from host for GPU access
+  dri-devices:
+    enabled: true
+    type: hostPath
+    hostPath: /dev/dri
+    globalMounts:
+      - path: /dev/dri
+        readOnly: false
 
-# Security context with Intel GPU access for hardware transcoding
-podSecurityContext:
-  runAsUser: 1000
-  runAsGroup: 1000
-  fsGroup: 1000
-  supplementalGroups:
-    - 44   # video group - grants access to /dev/dri
-    - 992  # render group - grants access to GPU render nodes
+  # Mount host's VA-API drivers over container's bundled drivers
+  # Host drivers (May 2024) support Intel N150, container's (Nov 2023) do not
+  va-drivers:
+    enabled: true
+    type: hostPath
+    hostPath: /usr/lib/x86_64-linux-gnu/dri
+    globalMounts:
+      - path: /usr/lib/jellyfin-ffmpeg/lib/dri
+        readOnly: true
 
-securityContext:
-  allowPrivilegeEscalation: false
-  readOnlyRootFilesystem: false
+  # Mount Intel Graphics Memory Management library (required by iHD driver)
+  igdgmm-lib:
+    enabled: true
+    type: hostPath
+    hostPath: /usr/lib/x86_64-linux-gnu/libigdgmm.so.12
+    globalMounts:
+      - path: /usr/lib/x86_64-linux-gnu/libigdgmm.so.12
+        readOnly: true
 
-# Intel QuickSync hardware transcoding - mount /dev/dri for GPU access
-volumes:
-  - name: dri-device
-    hostPath:
-      path: /dev/dri
-      type: Directory
+# Node affinity and security context
+defaultPodOptions:
+  # Run on Beelink node (has Intel GPU)
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values:
+                  - beelink
 
-volumeMounts:
-  - name: dri-device
-    mountPath: /dev/dri
+  # LinuxServer.io images handle user/group internally via PUID/PGID
+  # GPU device access managed by Intel GPU device plugin + hostPath mounts
+  securityContext: {}

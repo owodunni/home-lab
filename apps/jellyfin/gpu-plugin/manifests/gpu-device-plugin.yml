@@ -1,0 +1,25 @@
+---
+# GpuDevicePlugin Custom Resource
+# Managed by Intel Device Plugins Operator
+apiVersion: deviceplugin.intel.com/v1
+kind: GpuDevicePlugin
+metadata:
+  name: gpudeviceplugin-sample
+  namespace: intel-device-plugins-system
+spec:
+  # Share GPU among multiple containers
+  sharedDevNum: 10
+
+  # Node selector - only nodes with Intel GPU (labeled by NFD)
+  # PCI class 0300 = VGA controller, vendor 8086 = Intel
+  nodeSelector:
+    feature.node.kubernetes.io/pci-0300_8086.present: "true"
+
+  # Enable resource manager for better GPU sharing
+  resourceManager: true
+
+  # Enable monitoring
+  enableMonitoring: true
+
+  # Log level (0-5, higher = more verbose)
+  logLevel: 2

@@ -91,6 +91,10 @@ k3s-check: ## 🔍 Check complete K3s deployment (dry-run)
 	@echo "Checking complete K3s deployment (dry-run)..."
 	$(ANSIBLE_PLAYBOOK) playbooks/k3s/k3s-complete.yml --check --diff
 
+k3s-helm-setup: ## 📦 Configure Helm repositories on control plane
+	@echo "Configuring Helm repositories..."
+	$(ANSIBLE_PLAYBOOK) playbooks/k3s/02-helm-setup.yml --diff
+
 k3s-teardown: ## 🧹 Completely uninstall K3s from all control plane nodes
 	@echo "Uninstalling K3s from all control plane nodes..."
 	$(ANSIBLE_PLAYBOOK) playbooks/k3s-uninstall.yml

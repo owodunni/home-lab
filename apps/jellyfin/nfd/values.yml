@@ -1,0 +1,3 @@
+---
+# Helm values for Node Feature Discovery (NFD)
+# Use defaults - NFD automatically detects CPU, PCI, kernel features

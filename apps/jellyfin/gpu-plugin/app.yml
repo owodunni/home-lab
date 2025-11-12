@@ -1,0 +1,33 @@
+---
+# Deploy Intel Device Plugins Operator
+- name: Deploy Intel Device Plugins Operator
+  import_playbook: ../../playbooks/deploy-helm-app.yml
+  vars:
+    app_chart_file: "{{ inventory_dir }}/apps/intel-gpu-plugin/Chart.yml"
+    app_values_file: "{{ inventory_dir }}/apps/intel-gpu-plugin/values.yml"
+
+# Create GpuDevicePlugin Custom Resource
+- name: Configure Intel GPU Device Plugin
+  hosts: control_plane
+  become: true
+  run_once: true
+  tasks:
+    - name: Apply GpuDevicePlugin Custom Resource
+      kubernetes.core.k8s:
+        state: present
+        src: "{{ inventory_dir }}/apps/intel-gpu-plugin/manifests/gpu-device-plugin.yml"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+    - name: Wait for GPU device plugin pods to be ready
+      kubernetes.core.k8s_info:
+        kind: Pod
+        namespace: intel-device-plugins-system
+        label_selectors:
+          - app=intel-gpu-plugin
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: gpu_plugin_pods
+      until:
+        - gpu_plugin_pods.resources | length > 0
+        - gpu_plugin_pods.resources | selectattr('status.phase', 'equalto', 'Running') | list | length > 0
+      retries: 30
+      delay: 10

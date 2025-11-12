@@ -1,0 +1,10 @@
+---
+# Chart metadata for Intel Device Plugins Operator
+chart_repository: intel
+chart_name: intel-device-plugins-operator
+chart_version: 0.34.0
+release_name: intel-device-plugins-operator
+namespace: intel-device-plugins-system
+description: "Operator that manages Intel GPU device plugin for QuickSync transcoding"
+create_namespace: true
+wait_for_ready: true

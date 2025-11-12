@@ -1,0 +1,7 @@
+---
+# Helm values for Intel Device Plugins Operator
+# Operator manages device plugins via Custom Resources
+
+# Run operator on amd64 nodes only
+nodeSelector:
+  kubernetes.io/arch: amd64

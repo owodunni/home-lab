@@ -1,10 +1,10 @@
 ---
 # Chart metadata for Jellyfin
-chart_repository: jellyfin
-chart_name: jellyfin
-chart_version: 2.5.0
+chart_repository: bjw-s
+chart_name: app-template
+chart_version: 3.7.3
 release_name: jellyfin
 namespace: media
-description: "Media streaming server with web interface"
+description: "Media server with Intel QuickSync hardware transcoding (LinuxServer.io image)"
 create_namespace: true
 wait_for_ready: true

@@ -166,6 +166,22 @@
       register: helm_repo_bjw_s
       failed_when: false
 
+    - name: Add Node Feature Discovery repository
+      kubernetes.core.helm_repository:
+        name: nfd
+        repo_url: https://kubernetes-sigs.github.io/node-feature-discovery/charts
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: helm_repo_nfd
+      failed_when: false
+
+    - name: Add Intel Device Plugins repository
+      kubernetes.core.helm_repository:
+        name: intel
+        repo_url: https://intel.github.io/helm-charts
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: helm_repo_intel
+      failed_when: false
+
     - name: Update all Helm repositories
       ansible.builtin.command:
         cmd: helm repo update

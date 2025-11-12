@@ -1,0 +1,96 @@
+---
+# Jellyfin Prerequisites - Hardware Transcoding Support
+# Installs NFD and Intel GPU plugin for QuickSync
+
+- name: Load NFD chart metadata
+  ansible.builtin.include_vars:
+    file: "{{ inventory_dir }}/apps/jellyfin/nfd/Chart.yml"
+    name: nfd_chart
+
+- name: Load NFD values
+  ansible.builtin.include_vars:
+    file: "{{ inventory_dir }}/apps/jellyfin/nfd/values.yml"
+    name: nfd_values
+
+- name: Deploy NFD Helm chart
+  kubernetes.core.helm:
+    name: "{{ nfd_chart.release_name }}"
+    chart_ref: "{{ nfd_chart.chart_repository }}/{{ nfd_chart.chart_name }}"
+    chart_version: "{{ nfd_chart.chart_version }}"
+    release_namespace: "{{ nfd_chart.namespace }}"
+    create_namespace: "{{ nfd_chart.create_namespace }}"
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    values: "{{ nfd_values }}"
+    update_repo_cache: true
+    wait: true
+    wait_timeout: 5m
+
+- name: Wait for NFD to label nodes
+  ansible.builtin.pause:
+    seconds: 10
+
+- name: Load operator chart metadata
+  ansible.builtin.include_vars:
+    file: "{{ inventory_dir }}/apps/jellyfin/gpu-plugin/Chart.yml"
+    name: operator_chart
+
+- name: Load operator values
+  ansible.builtin.include_vars:
+    file: "{{ inventory_dir }}/apps/jellyfin/gpu-plugin/values.yml"
+    name: operator_values
+
+- name: Deploy Intel Device Plugins Operator
+  kubernetes.core.helm:
+    name: "{{ operator_chart.release_name }}"
+    chart_ref: "{{ operator_chart.chart_repository }}/{{ operator_chart.chart_name }}"
+    chart_version: "{{ operator_chart.chart_version }}"
+    release_namespace: "{{ operator_chart.namespace }}"
+    create_namespace: "{{ operator_chart.create_namespace }}"
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    values: "{{ operator_values }}"
+    update_repo_cache: true
+    wait: true
+    wait_timeout: 5m
+
+- name: Wait for operator CRDs to be ready
+  ansible.builtin.pause:
+    seconds: 15
+
+- name: Apply GpuDevicePlugin Custom Resource
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: deviceplugin.intel.com/v1
+      kind: GpuDevicePlugin
+      metadata:
+        name: gpudeviceplugin-sample
+        namespace: intel-device-plugins-system
+      spec:
+        sharedDevNum: 10
+        nodeSelector:
+          feature.node.kubernetes.io/pci-0300_8086.present: "true"
+        enableMonitoring: true
+        logLevel: 2
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Wait for GPU plugin DaemonSet
+  kubernetes.core.k8s_info:
+    kind: DaemonSet
+    namespace: intel-device-plugins-system
+    name: intel-gpu-plugin-gpudeviceplugin-sample
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+  register: gpu_daemonset
+  until:
+    - gpu_daemonset.resources | length > 0
+    - gpu_daemonset.resources[0].status.numberReady | default(0) > 0
+  retries: 30
+  delay: 10
+
+- name: Verify GPU resources advertised on beelink
+  ansible.builtin.command:
+    cmd: kubectl describe node beelink
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: node_desc
+  changed_when: false
+  failed_when: "'gpu.intel.com/i915' not in node_desc.stdout"
