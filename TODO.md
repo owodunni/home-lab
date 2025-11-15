@@ -15,34 +15,27 @@
 
 ## Critical Testing 🧪
 
-### 1. Verify Hardlinks Working
+### 1. Verify Hardlinks Working ✅
 
 **Why**: Hardlinks prevent duplicate storage. Without them, media exists in both `/data/torrents/` AND `/data/media/`, using 2x storage.
 
-**Status**: ⚠️ **NOT YET VERIFIED**
+**Status**: ✅ **VERIFIED** (2025-11-15)
 
-**How to test** (< 5 minutes):
-
+**Verification Results**:
 ```bash
-# Check inode numbers in both locations
-kubectl exec -n media deployment/radarr -- ls -li /data/torrents/movies/ | head -3
-kubectl exec -n media deployment/radarr -- ls -li /data/media/movies/ | head -3
+# Checked inode numbers in both locations:
+# /data/torrents/The Martian (2015)/
+52166733 -rw-r--r-- 2 abc users 45376989055 Nov 14 08:21 The Martian...mkv
 
-# Expected: SAME inode numbers = hardlink working (one file, appears in two places)
-# Problem: DIFFERENT inode numbers = copy occurred (two separate files, 2x storage)
+# /data/media/movies/The Martian (2015)/
+52166733 -rw-r--r-- 2 abc users 45376989055 Nov 14 08:21 The Martian...mkv
+
+# ✅ Same inode (52166733) = Hardlinks working correctly
+# ✅ Link count = 2 confirms file exists in two locations
+# ✅ Storage efficiency: ~45GB file uses 45GB total (not 90GB)
 ```
 
-**Example output** (good):
-```
-12345678 -rw-r--r-- 2 abc abc 1.5G Movie.mkv  (in torrents/)
-12345678 -rw-r--r-- 2 abc abc 1.5G Movie.mkv  (in media/)
-^^^^^^^^ Same inode = SUCCESS
-```
-
-**If failed** (different inodes):
-1. Check: Radarr → Settings → Media Management → "Use Hardlinks instead of Copy" = ON
-2. Verify all apps mount same PVC: `kubectl get pods -n media -o yaml | grep persistentVolumeClaim`
-3. Re-import: Delete duplicate, trigger Radarr re-import (will use hardlink)
+**Conclusion**: Hardlinks working as expected. Media files are not duplicated between `/data/torrents/` and `/data/media/` directories.
 
 ---
 
@@ -192,8 +185,9 @@ kubectl edit pvc media-stack-data -n media
 
 ## Next Steps
 
-1. ✅ **Mark this complete** when hardlinks verified and backup restore tested
-2. ✅ **Create** `docs/disaster-recovery.md` based on tested procedures
-3. ✅ **Enjoy** your fully automated media stack!
+1. ✅ **Hardlinks verified** (2025-11-15) - Storage efficiency confirmed
+2. ⚠️ **Test backup restore** - Individual PVC restore (~15 min) and optional full disaster recovery
+3. ✅ **Create** `docs/disaster-recovery.md` based on tested procedures (after step 2)
+4. ✅ **Enjoy** your fully automated media stack!
 
 **For detailed setup/troubleshooting**: See `docs/media-stack-complete-guide.md`
