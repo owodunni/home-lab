@@ -27,7 +27,10 @@
     # Why intel-media-va-driver: Intel iHD driver for modern GPUs (GEN8+)
     # Why vainfo: Validation tool to check supported VA-API profiles
     # Why intel-gpu-tools: Monitoring tool (intel_gpu_top) to verify GPU usage
+    # Why libvpl2: Intel Video Processing Library (oneVPL) runtime for QSV encoding
+    # Why libmfx-gen1.2: Intel VPL GPU Runtime - required for QSV hardware filters
     # Note: On Debian, the package is intel-media-va-driver (not -non-free suffix)
+    # Note: oneVPL libraries must match VA-API driver version for QSV to work properly
     - name: Install Intel media drivers and tools
       ansible.builtin.apt:
         name:
@@ -35,6 +38,8 @@
           - vainfo                    # VA-API information tool
           - intel-gpu-tools           # GPU monitoring (intel_gpu_top)
           - firmware-misc-nonfree     # Additional firmware for Intel GPUs
+          - libvpl2                   # Intel oneVPL runtime for QSV
+          - libmfx-gen1.2             # Intel VPL GPU Runtime (required for QSV filters)
         state: present
 
     # Verify /dev/dri/renderD128 exists (render node for hardware acceleration)

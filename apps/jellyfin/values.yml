@@ -8,7 +8,7 @@ controllers:
       app:
         image:
           repository: lscr.io/linuxserver/jellyfin
-          tag: 10.10.3
+          tag: 10.11.2
           pullPolicy: IfNotPresent
 
         env:
@@ -27,7 +27,7 @@ controllers:
             gpu.intel.com/i915: 1
           limits:
             cpu: 2000m
-            memory: 2Gi
+            memory: 4Gi
             gpu.intel.com/i915: 1
 
         probes:
@@ -85,7 +85,7 @@ persistence:
     type: persistentVolumeClaim
     storageClass: longhorn
     accessMode: ReadWriteOnce
-    size: 10Gi  # Expanded from 2Gi to accommodate transcodes
+    size: 10Gi # Expanded from 2Gi to accommodate transcodes
     retain: true
     globalMounts:
       - path: /config
@@ -123,6 +123,28 @@ persistence:
     hostPath: /usr/lib/x86_64-linux-gnu/libigdgmm.so.12
     globalMounts:
       - path: /usr/lib/x86_64-linux-gnu/libigdgmm.so.12
+        readOnly: true
+
+  # Mount oneVPL runtime library (Intel Video Processing Library)
+  # Required for QSV hardware encoding to work with modern VA-API drivers
+  # Container's bundled libvpl v2.15 is incompatible with host VA-API driver v25.2.3
+  onevpl-runtime:
+    enabled: true
+    type: hostPath
+    hostPath: /usr/lib/x86_64-linux-gnu
+    globalMounts:
+      - path: /usr/lib/jellyfin-ffmpeg/lib/onevpl-host
+        readOnly: true
+
+  # Mount Intel VPL GPU Runtime (libmfx-gen)
+  # Required for QSV hardware filters (scale_qsv, vpp_qsv, overlay_qsv)
+  # Must match VA-API driver version for proper QSV pipeline functionality
+  mfx-gen-runtime:
+    enabled: true
+    type: hostPath
+    hostPath: /usr/lib/x86_64-linux-gnu/libmfx-gen
+    globalMounts:
+      - path: /usr/lib/jellyfin-ffmpeg/lib/libmfx-gen
         readOnly: true
 
 # Node affinity and security context

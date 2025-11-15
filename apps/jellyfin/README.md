@@ -80,12 +80,23 @@ The deployment will:
 **Why host drivers?**
 Container's bundled drivers (Nov 2023) don't support Intel N150. Host drivers (May 2024) are newer and compatible.
 
+**oneVPL Runtime Libraries** (required for QSV):
+```yaml
+/usr/lib/x86_64-linux-gnu → /usr/lib/jellyfin-ffmpeg/lib/onevpl-host           # oneVPL runtime (libvpl.so.2.14)
+/usr/lib/x86_64-linux-gnu/libmfx-gen → /usr/lib/jellyfin-ffmpeg/lib/libmfx-gen # VPL GPU runtime (libmfx-gen.so.1.2.14)
+```
+
+**Why oneVPL libraries?**
+Container's bundled oneVPL v2.15 is incompatible with host VA-API driver v25.2.3, causing h264_qsv encoder to fail with "unsupported ratecontrol mode" errors. Host oneVPL libraries (v2.14) match the VA-API driver version and enable proper QSV hardware encoding with GPU-accelerated filters (scale_qsv, vpp_qsv).
+
 ### Jellyfin UI Configuration
 
 Navigate to: **Dashboard → Playback → Transcoding**
 
 ```
 Hardware acceleration: Intel QuickSync (QSV)
+
+QSV Device: /dev/dri/renderD128
 
 Enable hardware decoding for:
 ☑ H264
@@ -287,6 +298,13 @@ kubectl exec -n media $POD -- ls -lh /usr/lib/jellyfin-ffmpeg/lib/dri/
 
 # Verify libigdgmm library
 kubectl exec -n media $POD -- ls -lh /usr/lib/x86_64-linux-gnu/libigdgmm.so.12
+
+# Verify oneVPL libraries (required for QSV)
+kubectl exec -n media $POD -- ls -lh /usr/lib/jellyfin-ffmpeg/lib/onevpl-host/ | grep libvpl
+# Should show: libvpl.so.2.14 (host version, not bundled v2.15)
+
+kubectl exec -n media $POD -- ls -lh /usr/lib/jellyfin-ffmpeg/lib/libmfx-gen/
+# Should show: enctools.so (Intel VPL GPU Runtime)
 ```
 
 **Test VA-API manually:**
