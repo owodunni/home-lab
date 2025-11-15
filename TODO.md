@@ -113,7 +113,7 @@ All applications are available via HTTPS with automatic TLS certificates:
 | **Jellyfin** | https://jellyfin.jardoole.xyz | Media streaming server |
 | **Jellyseerr** | https://jellyseerr.jardoole.xyz | User request interface |
 
-### Step 2: Configure qBittorrent (15 minutes)
+### Step 2: Configure qBittorrent (15 minutes) ✅ **COMPLETE**
 
 **Why first?** All other apps need qBittorrent to download content.
 
@@ -183,7 +183,7 @@ All applications are available via HTTPS with automatic TLS certificates:
 - Configure router port forward: External 6881 (TCP+UDP) → 192.168.0.166:6881
 - qBittorrent will work but requires manual configuration when ports change
 
-### Step 3: Configure Prowlarr (20 minutes)
+### Step 3: Configure Prowlarr (20 minutes) ✅ **COMPLETE**
 
 **Why second?** Prowlarr provides indexers for Radarr/Sonarr to search.
 
@@ -204,7 +204,7 @@ All applications are available via HTTPS with automatic TLS certificates:
    - Settings → General → Security
    - Copy **API Key** (needed for Radarr/Sonarr in next steps)
 
-### Step 4: Configure Radarr (20 minutes)
+### Step 4: Configure Radarr (20 minutes) ✅ **COMPLETE**
 
 **Why third?** Radarr needs Prowlarr for searches and qBittorrent for downloads.
 
@@ -248,7 +248,7 @@ All applications are available via HTTPS with automatic TLS certificates:
      - **API Key**: (Radarr API key from step 6)
    - Test and Save
 
-### Step 5: Configure Sonarr (20 minutes)
+### Step 5: Configure Sonarr (20 minutes) ✅ **COMPLETE**
 
 **Same pattern as Radarr but for TV shows.**
 
@@ -283,7 +283,7 @@ All applications are available via HTTPS with automatic TLS certificates:
      - **URL**: `http://sonarr-app:8989`
      - **API Key**: (Sonarr API key)
 
-### Step 6: Configure Jellyfin (15 minutes)
+### Step 6: Configure Jellyfin (15 minutes) ✅ **COMPLETE**
 
 **Media streaming server - what users actually interact with.**
 
@@ -313,7 +313,7 @@ All applications are available via HTTPS with automatic TLS certificates:
    - Dashboard → Users → Add User
    - Create accounts for family members
 
-### Step 7: Configure Jellyseerr (10 minutes)
+### Step 7: Configure Jellyseerr (10 minutes) ✅ **COMPLETE**
 
 **User-friendly request interface - Netflix-like UI for requesting content.**
 
@@ -391,16 +391,16 @@ All applications are available via HTTPS with automatic TLS certificates:
 
 After completing all steps, verify:
 
-- [ ] All apps accessible via HTTPS URLs
-- [ ] qBittorrent categories configured (movies, tv)
-- [ ] Prowlarr has working indexers
-- [ ] Radarr connected to Prowlarr and qBittorrent
-- [ ] Sonarr connected to Prowlarr and qBittorrent
-- [ ] Jellyfin has Movies and TV libraries
-- [ ] Jellyseerr connected to all services
-- [ ] Test content requested, downloaded, and plays in Jellyfin
-- [ ] Hardlinks verified (same inode numbers)
-- [ ] qBittorrent still seeding completed downloads
+- [x] All apps accessible via HTTPS URLs
+- [x] qBittorrent categories configured (movies, tv)
+- [x] Prowlarr has working indexers
+- [x] Radarr connected to Prowlarr and qBittorrent
+- [x] Sonarr connected to Prowlarr and qBittorrent
+- [x] Jellyfin has Movies and TV libraries
+- [x] Jellyseerr connected to all services
+- [x] Test content requested, downloaded, and plays in Jellyfin
+- [ ] Hardlinks verified (same inode numbers) ⚠️ **PENDING - See Step 8**
+- [x] qBittorrent still seeding completed downloads
 
 ### Common First-Time Issues
 
@@ -514,12 +514,63 @@ After completing all steps, verify:
 
 - [ ] **Verify hardlinks working** (CRITICAL - ensures no duplicate storage)
 
+  **What are hardlinks?**
+  - Same file appears in two locations (/data/torrents/ and /data/media/)
+  - Only uses storage space ONCE (not duplicated)
+  - Allows qBittorrent to seed while Jellyfin streams
+
+  **Why test this?**
+  - If hardlinks fail, you're using 2x storage (complete duplicate of media library)
+  - 1TB of media would require 2TB of storage (downloads + library)
+
+  **How to verify:**
   ```bash
-  kubectl exec -n media deployment/radarr -- sh -c "ls -li /data/torrents/movies/ /data/media/movies/"
-  # Compare inode numbers
-  # Same inode = hardlink successful (no duplicate storage)
-  # Different inode = copy occurred (PROBLEM - check config)
+  # List files in both locations with inode numbers
+  kubectl exec -n media deployment/radarr -- ls -li /data/torrents/movies/ | head -5
+  kubectl exec -n media deployment/radarr -- ls -li /data/media/movies/ | head -5
+
+  # Example output showing HARDLINK (good):
+  # 12345678 -rw-r--r-- 2 abc abc 1.5G Nov 14 Big.Buck.Bunny.mkv  (in torrents/)
+  # 12345678 -rw-r--r-- 2 abc abc 1.5G Nov 14 Big.Buck.Bunny.mkv  (in media/)
+  #   ^^^^^^^^ Same inode = SUCCESS (hardlink, one file, uses 1.5G total)
+  #
+  # Link count = 2 (shown after permissions) also confirms hardlink
+  #
+  # Example output showing COPY (bad):
+  # 12345678 -rw-r--r-- 1 abc abc 1.5G Nov 14 Big.Buck.Bunny.mkv  (in torrents/)
+  # 87654321 -rw-r--r-- 1 abc abc 1.5G Nov 14 Big.Buck.Bunny.mkv  (in media/)
+  #   ^^^^^^^^ Different inodes = FAILURE (two separate files, uses 3.0G total)
   ```
+
+  **If hardlinks failed (different inodes):**
+
+  1. **Check Radarr setting:**
+     ```
+     Radarr → Settings → Media Management → File Management
+     "Use Hardlinks instead of Copy" must be ON ✓
+     ```
+
+  2. **Verify same PVC mount:**
+     ```bash
+     kubectl get pods -n media -o yaml | grep -A 5 persistentVolumeClaim
+     # All should reference "media-stack-data" PVC
+     ```
+
+  3. **Check filesystem:**
+     ```bash
+     kubectl exec -n media deployment/radarr -- df /data/torrents /data/media
+     # Must show SAME filesystem device for hardlinks to work
+     ```
+
+  4. **Fix by re-importing:**
+     ```bash
+     # Delete the duplicate file from /data/media/ (keep torrent copy)
+     # In Radarr: Movie → Delete Files → Yes
+     # Then: Movie → Search → Select torrent → Manual import
+     # Radarr will re-import using hardlink (with correct setting)
+     ```
+
+  **Expected result:** Same inode numbers = storage efficient hardlinks working correctly
 
 - [ ] **Verify Jellyseerr status update**
 
@@ -593,6 +644,119 @@ After completing all steps, verify:
   # Note: media-stack-data is NOT backed up (too large, replaceable)
   ```
 
+### Backup & Disaster Recovery Testing 🔄
+
+**CRITICAL**: Backups are worthless if you can't restore from them. Test recovery procedures before you need them.
+
+- [ ] **Test Individual PVC Restore**
+
+  **Goal**: Verify you can restore a single PVC from Longhorn backup.
+
+  ```bash
+  # Choose a test PVC (e.g., prowlarr-config - smallest, least critical)
+  # Step 1: Note current state
+  kubectl exec -n media deployment/prowlarr -- ls -la /config/
+
+  # Step 2: Take manual backup
+  # Longhorn UI → Volume → prowlarr-config → Create Backup
+  # Note backup name (e.g., backup-abc123...)
+
+  # Step 3: Simulate data loss
+  kubectl delete pvc prowlarr-config -n media
+  # Wait for volume to delete
+
+  # Step 4: Restore from backup
+  # Longhorn UI → Backup → Select backup → Restore
+  # Name: prowlarr-config
+  # Wait for PVC creation
+
+  # Step 5: Redeploy app
+  make app-deploy APP=prowlarr
+
+  # Step 6: Verify data intact
+  # Open: https://prowlarr.jardoole.xyz
+  # Verify: All indexers, settings, API keys present
+  ```
+
+  **Expected Result**: Full restore in < 10 minutes, zero config loss
+
+- [ ] **Document Current Cluster State** (before disaster recovery test)
+
+  ```bash
+  # List all PVCs
+  kubectl get pvc --all-namespaces -o wide > cluster-pvcs-backup.txt
+
+  # List all deployments
+  kubectl get deployments --all-namespaces > cluster-deployments-backup.txt
+
+  # Backup all Helm releases
+  helm list --all-namespaces > cluster-helm-releases.txt
+
+  # Document Longhorn S3 settings
+  # Longhorn UI → Setting → Backup Target → Note S3 URL and bucket
+  ```
+
+- [ ] **Test Full Cluster Disaster Recovery** (OPTIONAL - high risk)
+
+  **WARNING**: Only do this on a non-production cluster or during planned maintenance.
+
+  ```bash
+  # Scenario: Complete hardware failure, fresh cluster rebuild from backups
+
+  # Step 1: Fresh K3s installation
+  make k3s-cluster    # Rebuilds K3s from scratch
+
+  # Step 2: Restore infrastructure
+  make cert-manager   # TLS certificate management
+  make longhorn       # Storage layer
+
+  # Step 3: Configure same MinIO S3 backend in Longhorn
+  # Longhorn UI → Setting → Backup Target → Enter same S3 URL
+  # (Uses existing S3 bucket with all previous backups)
+
+  # Step 4: Restore all config PVCs from S3
+  # Longhorn UI → Backup → Filter by namespace
+  # Restore each: jellyfin-config, radarr-config, sonarr-config, etc.
+
+  # Step 5: Redeploy all applications
+  make app-deploy APP=jellyfin
+  make app-deploy APP=radarr
+  make app-deploy APP=sonarr
+  # ... etc for all apps
+
+  # Step 6: Verify complete recovery
+  # All apps accessible via HTTPS
+  # All API integrations working
+  # Jellyfin shows all media (metadata intact)
+  # Radarr/Sonarr settings preserved
+  ```
+
+  **Expected Results**:
+  - Individual PVC restore: < 10 minutes
+  - Full cluster rebuild + restore: < 2 hours
+  - Zero configuration loss (all settings from S3 backups)
+  - Media library intact (file structure + metadata)
+
+  **Document Recovery Times**:
+  - Record actual time for each step
+  - Note any issues encountered
+  - Update disaster recovery documentation
+
+- [ ] **Create Disaster Recovery Documentation**
+
+  ```bash
+  # Create: docs/disaster-recovery.md
+  ```
+
+  Include:
+  - Step-by-step cluster rebuild procedure
+  - S3 bucket structure and backup naming
+  - Recovery time objectives (RTO: < 2 hours)
+  - Recovery point objectives (RPO: 24 hours daily backups)
+  - Troubleshooting common restore issues
+  - Contact info for MinIO access
+  - List of applications in deployment order
+
 ---
 
 ### Optional Enhancements 🚀
@@ -606,119 +770,20 @@ After completing all steps, verify:
 
 - [x] **Enable hardware transcoding** (Jellyfin) - ✅ **COMPLETE**
 
-  Beelink N150 has Intel QuickSync for hardware-accelerated video transcoding. Reduces CPU usage from 80%+ video encoding to ~30-40% (audio transcoding + HLS segmentation only). GPU Video engine handles all video encoding at 97-99% utilization.
+  Intel QuickSync (QSV) hardware video transcoding with oneVPL library support successfully implemented.
 
-  **Phase 1: Organize Beelink Playbooks** ✅ COMPLETE
-  - [x] Create `playbooks/beelink/` directory (following k3s/minio pattern)
-  - [x] Move existing playbooks: `beelink-setup.yml`, `beelink-storage-config.yml`
-  - [x] Rename with numbered prefixes: `01-initial-setup.yml`, `02-storage-config.yml`
-  - [x] Create `beelink-complete.yml` orchestration playbook
-  - [x] Update Makefile targets to use new paths
+  **Results:**
+  - CPU usage: 170% → ~30-40% during 4K HDR transcoding
+  - GPU Video engine: 70-90% utilization (real-time encoding, no playback lag)
+  - Encoding speed: 2.4x realtime for 1080p H.264
 
-  **WHY**: Scalable organization as we add more beelink-specific configuration. Follows established patterns in `playbooks/k3s/` and `playbooks/minio/`.
+  **Implementation:**
+  - LinuxServer.io Jellyfin image (Ubuntu GLIBC 2.39) for driver compatibility
+  - bjw-s/app-template chart for flexible hostPath mounting
+  - Host oneVPL libraries (libvpl2, libmfx-gen1.2) mounted to fix QSV encoder
+  - NFD + Intel GPU plugin auto-deployed as prerequisites
 
-  **Phase 2: Create Host Prerequisites Playbook** ✅ COMPLETE
-  - [x] Create `playbooks/beelink/03-gpu-drivers-setup.yml`
-  - [x] Install Intel media drivers (intel-media-va-driver)
-  - [x] Install validation tools (intel-gpu-tools, vainfo)
-  - [x] Verify hardware support (check /dev/dri/renderD128 exists)
-  - [x] Detect and register video/render group IDs (video=44, render=992)
-  - [x] Test VA-API functionality with vainfo (verified working on host)
-  - [x] Add Makefile target: `make beelink-gpu-setup`
-
-  **WHY**: Ansible ensures idempotent, reproducible setup vs manual SSH commands. Playbook validates prerequisites before touching Kubernetes.
-
-  **Learn more**: [Intel Media Driver](https://github.com/intel/media-driver), [VA-API](https://www.freedesktop.org/wiki/Software/vaapi/)
-
-  **Phase 3: Validate Prerequisites** ✅ COMPLETE
-  - [x] Run playbook: `make beelink-gpu-setup`
-  - [x] Review output for detected video/render GIDs (44/992)
-  - [x] Verify QuickSync profiles available (H.264, HEVC, VP9 encode; AV1 decode)
-  - [x] Document detected GID values for next phase
-
-  **WHY**: Catch hardware/driver issues before Kubernetes changes. Confirms Intel N150 QuickSync is accessible.
-
-  **Learn more**: [Intel QuickSync](https://www.intel.com/content/www/us/en/architecture-and-technology/quick-sync-video/quick-sync-video-general.html)
-
-  **Phase 4: Install Node Feature Discovery (NFD)** ✅ COMPLETE
-  - [x] Add NFD Helm repo: `make k3s-helm-setup`
-  - [x] Embedded NFD in `apps/jellyfin/nfd/` (auto-deployed as prerequisite)
-  - [x] Deploy NFD: Automatic via `make app-deploy APP=jellyfin`
-  - [x] Verify nodes labeled: `feature.node.kubernetes.io/pci-0300_8086.present=true` on beelink
-
-  **WHY**: NFD automatically labels nodes with hardware capabilities. Intel GPU plugin requires these labels to know which nodes have Intel GPUs.
-
-  **Learn more**: [Node Feature Discovery](https://kubernetes-sigs.github.io/node-feature-discovery/), [Intel GPU Blog](https://blog.stonegarden.dev/articles/2024/05/intel-quick-sync-k8s/)
-
-  **Phase 5: Install Intel GPU Device Plugin** ✅ COMPLETE
-  - [x] Add Intel Helm repo: `make k3s-helm-setup`
-  - [x] Embedded operator + GPU plugin in `apps/jellyfin/gpu-plugin/`
-  - [x] Deploy plugin: Automatic via `make app-deploy APP=jellyfin`
-  - [x] Verify plugin running: DaemonSet `intel-gpu-plugin-gpudeviceplugin-sample` running on beelink
-  - [x] Check GPU resources advertised: `gpu.intel.com/i915: 10` on beelink node
-
-  **WHY**: Device plugin should handle cgroup whitelisting automatically. Direct /dev/dri mounting fails due to cgroup device access restrictions in Kubernetes.
-
-  **Learn more**: [Intel Device Plugins](https://github.com/intel/intel-device-plugins-for-kubernetes), [Device Plugin Design](https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/device-plugins/)
-
-  **Phase 6: Update Jellyfin for GPU Plugin** ✅ COMPLETE
-  - [x] Remove /dev/dri hostPath volume from `apps/jellyfin/values.yml`
-  - [x] Remove supplementalGroups (no longer needed)
-  - [x] Add resource request: `gpu.intel.com/i915: 1`
-  - [x] Deploy updated Jellyfin: `make app-deploy APP=jellyfin`
-  - [x] Jellyfin pod successfully allocated GPU resource
-
-  **WHY**: Resource request tells device plugin to allocate GPU access. Plugin should automatically handle device mounting and cgroup whitelisting.
-
-  **Phase 7: Migrate to bjw-s Chart + LinuxServer.io Image** ✅ COMPLETE
-  - [x] Switch to bjw-s/app-template v3.7.3 (supports hostPath volumes)
-  - [x] Switch to lscr.io/linuxserver/jellyfin:10.10.3 (Ubuntu GLIBC 2.39)
-  - [x] Mount host VA-API drivers: `/usr/lib/x86_64-linux-gnu/dri` → `/usr/lib/jellyfin-ffmpeg/lib/dri`
-  - [x] Mount libigdgmm library: `/usr/lib/x86_64-linux-gnu/libigdgmm.so.12`
-  - [x] Remove supplementalGroups (LinuxServer.io handles user/group via PUID/PGID)
-  - [x] Verify VA-API initialization: `va_openDriver() returns 0`, driver loaded successfully
-  - [x] Test hardware encoding: 1080p H.264 @ 2.4x realtime speed
-
-  **ROOT CAUSE RESOLVED**: Official Jellyfin image (Debian 11, GLIBC 2.31) incompatible with host drivers (Debian 12, GLIBC 2.32). LinuxServer.io image (Ubuntu, GLIBC 2.39) fully compatible. Chart doesn't support extraVolumes → migrated to bjw-s/app-template.
-
-  **WHY**: Official Helm chart limitations prevented host driver mounting. bjw-s chart provides full flexibility for custom volume mounts.
-
-  **Phase 8: Configure Jellyfin Web UI** ✅ COMPLETE
-  - [x] Navigate to Dashboard → Playback → Transcoding
-  - [x] Set Hardware acceleration: **Intel QuickSync (QSV)**
-  - [x] Set VA-API device: **/dev/dri/renderD128**
-  - [x] Enable hardware decoding: H.264, HEVC, VP9, AV1 ✓
-  - [x] Enable hardware encoding: H.264, HEVC ✓ (VP9/AV1 encode not supported on N150)
-  - [x] Enable Low Power encoders (already active via `-low_power 1` in ffmpeg)
-
-  **WHY**: Jellyfin must be explicitly configured to use hardware acceleration. Default is software transcoding.
-
-  **Learn more**: [Jellyfin Hardware Acceleration](https://jellyfin.org/docs/general/post-install/transcoding/hardware-acceleration/intel)
-
-  **Phase 9: Test and Validate** ✅ COMPLETE
-  - [x] Monitor GPU usage: `intel_gpu_top` shows Video engine at 97-99% during transcode
-  - [x] Test transcode: Fight Club (1080p REMUX) → 2 Mbps H.264 successful
-  - [x] Verify ffmpeg command: `-codec:v:0 h264_qsv -low_power 1` confirmed in logs
-  - [x] Check CPU usage: ~30-40% (audio transcoding + HLS only, video offloaded to GPU)
-  - [x] ffmpeg client: name="ffmpeg", Video engine busy="99.549095%"
-
-  **WHY**: Confirm hardware transcoding actually working, not silently falling back to software.
-
-  **Learn more**: [Intel GPU Tools](https://gitlab.freedesktop.org/drm/igt-gpu-tools)
-
-  **Phase 10: Documentation** ✅ COMPLETE
-  - [x] Update `apps/jellyfin/README.md` with comprehensive hardware transcoding guide
-  - [x] Document deployment order: GPU drivers → Helm repos → Jellyfin (auto-deploys prerequisites)
-  - [x] Add troubleshooting: driver access, GLIBC compatibility, VA-API testing
-  - [x] Link to Jellyfin, Intel, and bjw-s documentation
-
-  **WHY**: Future reference for reinstalls or troubleshooting. Follows `docs/playbook-guidelines.md` standards.
-
-  **Actual Results**:
-  - ✅ GPU Video engine: 97-99% utilization during transcode
-  - ✅ CPU usage: ~30-40% (audio transcoding + HLS segmentation only)
-  - ✅ 1080p H.264 encoding: 2.4x realtime speed
-  - ✅ Smooth streaming with forced low bitrate transcoding
+  **Full documentation:** `apps/jellyfin/README.md`
 
 - [ ] **Add music library** (Lidarr + Navidrome)
   - Lidarr: Music automation (like Radarr for music)
@@ -1096,14 +1161,16 @@ Pod-to-Internet (Egress):
 
 ### Phase 9 Complete Checklist
 
-- [ ] ✅ All 6 apps running: `kubectl get pods -n media` (6/6 ready)
-- [ ] ✅ End-to-end test passed (request → download → playback)
-- [ ] ✅ Hardlinks verified (inode check)
-- [ ] ✅ Jellyfin accessible: <https://jellyfin.jardoole.xyz>
-- [ ] ✅ Jellyseerr accessible: <https://jellyseerr.jardoole.xyz>
-- [ ] ✅ All API integrations working (Prowlarr ↔ Radarr/Sonarr ↔ qBittorrent)
-- [ ] ✅ Backups configured: Longhorn daily/weekly for configs
-- [ ] ✅ Documentation complete: README + runbooks
+- [x] ✅ All 6 apps running: `kubectl get pods -n media` (6/6 ready)
+- [x] ✅ End-to-end test passed (request → download → playback)
+- [ ] ⚠️ Hardlinks NOT YET verified (inode check pending)
+- [x] ✅ Jellyfin accessible: <https://jellyfin.jardoole.xyz>
+- [x] ✅ Jellyseerr accessible: <https://jellyseerr.jardoole.xyz>
+- [x] ✅ All API integrations working (Prowlarr ↔ Radarr/Sonarr ↔ qBittorrent)
+- [x] ✅ Backups configured: Longhorn daily/weekly for configs
+- [ ] ⚠️ Backup restore testing pending (see Backup & Disaster Recovery Testing section)
+- [x] ✅ Documentation complete: README + runbooks
+- [x] ✅ Hardware transcoding enabled (Intel QuickSync QSV with oneVPL)
 
 ### Performance Targets
 
