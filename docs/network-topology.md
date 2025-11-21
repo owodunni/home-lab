@@ -1,14 +1,14 @@
 # Network Topology Documentation
 
-**Last Updated**: 2025-11-18
+**Last Updated**: 2025-11-21
 **Status**: Migration Planning
 **Target Completion**: Q1 2026
 
 ## Overview
 
-This document describes the current network topology and the planned migration to a segmented network with Tailscale remote access, IoT isolation, and offsite backup capabilities.
+This document describes the current network topology and the planned migration to a segmented network with WireGuard VPN remote access, IoT isolation, and offsite backup capabilities.
 
-**Migration Goal**: Transform from single-VLAN architecture to multi-VLAN segmented network with secure remote access via Tailscale while maintaining public service exposure through pfSense port forwarding.
+**Migration Goal**: Transform from single-VLAN architecture to multi-VLAN segmented network with secure remote access via WireGuard VPN while maintaining public service exposure through pfSense port forwarding.
 
 ---
 
@@ -82,7 +82,7 @@ graph TB
 
 ---
 
-## Target Network Topology (Option 1: Hybrid Multi-SSID)
+## Target Network Topology
 
 ### Architecture Diagram
 
@@ -90,16 +90,16 @@ graph TB
 graph TB
     Internet[Internet]
     WAN[pfSense WAN]
-    PF[pfSense Router<br/>Tailscale Subnet Router<br/>NAT + Firewall]
+    PF[pfSense Router<br/>WireGuard VPN Server<br/>NAT + Firewall]
     Switch[Ubiquiti Switch 8<br/>Port-based VLANs]
     AP[Ubiquiti AP Pro 6<br/>Multi-SSID:<br/>Home + IoT + Guest]
     TuringPi[Turing Pi 2<br/>3x Pi CM5]
     Beelink[Beelink<br/>K3s Worker]
-    MinIO[MinIO Server Offsite<br/>Tailscale Direct Node]
+    MinIO[MinIO Server Offsite<br/>WireGuard Peer]
 
-    Tailnet[Tailscale Network<br/>100.x.x.x/16]
-    Laptop[Laptop<br/>Tailscale Client]
-    Mobile[Mobile<br/>Tailscale Client]
+    WG[WireGuard VPN<br/>10.99.0.0/24]
+    Laptop[Laptop<br/>WireGuard Client]
+    Mobile[Mobile<br/>WireGuard Client]
     Guest[Guest Devices]
 
     Internet --> WAN
@@ -118,21 +118,21 @@ graph TB
     TuringPi -->|Hosts| CM5-2[pi-cm5-2<br/>Control Plane]
     TuringPi -->|Hosts| CM5-3[pi-cm5-3<br/>Control Plane]
 
-    PF -.->|Tailscale Subnet<br/>Advertises LANs| Tailnet
-    MinIO -.->|Tailscale<br/>Direct Connection| Tailnet
-    Laptop -.->|Tailscale| Tailnet
-    Mobile -.->|Tailscale| Tailnet
+    PF -.->|WireGuard Server<br/>10.99.0.1| WG
+    MinIO -.->|WireGuard Peer<br/>10.99.0.10| WG
+    Laptop -.->|WireGuard Client<br/>10.99.0.20| WG
+    Mobile -.->|WireGuard Client<br/>10.99.0.30| WG
 
-    Tailnet -.->|Secure Access| CM5-1
-    Tailnet -.->|Secure Access| CM5-2
-    Tailnet -.->|Secure Access| CM5-3
-    Tailnet -.->|Secure Access| Beelink
-    Tailnet -.->|Longhorn Backups<br/>S3 API| MinIO
+    WG -.->|VPN Access| CM5-1
+    WG -.->|VPN Access| CM5-2
+    WG -.->|VPN Access| CM5-3
+    WG -.->|VPN Access| Beelink
+    WG -.->|Longhorn Backups<br/>S3 API| MinIO
 
     style PF fill:#f9f,stroke:#333,stroke-width:4px
     style Switch fill:#bbf,stroke:#333,stroke-width:2px
     style MinIO fill:#bfb,stroke:#333,stroke-width:4px
-    style Tailnet fill:#ffd,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5
+    style WG fill:#ffd,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5
     style TuringPi fill:#fbb,stroke:#333,stroke-width:2px
 ```
 
@@ -153,13 +153,13 @@ graph TB
 | pfSense LAN | 1 | 192.168.92.1 | Direct |
 | pfSense IoT | 10 | 192.168.0.1 | Direct |
 | pfSense Guest | 20 | 192.168.10.1 | Direct |
-| Ubiquiti Switch | 1 | 192.168.92.2 | LAN + Tailscale |
-| Ubiquiti AP | 1 | 192.168.92.3 | LAN + Tailscale |
-| pi-cm5-1 | 1 | 192.168.92.11 | LAN + Tailscale |
-| pi-cm5-2 | 1 | 192.168.92.12 | LAN + Tailscale |
-| pi-cm5-3 | 1 | 192.168.92.13 | LAN + Tailscale |
-| beelink | 1 | 192.168.92.14 | LAN + Tailscale |
-| MinIO (offsite) | N/A | 100.x.x.x (Tailscale) | Tailscale only |
+| Ubiquiti Switch | 1 | 192.168.92.2 | LAN + WireGuard VPN |
+| Ubiquiti AP | 1 | 192.168.92.3 | LAN + WireGuard VPN |
+| pi-cm5-1 | 1 | 192.168.92.11 | LAN + WireGuard VPN |
+| pi-cm5-2 | 1 | 192.168.92.12 | LAN + WireGuard VPN |
+| pi-cm5-3 | 1 | 192.168.92.13 | LAN + WireGuard VPN |
+| beelink | 1 | 192.168.92.14 | LAN + WireGuard VPN |
+| MinIO (offsite) | N/A | 10.99.0.10 (WireGuard) | WireGuard VPN only |
 | IoT devices | 10 | 192.168.0.100+ | IoT VLAN via AP |
 | Guest devices | 20 | 192.168.10.100+ | Guest VLAN via AP |
 
@@ -188,56 +188,40 @@ graph TB
 
 ---
 
-## Tailscale Configuration
+## WireGuard VPN Configuration
 
-### Tailscale Nodes
+### WireGuard Peers
 
-| Node | Type | Tailscale IP | Purpose |
-|------|------|--------------|---------|
-| pfSense | Subnet Router | 100.64.0.1 | Advertises 192.168.92.0/24, 192.168.0.0/24, 192.168.10.0/24 |
-| MinIO (offsite) | Direct Node | 100.64.0.10 | Direct connection, S3 backup target |
-| Laptop | Client | 100.64.0.20+ | Admin access |
-| Mobile | Client | 100.64.0.30+ | Admin access |
+| Peer | WireGuard IP | Allowed IPs | Persistent Keepalive | Purpose |
+|------|--------------|-------------|---------------------|---------|
+| pfSense (Server) | 10.99.0.1/24 | N/A | N/A | VPN hub, routes to all VLANs |
+| MinIO (offsite) | 10.99.0.10/32 | 192.168.92.0/24, 192.168.0.0/24, 192.168.10.0/24, 10.99.0.0/24 | 25s | S3 backup target, full network access |
+| Laptop | 10.99.0.20/32 | 192.168.92.0/24, 192.168.0.0/24, 192.168.10.0/24, 10.99.0.0/24 | None | Admin access, split tunnel |
+| Mobile | 10.99.0.30/32 | 192.168.92.0/24, 192.168.0.0/24, 192.168.10.0/24, 10.99.0.0/24 | None | Admin access, split tunnel |
 
-### Access Control Lists (ACLs)
+**Key Configuration Details**:
+- **VPN Subnet**: 10.99.0.0/24
+- **pfSense Port**: 51820/UDP (WAN interface)
+- **Hub-and-Spoke Topology**: All peers connect to pfSense, no peer-to-peer
+- **Persistent Keepalive**: Only MinIO (behind NAT) uses 25s keepalive
+- **Split Tunnel**: Laptop and phone only route home subnets through VPN
 
-```json
-{
-  "groups": {
-    "group:admins": ["user@example.com"],
-    "group:k3s-cluster": ["tag:k3s-node"],
-    "group:backup-clients": ["tag:k3s-node"]
-  },
-  "tagOwners": {
-    "tag:subnet-router": ["group:admins"],
-    "tag:k3s-node": ["group:admins"],
-    "tag:offsite-nas": ["group:admins"]
-  },
-  "acls": [
-    {
-      "action": "accept",
-      "src": ["group:admins"],
-      "dst": ["*:22", "*:443", "*:6443", "tag:offsite-nas:9000,9001"]
-    },
-    {
-      "action": "accept",
-      "src": ["group:backup-clients"],
-      "dst": ["tag:offsite-nas:9000,9001"]
-    },
-    {
-      "action": "accept",
-      "src": ["group:admins"],
-      "dst": ["192.168.92.0/24:*", "192.168.0.0/24:*", "192.168.10.0/24:*"]
-    }
-  ]
-}
-```
+### WireGuard Interface Firewall Rules (pfSense)
 
-**Key Rules**:
-- Admins can access all devices (SSH, HTTPS, K8s API, MinIO)
-- K3s cluster can push backups to MinIO (ports 9000/9001)
-- MinIO **cannot** initiate connections back (deny-by-default)
-- Admins can access both LAN and IoT VLANs via subnet router
+Access control is enforced via pfSense firewall rules on the WireGuard interface:
+
+| Priority | Action | Source | Destination | Ports | Description |
+|----------|--------|--------|-------------|-------|-------------|
+| 1 | Allow | 10.99.0.20/32, 10.99.0.30/32 | Any | Any | Laptop and phone have full access |
+| 2 | Allow | 10.99.0.10/32 | 192.168.92.0/24, 192.168.0.0/24, 192.168.10.0/24 | Any | MinIO can reach all VLANs (backup traffic) |
+| 3 | Block | 10.99.0.10/32 | Any | Any | MinIO cannot reach other destinations |
+| 4 | Block | Any | Any | Any | Deny all other VPN traffic |
+
+**Security Model**:
+- **One-way access**: MinIO can receive connections but cannot initiate outbound (rule 2 allows inbound, rule 3 blocks rest)
+- **Admin full access**: Laptop and phone have unrestricted access to all networks
+- **No peer-to-peer**: WireGuard peers cannot directly communicate with each other
+- **Explicit allow**: All rules are explicitly defined (no implicit allows)
 
 ---
 
@@ -309,7 +293,7 @@ Internet (HTTPS:443)
 
 **SSL Certificates**: Let's Encrypt via cert-manager with Cloudflare DNS-01 challenge (automated renewal)
 
-**Network Isolation**: Tailscale operates on separate overlay network and does not affect public service exposure.
+**Network Isolation**: WireGuard VPN operates on separate tunnel and does not affect public service exposure.
 
 ---
 
@@ -319,10 +303,10 @@ Internet (HTTPS:443)
 |---------|---------------|--------------|---------|
 | Network Segmentation | ❌ Single VLAN | ✅ Multi-VLAN (LAN + IoT + Guest) | IoT isolation |
 | IoT Access to Servers | ⚠️ Unrestricted | ✅ Limited (web only) | Security hardening |
-| Remote Access | ❌ None (or VPN?) | ✅ Tailscale (WireGuard) | Secure mobile/laptop access |
-| MinIO Location | ⚠️ Local (theft risk) | ✅ Offsite (Tailscale) | Physical security |
+| Remote Access | ❌ None (or VPN?) | ✅ WireGuard VPN | Secure mobile/laptop access |
+| MinIO Location | ⚠️ Local (theft risk) | ✅ Offsite (WireGuard VPN) | Physical security |
 | WiFi Segmentation | ❌ Single SSID | ✅ Multi-SSID (Home/IoT/Guest) | Easy device separation |
-| Backup Security | ⚠️ Local network | ✅ Tailscale ACLs | One-way access only |
+| Backup Security | ⚠️ Local network | ✅ WireGuard firewall rules | One-way access only |
 | Public Services | ✅ Port Forward | ✅ Port Forward (unchanged) | No disruption |
 | Management Complexity | 🟢 Low | 🟡 Medium | Worth trade-off |
 
@@ -330,25 +314,25 @@ Internet (HTTPS:443)
 
 ## Implementation Phases
 
-### Phase 1: Testing & Preparation (Week 1-2)
+### Phase 1: Documentation & Planning (Week 1-2)
 
-**Goal**: Validate Tailscale connectivity and deploy UniFi Controller
+**Goal**: Complete WireGuard planning and deploy UniFi Controller
 
 **Tasks**:
-1. ✅ Research Tailscale options (completed)
-2. Set up Tailscale test account
-3. Deploy UniFi Controller on K3s cluster
-4. Adopt Ubiquiti switch and AP
-5. Test Tailscale on one K3s node
-6. Document findings
+1. ✅ Research WireGuard options (completed)
+2. ✅ Create WireGuard setup guide (completed)
+3. Create VLAN configuration guide
+4. Create UniFi Controller deployment guide
+5. Deploy UniFi Controller on K3s cluster
+6. Adopt Ubiquiti switch and AP
 
 **Success Criteria**:
 - UniFi Controller accessible via web UI
 - Switch and AP adopted successfully
-- Tailscale client can reach test K3s node
+- All documentation complete
 - No disruption to existing services
 
-**Rollback**: Delete test Tailscale node, remove UniFi Controller deployment
+**Rollback**: Remove UniFi Controller deployment
 
 ---
 
@@ -433,32 +417,31 @@ Internet (HTTPS:443)
 
 ---
 
-### Phase 5: Tailscale Deployment (Week 7-8)
+### Phase 5: WireGuard VPN Deployment (Week 7-8)
 
-**Goal**: Deploy Tailscale subnet router on pfSense and direct node on MinIO
+**Goal**: Deploy WireGuard VPN on pfSense and configure all peers
 
 **Tasks**:
-1. Install Tailscale package on pfSense
-2. Generate pre-auth key (reusable, tag: `tag:subnet-router`)
-3. Configure pfSense Tailscale to advertise:
-   - 192.168.92.0/24 (LAN)
-   - 192.168.0.0/24 (IoT)
-   - 192.168.10.0/24 (Guest)
-4. Approve routes in Tailscale admin console
-5. Install Tailscale on MinIO server
-6. Tag MinIO: `tag:offsite-nas`
-7. Configure Tailscale ACLs (one-way access)
-8. Test connectivity: Laptop → MinIO via Tailscale
-9. Test connectivity: Laptop → K3s nodes via Tailscale subnet router
+1. Generate WireGuard keypairs (pfSense, MinIO, laptop, phone)
+2. Configure WireGuard tunnel on pfSense (10.99.0.1/24, port 51820)
+3. Add MinIO peer (10.99.0.10/32, persistent keepalive 25s)
+4. Add laptop peer (10.99.0.20/32, split tunnel)
+5. Add phone peer (10.99.0.30/32, split tunnel)
+6. Configure WireGuard interface firewall rules (one-way access for MinIO)
+7. Configure LAN rules (allow LAN → MinIO:9000-9001)
+8. Install WireGuard on MinIO, configure wg0.conf
+9. Test connectivity: Laptop → K3s nodes via WireGuard
+10. Test connectivity: Laptop → MinIO via WireGuard
 
 **Success Criteria**:
-- Laptop (Tailscale) can SSH to pi-cm5-1 via 192.168.92.11
-- Laptop (Tailscale) can access MinIO S3 API via `http://100.x.x.x:9000`
-- MinIO **cannot** ping/access K3s nodes
-- Tailscale shows "subnets advertised" on pfSense node
-- Can access all three VLANs from Tailscale clients
+- Laptop (WireGuard) can SSH to pi-cm5-1 via 192.168.92.11
+- Laptop (WireGuard) can access MinIO S3 API via `http://10.99.0.10:9000`
+- MinIO **cannot** initiate connections to K3s nodes (blocked by firewall)
+- WireGuard handshake active for all peers (`wg show`)
+- Can access all three VLANs from WireGuard clients
+- Split tunnel working (internet traffic direct, not via VPN)
 
-**Rollback**: Remove Tailscale from pfSense and MinIO, revoke auth keys
+**Rollback**: Disable WireGuard tunnel in pfSense, remove wg0 interface from MinIO
 
 ---
 
@@ -467,29 +450,29 @@ Internet (HTTPS:443)
 **Goal**: Move MinIO offsite, update Longhorn backup target
 
 **Tasks**:
-1. Update Longhorn backup target to MinIO Tailscale IP:
+1. Update Longhorn backup target to MinIO WireGuard IP:
    ```yaml
    # Before: http://pi-cm5-4.local:9000
-   # After: http://100.x.x.x:9000
+   # After: http://10.99.0.10:9000
    ```
 2. Test Longhorn backup job (manual trigger)
 3. Verify backup appears in MinIO bucket
-4. Document MinIO Tailscale IP for disaster recovery
+4. Document MinIO WireGuard connection info for disaster recovery
 5. Physically move MinIO to offsite location
-6. Power on MinIO, verify Tailscale connection
+6. Power on MinIO, verify WireGuard connection (`wg show`)
 7. Trigger full Longhorn backup suite
 8. Monitor backup success
 
 **Success Criteria**:
-- Longhorn backups succeed via Tailscale IP
-- MinIO reachable from offsite location
+- Longhorn backups succeed via WireGuard VPN
+- MinIO reachable from offsite location (WireGuard handshake active)
 - Backup data integrity verified (random restore test)
 - No public exposure of MinIO (port scan shows closed)
 
 **Rollback**:
 - Restore MinIO to local network
 - Revert Longhorn backup target to local IP
-- Keep Tailscale configured for future retry
+- Keep WireGuard configured for future retry
 
 ---
 
@@ -506,14 +489,14 @@ Internet (HTTPS:443)
    - Verify MinIO cannot initiate connections to cluster
    - Port scan pfSense from internet (verify no new exposures)
 3. Performance test:
-   - Measure Tailscale throughput for backups
-   - Baseline HAProxy response times (ensure unchanged)
+   - Measure WireGuard throughput for backups (`iperf3`)
+   - Baseline Traefik response times (ensure unchanged)
 4. Update documentation:
    - `docs/network-topology.md` (this document)
    - `docs/disaster-recovery.md` (new, MinIO restore procedures)
-   - `docs/pfsense-integration-architecture.md` (add Tailscale section)
+   - `docs/pfsense-integration-architecture.md` (add WireGuard section)
 5. Create runbook for common operations:
-   - Adding new device to Tailscale
+   - Adding new WireGuard peer
    - Onboarding new IoT device
    - Troubleshooting VLAN issues
 
@@ -521,7 +504,7 @@ Internet (HTTPS:443)
 - PVC restore succeeds from offsite MinIO
 - IoT isolation confirmed (cannot access LAN except web services on 192.168.92.11-14:443,11443)
 - Guest isolation confirmed (cannot access any internal networks)
-- MinIO isolation confirmed (ACLs enforced)
+- MinIO isolation confirmed (firewall rules enforced)
 - Public services unchanged (Jellyfin, Radarr, etc. still accessible)
 - Documentation complete and reviewed
 
@@ -536,9 +519,9 @@ Internet (HTTPS:443)
 | Risk | Impact | Probability | Mitigation |
 |------|--------|-------------|------------|
 | Misconfigured firewall rules break K3s cluster | 🔴 Critical | 🟡 Medium | Test rules in lab first, have console access to pfSense |
-| Tailscale subnet router failure breaks remote access | 🟡 Medium | 🟢 Low | Keep MinIO as direct node (independent access) |
+| WireGuard tunnel failure breaks remote access | 🟡 Medium | 🟢 Low | Keep MinIO as independent peer, monitor handshakes |
 | VLAN misconfiguration causes network outage | 🔴 Critical | 🟡 Medium | Document rollback steps, test during low-usage window |
-| MinIO offsite loses Tailscale connectivity | 🟡 Medium | 🟡 Medium | Monitor Tailscale status, have alternate access method |
+| MinIO offsite loses WireGuard connectivity | 🟡 Medium | 🟡 Medium | Monitor WireGuard handshakes, persistent keepalive 25s |
 | UniFi Controller failure prevents switch management | 🟢 Low | 🟢 Low | Can factory reset switch and reconfigure manually |
 
 ### Rollback Strategy
@@ -560,10 +543,10 @@ Each phase includes specific rollback procedures. General rollback principles:
    - Monitor IoT → LAN block attempts
    - Alert on unexpected traffic patterns
 
-2. **Tailscale Status**:
-   - Check Tailscale admin console for node health
-   - Monitor DERP relay usage (should be minimal)
-   - Verify subnet routes advertised
+2. **WireGuard Status**:
+   - Check WireGuard peer handshakes: `wg show` on pfSense
+   - Monitor MinIO keepalive (should be < 1 min ago)
+   - Verify all peers show "latest handshake"
 
 3. **Backup Jobs** (Longhorn):
    - Daily: Verify backup success (via Longhorn UI)
@@ -571,24 +554,25 @@ Each phase includes specific rollback procedures. General rollback principles:
    - Monthly: Full disaster recovery drill
 
 4. **Network Performance**:
-   - Baseline Tailscale throughput: `iperf3` between laptop and K3s node
-   - Monitor HAProxy response times (Grafana dashboard)
+   - Baseline WireGuard throughput: `iperf3` between laptop and K3s node
+   - Monitor Traefik response times (Grafana dashboard)
 
 ### Maintenance Tasks
 
 **Monthly**:
-- Review Tailscale ACLs for accuracy
+- Review WireGuard firewall rules for accuracy
 - Audit IoT device list (remove stale devices)
 - Verify MinIO reachable from offsite
 
 **Quarterly**:
-- Update Tailscale clients (pfSense, MinIO)
+- Update WireGuard on all devices (pfSense, MinIO, clients)
 - Review firewall rules for optimization
 - Test disaster recovery procedures
 
 **Annually**:
 - Audit entire network topology
 - Review security posture
+- Rotate WireGuard keys
 - Plan future enhancements
 
 ---
@@ -602,9 +586,9 @@ Each phase includes specific rollback procedures. General rollback principles:
    - Portal-based authentication
    - Time-limited access
 
-2. **Tailscale on Individual K3s Nodes**:
-   - Upgrade to per-node Tailscale for granular ACLs
-   - Better performance than subnet router for some use cases
+2. **WireGuard on Individual K3s Nodes**:
+   - Optional: Install WireGuard on each K3s node for direct peer connections
+   - Better performance than routing through pfSense for some use cases
 
 3. **Network Monitoring Stack**:
    - Deploy Prometheus + Grafana for network metrics
@@ -613,11 +597,11 @@ Each phase includes specific rollback procedures. General rollback principles:
 
 4. **Automated Failover**:
    - Secondary MinIO location (geographic redundancy)
-   - Automated Tailscale route failover
+   - Automated WireGuard route failover
 
 5. **IPv6 Support**:
    - Enable IPv6 on all VLANs
-   - Configure Tailscale IPv6
+   - Configure WireGuard IPv6
 
 ---
 
@@ -671,23 +655,25 @@ curl https://192.168.92.11  # Should work
 - Check rule priority ordering
 - Ensure rules apply to IoT interface
 
-#### 3. Tailscale Cannot Reach Subnet
+#### 3. WireGuard Cannot Reach Subnet
 
-**Symptoms**: Laptop (Tailscale) cannot access 192.168.92.11
+**Symptoms**: Laptop (WireGuard) cannot access 192.168.92.11
 
 **Diagnosis**:
 ```bash
 # From laptop
-tailscale status  # Check if pfSense online
-tailscale ping 100.64.0.1  # Ping pfSense Tailscale IP
+sudo wg show  # Check if tunnel is up and handshake recent
+ping 10.99.0.1  # Ping pfSense WireGuard IP
 ping 192.168.92.11  # Test subnet access
+ip route | grep 192.168  # Verify routes installed
 ```
 
 **Solutions**:
-- Verify subnet routes approved in Tailscale console
-- Check pfSense Tailscale config (subnet advertising enabled: 192.168.92.0/24, 192.168.0.0/24, 192.168.10.0/24)
-- Verify pfSense firewall allows Tailscale → LAN
-- Check Tailscale ACLs allow access to advertised subnets
+- Verify WireGuard tunnel is up: `sudo wg-quick up homelab`
+- Check recent handshake: `sudo wg show` (should be < 2 min ago)
+- Verify AllowedIPs in wg0.conf includes 192.168.92.0/24
+- Check pfSense WireGuard interface firewall rules (allow laptop IP → LANs)
+- Verify pfSense routes traffic between WireGuard interface and VLANs
 
 #### 4. Longhorn Backup Fails After MinIO Migration
 
@@ -696,23 +682,27 @@ ping 192.168.92.11  # Test subnet access
 **Diagnosis**:
 ```bash
 # From K3s node
-curl http://100.x.x.x:9000  # Test MinIO connectivity
-tailscale ping 100.x.x.x  # Test Tailscale to MinIO
+curl http://10.99.0.10:9000  # Test MinIO connectivity via WireGuard
+ping 10.99.0.10  # Test WireGuard connectivity to MinIO
 kubectl logs -n longhorn-system <backup-pod>
+
+# From pfSense
+wg show  # Verify MinIO handshake is recent (< 1 min)
 ```
 
 **Solutions**:
-- Verify MinIO Tailscale node is online
-- Check Tailscale ACLs allow K3s → MinIO:9000,9001
-- Verify Longhorn backup target URL updated
+- Verify MinIO WireGuard connection is up: check handshake on pfSense
+- Check pfSense WireGuard interface firewall rules (allow LAN → MinIO:9000,9001)
+- Verify Longhorn backup target URL updated to `http://10.99.0.10:9000`
 - Check MinIO credentials in Longhorn secret
+- Verify MinIO persistent keepalive (25s) is configured
 
 ---
 
 ## Related Documentation
 
 - [pfSense Integration Architecture](pfsense-integration-architecture.md) - Port forwarding and SSL setup
-- [Tailscale Setup Guide](tailscale-setup.md) - Detailed Tailscale configuration
+- [WireGuard Setup Guide](wireguard-setup.md) - Detailed WireGuard VPN configuration
 - [VLAN Configuration Guide](vlan-configuration.md) - pfSense and Ubiquiti VLAN setup
 - [UniFi Controller Deployment](unifi-controller-deployment.md) - Deploy controller on K3s
 - [Longhorn Disaster Recovery](longhorn-disaster-recovery.md) - Backup and restore procedures
@@ -756,16 +746,16 @@ kubectl logs -n longhorn-system <backup-pod>
 | 192.168.10.100-250 | - | DHCP pool (Guest devices) | Dynamic |
 | 192.168.10.251-254 | - | Reserved | - |
 
-### Tailscale Network (100.64.0.0/10)
+### WireGuard VPN Network (10.99.0.0/24)
 
-**Note**: Tailscale automatically assigns IPs from CGNAT range. These are examples.
+**Note**: Manually assigned static IPs for all WireGuard peers.
 
-| Tailscale IP | Device | Type | Notes |
+| WireGuard IP | Device | Type | Notes |
 |--------------|--------|------|-------|
-| 100.64.0.1 | pfSense | Subnet Router | Advertises 192.168.92.0/24, 192.168.0.0/24, 192.168.10.0/24 |
-| 100.64.0.10 | MinIO (offsite) | Direct Node | S3 backup target |
-| 100.64.0.20+ | Laptop | Client | Admin access |
-| 100.64.0.30+ | Mobile | Client | Admin access |
+| 10.99.0.1 | pfSense | Server/Hub | Routes to 192.168.92.0/24, 192.168.0.0/24, 192.168.10.0/24 |
+| 10.99.0.10 | MinIO (offsite) | Peer | S3 backup target, persistent keepalive 25s |
+| 10.99.0.20 | Laptop | Client | Admin access, split tunnel |
+| 10.99.0.30 | Mobile | Client | Admin access, split tunnel |
 
 ---
 

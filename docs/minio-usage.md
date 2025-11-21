@@ -268,7 +268,7 @@ echo "Backup completed: configs.tar.gz uploaded to MinIO"
 ### Planned Security Enhancements
 - **Phase 5b (SSL)**: HTTPS access with Let's Encrypt certificates
 - **Phase 5c (Encryption)**: Server-side encryption for sensitive buckets
-- **Phase 5d (Tailscale)**: Secure remote access without port forwarding
+- **Phase 5d (WireGuard)**: Secure remote access via VPN
 
 ## Troubleshooting
 
@@ -306,6 +306,6 @@ mc admin logs homelab --type audit
 After Phase 5 security enhancements are complete:
 - HTTPS access via custom domain names
 - Server-side encryption for longhorn-backups and cluster-logs
-- Secure Tailscale-only access for remote management
+- Secure WireGuard-only access for remote management
 - Automated backup verification and integrity checks
 - Integration with monitoring stack for alerting
