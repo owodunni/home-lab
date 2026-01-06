@@ -106,7 +106,7 @@ kubeconfig-update: ## 🔑 Update local kubeconfig from control plane node
 	@mkdir -p ~/.kube
 	@uv run ansible pi-cm5-1 -a "cat /etc/rancher/k3s/k3s.yaml" -b 2>/dev/null | \
 		awk '/^apiVersion:/, /^$$/ {print}' | \
-		sed 's|https://127.0.0.1:6443|https://192.168.0.167:6443|' > ~/.kube/config
+		sed 's|https://127.0.0.1:6443|https://pi-cm5-1:6443|' > ~/.kube/config
 	@echo "✅ Kubeconfig updated successfully"
 	@echo "Testing connection..."
 	@kubectl cluster-info
