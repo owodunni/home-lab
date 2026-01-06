@@ -3,6 +3,16 @@
 # These tasks run on control_plane before Helm deployment
 # Note: System packages on all nodes are handled by orchestration playbook
 
+- name: Create longhorn-system namespace
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: longhorn-system
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
 - name: Restart CoreDNS for fresh DNS resolution
   ansible.builtin.command:
     cmd: kubectl -n kube-system rollout restart deployment coredns
@@ -40,97 +50,5 @@
     state: present
     kubeconfig: /etc/rancher/k3s/k3s.yaml
 
-- name: Configure Longhorn backup target
-  kubernetes.core.k8s:
-    definition:
-      apiVersion: longhorn.io/v1beta2
-      kind: BackupTarget
-      metadata:
-        name: default
-        namespace: longhorn-system
-      spec:
-        backupTargetURL: "s3://longhorn-backups@eu-west-1/"
-        credentialSecret: "minio-secret"
-        pollInterval: "300s"
-    state: present
-    kubeconfig: /etc/rancher/k3s/k3s.yaml
-
-- name: Create daily backup recurring job
-  kubernetes.core.k8s:
-    definition:
-      apiVersion: longhorn.io/v1beta2
-      kind: RecurringJob
-      metadata:
-        name: daily-backup
-        namespace: longhorn-system
-      spec:
-        cron: "0 2 * * *"
-        task: backup
-        groups:
-          - default
-        retain: 7
-        concurrency: 2
-        labels:
-          recurring-job: daily-backup
-    state: present
-    kubeconfig: /etc/rancher/k3s/k3s.yaml
-
-- name: Create weekly backup recurring job
-  kubernetes.core.k8s:
-    definition:
-      apiVersion: longhorn.io/v1beta2
-      kind: RecurringJob
-      metadata:
-        name: weekly-backup
-        namespace: longhorn-system
-      spec:
-        cron: "0 3 * * 0"
-        task: backup
-        groups:
-          - default
-        retain: 4
-        concurrency: 1
-        labels:
-          recurring-job: weekly-backup
-    state: present
-    kubeconfig: /etc/rancher/k3s/k3s.yaml
-
-- name: Create snapshot cleanup recurring job
-  kubernetes.core.k8s:
-    definition:
-      apiVersion: longhorn.io/v1beta2
-      kind: RecurringJob
-      metadata:
-        name: snapshot-cleanup
-        namespace: longhorn-system
-      spec:
-        cron: "0 6 * * *"
-        task: snapshot-cleanup
-        groups:
-          - default
-        retain: 1
-        concurrency: 3
-        labels:
-          recurring-job: snapshot-cleanup
-    state: present
-    kubeconfig: /etc/rancher/k3s/k3s.yaml
-
-- name: Create weekly system backup recurring job
-  kubernetes.core.k8s:
-    definition:
-      apiVersion: longhorn.io/v1beta2
-      kind: RecurringJob
-      metadata:
-        name: weekly-system-backup
-        namespace: longhorn-system
-      spec:
-        cron: "0 4 * * 0"
-        task: system-backup
-        retain: 4
-        concurrency: 1
-        labels:
-          recurring-job: weekly-system-backup
-        parameters:
-          volume-backup-policy: if-not-present
-    state: present
-    kubeconfig: /etc/rancher/k3s/k3s.yaml
+# NOTE: BackupTarget and RecurringJobs are configured via values.yml
+# They will be created automatically by Longhorn after deployment

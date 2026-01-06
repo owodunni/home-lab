@@ -10,6 +10,7 @@
 #
 # Optional variables:
 #   - prerequisites_playbook: Path to prerequisites playbook (pre-deployment tasks)
+#   - postinstall_playbook: Path to postinstall playbook (post-deployment configuration)
 #   - upgrade_mode: Set to true for helm upgrade instead of install (default: false)
 
 - name: Deploy Helm Application
@@ -95,6 +96,12 @@
     - name: Wait for deployment to be ready
       ansible.builtin.include_tasks: "{{ playbook_dir }}/../apps/_common/tasks/wait-for-ready.yml"
       when: chart_metadata.wait_for_ready | default(true)
+
+    - name: Run postinstall playbook
+      ansible.builtin.include_tasks: "{{ postinstall_playbook }}"
+      when:
+        - postinstall_playbook is defined
+        - postinstall_playbook | length > 0
 
     - name: Display success message
       ansible.builtin.debug:
