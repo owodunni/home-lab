@@ -20,13 +20,15 @@ beelink-setup: ## 🖥️ Configure passwordless sudo on beelink (first-time set
 	$(ANSIBLE_PLAYBOOK) playbooks/beelink/01-initial-setup.yml --ask-become-pass --limit beelink
 
 beelink-storage: ## 💽 Configure LUKS-encrypted LVM storage for Longhorn on beelink
-	@echo "⚠️  WARNING: This will format NVMe drives on beelink!"
+	@echo "⚠️  WARNING: First run will format NVMe drives on beelink!"
+	@echo "ℹ️  Note: Playbook is idempotent - safe to re-run (won't reformat existing LUKS/filesystems)"
+	@echo ""
 	@echo "Configured drives:"
 	@echo "  - /dev/disk/by-id/nvme-CT2000P310SSD8_24454C177944"
 	@echo "  - /dev/disk/by-id/nvme-CT2000P310SSD8_24454C37CB1B"
 	@echo "  - /dev/disk/by-id/nvme-CT2000P310SSD8_24454C40D38E"
 	@echo ""
-	@read -p "Are you sure you want to continue? (yes/no): " answer && [ "$$answer" = "yes" ] || (echo "Cancelled." && exit 1)
+	@read -p "Continue? (yes/no): " answer && [ "$$answer" = "yes" ] || (echo "Cancelled." && exit 1)
 	@echo ""
 	@echo "Configuring Beelink storage with LUKS + LVM + ext4..."
 	$(ANSIBLE_PLAYBOOK) playbooks/beelink/02-storage-config.yml --diff

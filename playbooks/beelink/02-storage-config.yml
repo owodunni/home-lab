@@ -13,6 +13,7 @@
       ansible.builtin.apt:
         name:
           - cryptsetup
+          - cryptsetup-initramfs # Provides initramfs hooks for crypttab processing
           - lvm2
         state: present
         update_cache: true
@@ -51,15 +52,50 @@
 
     # Configure /etc/crypttab for automatic unlock on boot
     # This allows the system to unlock encrypted drives at boot using the key file
+    # The 'initramfs' option forces inclusion in initramfs even for non-root filesystems
     - name: Configure crypttab for automatic LUKS unlock
       ansible.builtin.lineinfile:
         path: /etc/crypttab
-        line: "{{ item.name }} {{ item.device }} /root/.luks/beelink-luks.key luks"
+        regexp: '^{{ item.name }}\s+'
+        line: "{{ item.name }} {{ item.device }} /root/.luks/beelink-luks.key luks,initramfs"
         state: present
         create: true
         mode: "0644"
         backup: true
       loop: "{{ luks_crypt_devices }}"
+
+    # Configure cryptsetup-initramfs to include LUKS key files in initramfs
+    # Without KEYFILE_PATTERN, no key files are copied to initramfs and auto-unlock fails
+    # The pattern must match the key file path referenced in /etc/crypttab
+    - name: Configure cryptsetup-initramfs key file pattern
+      ansible.builtin.lineinfile:
+        path: /etc/cryptsetup-initramfs/conf-hook
+        regexp: '^#?KEYFILE_PATTERN='
+        line: 'KEYFILE_PATTERN="/root/.luks/*.key"'
+        state: present
+        backup: true
+
+    # Set restrictive umask for initramfs to protect private key material
+    # UMASK=0077 ensures only root can read the initramfs image containing LUKS keys
+    # Without this, key files in initramfs are readable by all users (security risk)
+    - name: Set secure umask for initramfs
+      ansible.builtin.lineinfile:
+        path: /etc/initramfs-tools/initramfs.conf
+        regexp: '^UMASK='
+        line: 'UMASK=0077'
+        state: present
+        backup: true
+
+    # Rebuild initramfs to include crypttab configuration for early boot
+    # Required: LUKS devices must unlock during initramfs stage (before mounting filesystems)
+    # Without this, boot fails with "Timed out waiting for device" errors
+    # The cryptsetup-initramfs package provides hooks, but initramfs must be rebuilt to activate them
+    # https://wiki.debian.org/InitramfsDebug
+    - name: Update initramfs to include LUKS configuration
+      ansible.builtin.command:
+        cmd: update-initramfs -u -k all
+      register: initramfs_update
+      changed_when: "'update-initramfs: Generating' in initramfs_update.stdout"
 
     # Create LVM volume group from encrypted devices
     # Ansible lvg module handles pvcreate and vgcreate automatically
