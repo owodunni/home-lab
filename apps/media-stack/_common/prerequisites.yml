@@ -64,7 +64,7 @@
           managed-by: ansible
       spec:
         accessModes:
-          - ReadWriteMany
+          - ReadWriteOnce
         storageClassName: longhorn
         resources:
           requests:

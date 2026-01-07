@@ -74,6 +74,53 @@
 - name: Phase 4c - Deploy Longhorn Application
   import_playbook: ../../apps/longhorn/app.yml
 
+- name: "Phase 4c-1 - Disaster Recovery: Manual Longhorn System Restore"
+  hosts: control_plane
+  become: true
+  gather_facts: false
+  run_once: true
+
+  tasks:
+    - name: Display Longhorn System Restore Instructions
+      ansible.builtin.pause:
+        prompt: |
+
+          ═══════════════════════════════════════════════════════════════════════════════
+          ⚠️  MANUAL ACTION REQUIRED - Longhorn System Restore (Disaster Recovery Only)
+          ═══════════════════════════════════════════════════════════════════════════════
+
+          This step is ONLY needed if you are performing disaster recovery from backups.
+          If this is a fresh installation, simply press ENTER to continue.
+
+          DISASTER RECOVERY INSTRUCTIONS:
+          ───────────────────────────────────────────────────────────────────────────────
+
+          1. Open Longhorn UI in your browser:
+             → https://longhorn.jardoole.xyz
+
+          2. Navigate to "System Backup" in the left menu
+
+          3. Click "Restore Latest Backup" button
+             (Or select a specific backup date if needed)
+
+          4. Wait for system restore to complete
+             - This typically takes 1-2 minutes
+             - The UI will show "Restore completed successfully"
+
+          5. DO NOT manually restore individual volumes
+             - Volume restoration will be automated after this step
+
+          ═══════════════════════════════════════════════════════════════════════════════
+
+          When ready to continue:
+          - Fresh installation: Press ENTER now
+          - After system restore: Press ENTER when restore is complete
+
+          ═══════════════════════════════════════════════════════════════════════════════
+
+- name: Phase 4c-2 - Automatic Volume Recovery (After System Restore)
+  import_playbook: ../k8s/recover-volumes.yml
+
 - name: Phase 4d - Post-deployment Verification
   hosts: control_plane
   become: true

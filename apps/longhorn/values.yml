@@ -12,6 +12,8 @@ defaultSettings:
   # S3 backup target configuration for MinIO
   backupTarget: s3://longhorn-backups@eu-west-1/
   backupTargetCredentialSecret: minio-secret
+  # CRITICAL: Restore backup job assignments during disaster recovery
+  restoreVolumeRecurringJobs: "true"
 
 longhornUI:
   replicas: 1

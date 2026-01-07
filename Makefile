@@ -28,7 +28,7 @@ beelink-storage: ## 💽 Configure LUKS-encrypted LVM storage for Longhorn on be
 	@echo "  - /dev/disk/by-id/nvme-CT2000P310SSD8_24454C37CB1B"
 	@echo "  - /dev/disk/by-id/nvme-CT2000P310SSD8_24454C40D38E"
 	@echo ""
-	@read -p "Continue? (yes/no): " answer && [ "$$answer" = "yes" ] || (echo "Cancelled." && exit 1)
+	@printf "Continue? (yes/no): " && read answer && [ "$$answer" = "yes" ] || (echo "Cancelled." && exit 1)
 	@echo ""
 	@echo "Configuring Beelink storage with LUKS + LVM + ext4..."
 	$(ANSIBLE_PLAYBOOK) playbooks/beelink/02-storage-config.yml --diff
@@ -110,6 +110,27 @@ kubeconfig-update: ## 🔑 Update local kubeconfig from control plane node
 	@echo "✅ Kubeconfig updated successfully"
 	@echo "Testing connection..."
 	@kubectl cluster-info
+
+verify-backups: ## 🔍 Verify MinIO backups exist before disaster recovery
+	@echo "Verifying MinIO backup availability..."
+	@echo ""
+	@echo "📦 Checking MinIO S3 service..."
+	@curl -f -s -o /dev/null https://minio.jardoole.xyz || \
+		(echo "❌ ERROR: MinIO not accessible at https://minio.jardoole.xyz" && exit 1)
+	@echo "✅ MinIO is accessible"
+	@echo ""
+	@echo "📋 Checking for Longhorn system backups..."
+	@uv run ansible pi-cm5-4 -a "sudo -u minio /usr/local/bin/mc ls myminio/longhorn-backups/backups/longhorn-system-backup/" 2>/dev/null | \
+		grep -E '\.zip$$' | tail -5 || \
+		(echo "❌ ERROR: No system backups found in MinIO!" && \
+		 echo "   Expected location: longhorn-backups/backups/longhorn-system-backup/" && \
+		 echo "   Cannot proceed with disaster recovery without backups." && exit 1)
+	@echo ""
+	@echo "✅ System backups found (showing 5 most recent):"
+	@uv run ansible pi-cm5-4 -a "sudo -u minio /usr/local/bin/mc ls myminio/longhorn-backups/backups/longhorn-system-backup/" 2>/dev/null | \
+		grep -E '\.zip$$' | tail -5 | awk '{print "   " $$3, $$4, "-", $$6}'
+	@echo ""
+	@echo "✅ Backup verification complete - safe to proceed with recovery"
 
 recover-volumes: ## 🔄 Recover Released PVs after Longhorn System Restore
 	@echo "Recovering Released PersistentVolumes..."
