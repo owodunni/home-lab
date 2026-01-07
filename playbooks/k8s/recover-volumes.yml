@@ -23,11 +23,68 @@
       - media-stack-data
 
   tasks:
+    - name: Get all Longhorn volumes
+      kubernetes.core.k8s_info:
+        kind: Volume
+        api_version: longhorn.io/v1beta2
+        namespace: longhorn-system
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: longhorn_volumes
+
     - name: Get all PersistentVolumes
       kubernetes.core.k8s_info:
         kind: PersistentVolume
         kubeconfig: /etc/rancher/k3s/k3s.yaml
       register: all_pvs
+
+    - name: Find Longhorn volumes without PVs
+      ansible.builtin.set_fact:
+        missing_pvs: "{{ longhorn_volumes.resources |
+          selectattr('metadata.name', 'match', '^pvc-') |
+          rejectattr('metadata.name', 'in', all_pvs.resources | map(attribute='metadata.name') | list) |
+          list }}"
+
+    - name: Create missing PVs for Longhorn volumes
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolume
+          metadata:
+            name: "{{ item.metadata.name }}"
+            annotations:
+              pv.kubernetes.io/provisioned-by: driver.longhorn.io
+          spec:
+            capacity:
+              # Convert bytes to MiB (1 MiB = 1048576 bytes)
+              # Using MiB instead of GiB to handle small volumes (e.g., 500Mi)
+              # Integer division would round 500Mi to 0Gi, causing validation errors
+              storage: "{{ (item.spec.size | int / 1048576) | int }}Mi"
+            accessModes:
+              - ReadWriteOnce
+            persistentVolumeReclaimPolicy: Retain
+            storageClassName: longhorn
+            csi:
+              driver: driver.longhorn.io
+              fsType: ext4
+              volumeHandle: "{{ item.metadata.name }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      loop: "{{ missing_pvs }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+      when: missing_pvs | length > 0
+
+    - name: Display created PVs
+      ansible.builtin.debug:
+        msg: "✓ Created {{ missing_pvs | length }} missing PV(s) for Longhorn volumes"
+      when: missing_pvs | length > 0
+
+    - name: Refresh PV list after creation
+      kubernetes.core.k8s_info:
+        kind: PersistentVolume
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: all_pvs
+      when: missing_pvs | length > 0
 
     - name: Filter Released and Available PVs
       ansible.builtin.set_fact:
@@ -41,6 +98,7 @@
           - "Volume Recovery Summary"
           - "═══════════════════════════════════════════════════════"
           - "Total PVs: {{ all_pvs.resources | length }}"
+          - "Missing PVs created: {{ missing_pvs | default([]) | length }}"
           - "Released PVs to recover: {{ released_pvs | length }}"
           - "Available PVs (will auto-bind): {{ available_pvs | length }}"
           - "═══════════════════════════════════════════════════════"
