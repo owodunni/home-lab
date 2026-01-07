@@ -29,9 +29,10 @@
         kubeconfig: /etc/rancher/k3s/k3s.yaml
       register: all_pvs
 
-    - name: Filter Released PVs
+    - name: Filter Released and Available PVs
       ansible.builtin.set_fact:
         released_pvs: "{{ all_pvs.resources | selectattr('status.phase', 'equalto', 'Released') | list }}"
+        available_pvs: "{{ all_pvs.resources | selectattr('status.phase', 'equalto', 'Available') | list }}"
 
     - name: Display recovery summary
       ansible.builtin.debug:
@@ -41,11 +42,19 @@
           - "═══════════════════════════════════════════════════════"
           - "Total PVs: {{ all_pvs.resources | length }}"
           - "Released PVs to recover: {{ released_pvs | length }}"
+          - "Available PVs (will auto-bind): {{ available_pvs | length }}"
           - "═══════════════════════════════════════════════════════"
 
-    - name: Abort if no Released PVs found
-      ansible.builtin.fail:
-        msg: "No Released PVs found. Nothing to recover."
+    - name: Skip recovery if no Released PVs
+      ansible.builtin.debug:
+        msg:
+          - "✓ No Released PVs found - volumes were restored without claimRef"
+          - "✓ {{ available_pvs | length }} Available PVs ready for auto-binding"
+          - "✓ Proceed with app deployment - PVCs will bind to existing volumes automatically"
+      when: released_pvs | length == 0
+
+    - name: End play if no Released PVs
+      ansible.builtin.meta: end_play
       when: released_pvs | length == 0
 
     - name: Display Released PVs details
