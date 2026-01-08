@@ -32,7 +32,6 @@
         state: directory
         owner: minio
         group: minio
-        recurse: true
       loop: "{{ minio_server_datadirs }}"
 
     - name: Configure MinIO environment file (basic configuration)
