@@ -30,10 +30,10 @@ minio_storage_drives:
     filesystem: xfs
 
 # MinIO data directories - used by ricsanfre.minio role
-# These paths will be created on the mounted drives
+# NEW: Single MergerFS mount point (see minio_storage_drives_new below)
+# OLD: [/mnt/minio-drive1/data, /mnt/minio-drive2/data]
 minio_server_datadirs:
-  - /mnt/minio-drive1/data
-  - /mnt/minio-drive2/data
+  - /mnt/minio-storage
 
 # MinIO mount options for /etc/fstab
 # noatime = performance optimization for object storage workloads
@@ -172,11 +172,6 @@ minio_snapraid_content_files:
   - /var/minio-snapraid.content
   - /mnt/minio-disk1/.snapraid.content
 
-# Update MinIO data directories for new mount point
-# OLD: minio_server_datadirs: [/mnt/minio-drive1/data, /mnt/minio-drive2/data]
-# NEW: Single MergerFS mount point
-minio_server_datadirs_new: "/mnt/minio-storage"
-
-# Filesystem and mount options
+# Filesystem and mount options for new MergerFS setup
 minio_filesystem: xfs  # Object storage optimized
 minio_mount_options_new: "defaults,noatime"

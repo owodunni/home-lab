@@ -261,7 +261,7 @@
           ║  • Data drive: {{ minio_mergerfs_data_drives[0] }}                              ║
           ║  • Parity drive: {{ minio_snapraid_parity_drives[0] }}                        ║
           ║  • MergerFS pool: {{ minio_mergerfs_mount }}                            ║
-          ║  • Target path: {{ minio_server_datadirs_new }}                    ║
+          ║  • MinIO data path: {{ minio_server_datadirs[0] }}                    ║
           ║                                                              ║
           ║ MergerFS Status:                                             ║
           {{ mergerfs_df.stdout_lines | map('regex_replace', '^', '║  ') | join('\n') }}

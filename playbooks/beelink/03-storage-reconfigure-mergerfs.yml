@@ -136,6 +136,19 @@
         group: root
       loop: "{{ storage_drives }}"
 
+    - name: Ensure LUKS devices are unmounted before filesystem creation
+      ansible.builtin.command:
+        cmd: umount /dev/mapper/{{ item.name }}
+      loop: "{{ luks_crypt_devices }}"
+      ignore_errors: true
+      changed_when: false
+
+    - name: Flush device buffers
+      ansible.builtin.command:
+        cmd: blockdev --flushbufs /dev/mapper/{{ item.name }}
+      loop: "{{ luks_crypt_devices }}"
+      changed_when: false
+
     - name: Create ext4 filesystem on data drives
       community.general.filesystem:
         fstype: "{{ storage_filesystem }}"
