@@ -1,0 +1,384 @@
+---
+# Beelink storage reconfiguration playbook
+# DESTRUCTIVE: Converts LUKS+LVM setup to MergerFS + SnapRAID
+# Architecture: 3x NVMe drives → LUKS → individual ext4 → MergerFS pool + SnapRAID parity
+#
+# WARNING: This playbook will DESTROY all data in /var/lib/longhorn
+# Ensure you have a final backup before running this playbook!
+#
+# Prerequisites:
+# - Final Longhorn backup of media-stack-data completed
+# - Media stack scaled down (kubectl scale deployment -n media --all --replicas=0)
+# - Backup verified in MinIO
+
+- name: Reconfigure Beelink storage for MergerFS + SnapRAID
+  hosts: beelink
+  become: true
+
+  pre_tasks:
+    - name: Display WARNING about data loss
+      ansible.builtin.pause:
+        prompt: |
+          ╔══════════════════════════════════════════════════════════════╗
+          ║                    ⚠️  CRITICAL WARNING ⚠️                    ║
+          ╠══════════════════════════════════════════════════════════════╣
+          ║ This playbook will DESTROY all data on Beelink storage!     ║
+          ║                                                              ║
+          ║ Before proceeding, verify:                                  ║
+          ║  ✓ Final Longhorn backup completed                          ║
+          ║  ✓ Media stack scaled to 0 replicas                         ║
+          ║  ✓ Backup accessible in MinIO S3                            ║
+          ║                                                              ║
+          ║ This operation:                                             ║
+          ║  • Stops K3s agent on Beelink                               ║
+          ║  • Unmounts /var/lib/longhorn                               ║
+          ║  • Removes LVM volume group and logical volume              ║
+          ║  • Creates individual ext4 filesystems (reuses LUKS)        ║
+          ║  • Installs MergerFS and SnapRAID                           ║
+          ║  • Configures NFS exports                                   ║
+          ║                                                              ║
+          ║ Recovery: If you need to abort, restore from backup         ║
+          ║           See docs/disaster-recovery.md                     ║
+          ╚══════════════════════════════════════════════════════════════╝
+
+          Press ENTER to continue or Ctrl+C to abort
+
+  tasks:
+    # ========================================================================
+    # Phase 1: Stop K3s and Remove Longhorn Setup
+    # ========================================================================
+
+    - name: Stop K3s agent service
+      ansible.builtin.systemd:
+        name: k3s-agent
+        state: stopped
+      ignore_errors: true # Service might not exist yet
+
+    - name: Unmount Longhorn storage
+      ansible.posix.mount:
+        path: /var/lib/longhorn
+        state: unmounted
+      ignore_errors: true
+
+    - name: Remove LVM logical volume
+      community.general.lvol:
+        vg: "{{ lvm_volume_group }}"
+        lv: "{{ lvm_logical_volume }}"
+        state: absent
+        force: true
+      when: lvm_volume_group is defined and lvm_logical_volume is defined
+      ignore_errors: true
+
+    - name: Remove LVM volume group
+      community.general.lvg:
+        vg: "{{ lvm_volume_group }}"
+        state: absent
+      when: lvm_volume_group is defined
+      ignore_errors: true
+
+    - name: Remove /var/lib/longhorn from fstab
+      ansible.posix.mount:
+        path: /var/lib/longhorn
+        state: absent
+      ignore_errors: true
+
+    # ========================================================================
+    # Phase 2: Setup Individual Encrypted Filesystems
+    # ========================================================================
+
+    # Note: LUKS-encrypted devices already exist from previous setup
+    # We need to close old devices and reopen with new names
+
+    - name: Close old LUKS devices (longhorn*_crypt)
+      ansible.builtin.command:
+        cmd: cryptsetup close {{ item }}
+      loop:
+        - longhorn1_crypt
+        - longhorn2_crypt
+        - longhorn3_crypt
+      ignore_errors: true # Device might not be open
+
+    - name: Open LUKS devices with new names
+      community.crypto.luks_device:
+        device: "{{ item.device }}"
+        name: "{{ item.name }}"
+        state: opened
+        keyfile: /root/.luks/beelink-luks.key
+      loop: "{{ luks_crypt_devices }}"
+
+    - name: Update crypttab with new device names
+      ansible.builtin.lineinfile:
+        path: /etc/crypttab
+        regexp: '^{{ item.old_name }}\s+'
+        state: absent
+      loop:
+        - { old_name: longhorn1_crypt }
+        - { old_name: longhorn2_crypt }
+        - { old_name: longhorn3_crypt }
+
+    - name: Configure crypttab for new LUKS device names
+      ansible.builtin.lineinfile:
+        path: /etc/crypttab
+        regexp: '^{{ item.name }}\s+'
+        line: "{{ item.name }} {{ item.device }} /root/.luks/beelink-luks.key luks,initramfs"
+        state: present
+        create: true
+        mode: "0644"
+        backup: true
+      loop: "{{ luks_crypt_devices }}"
+
+    - name: Create mount points for individual drives
+      ansible.builtin.file:
+        path: "{{ item.mount_point }}"
+        state: directory
+        mode: "0755"
+        owner: root
+        group: root
+      loop: "{{ storage_drives }}"
+
+    - name: Create ext4 filesystem on data drives
+      community.general.filesystem:
+        fstype: "{{ storage_filesystem }}"
+        dev: "/dev/mapper/{{ item.name }}"
+        opts: "-L {{ item.label }}"
+        force: false  # Don't overwrite if filesystem exists
+      loop:
+        - { name: "{{ luks_crypt_devices[0].name }}", label: "{{ storage_drives[0].label }}" }
+        - { name: "{{ luks_crypt_devices[1].name }}", label: "{{ storage_drives[1].label }}" }
+      when: storage_drives | length >= 2
+
+    - name: Create ext4 filesystem on parity drive
+      community.general.filesystem:
+        fstype: "{{ storage_filesystem }}"
+        dev: "/dev/mapper/{{ luks_crypt_devices[2].name }}"
+        opts: "-L {{ storage_drives[2].label }}"
+        force: false
+      when: storage_drives | length >= 3
+
+    - name: Mount data drives
+      ansible.posix.mount:
+        path: "{{ item.mount_point }}"
+        src: "/dev/mapper/{{ luks_crypt_devices[loop.index0].name }}"
+        fstype: "{{ storage_filesystem }}"
+        opts: "{{ storage_mount_options }}"
+        state: mounted
+        backup: true
+      loop: "{{ storage_drives[:2] }}"  # First 2 drives are data
+      loop_control:
+        extended: true
+
+    - name: Mount parity drive
+      ansible.posix.mount:
+        path: "{{ storage_drives[2].mount_point }}"
+        src: "/dev/mapper/{{ luks_crypt_devices[2].name }}"
+        fstype: "{{ storage_filesystem }}"
+        opts: "{{ storage_mount_options }}"
+        state: mounted
+        backup: true
+      when: storage_drives | length >= 3
+
+    # ========================================================================
+    # Phase 3: Install and Configure MergerFS
+    # ========================================================================
+
+    - name: Check if MergerFS is already installed
+      ansible.builtin.stat:
+        path: /usr/bin/mergerfs
+      register: mergerfs_binary
+
+    - name: Download MergerFS package
+      ansible.builtin.get_url:
+        url: https://github.com/trapexit/mergerfs/releases/download/2.40.2/mergerfs_2.40.2.debian-bookworm_amd64.deb
+        dest: /tmp/mergerfs.deb
+        mode: "0644"
+      when: not mergerfs_binary.stat.exists
+
+    - name: Install MergerFS
+      ansible.builtin.apt:
+        deb: /tmp/mergerfs.deb
+        state: present
+      when: not mergerfs_binary.stat.exists
+
+    - name: Create MergerFS mount point
+      ansible.builtin.file:
+        path: "{{ mergerfs_mount_point }}"
+        state: directory
+        mode: "0755"
+        owner: root
+        group: root
+
+    - name: Configure MergerFS in fstab
+      ansible.posix.mount:
+        path: "{{ mergerfs_mount_point }}"
+        src: "{{ mergerfs_data_drives | join(':') }}"
+        fstype: fuse.mergerfs
+        opts: "{{ mergerfs_options }}"
+        state: mounted
+        backup: true
+
+    # ========================================================================
+    # Phase 4: Install and Configure SnapRAID
+    # ========================================================================
+
+    - name: Install SnapRAID build dependencies
+      ansible.builtin.apt:
+        name:
+          - build-essential
+          - git
+          - wget
+        state: present
+        update_cache: true
+
+    - name: Check if SnapRAID is already installed
+      ansible.builtin.stat:
+        path: /usr/local/bin/snapraid
+      register: snapraid_binary
+
+    - name: Download SnapRAID source
+      ansible.builtin.get_url:
+        url: https://github.com/amadvance/snapraid/releases/download/v12.3/snapraid-12.3.tar.gz
+        dest: /tmp/snapraid-12.3.tar.gz
+        mode: "0644"
+      when: not snapraid_binary.stat.exists
+
+    - name: Extract SnapRAID source
+      ansible.builtin.unarchive:
+        src: /tmp/snapraid-12.3.tar.gz
+        dest: /tmp/
+        remote_src: true
+        creates: /tmp/snapraid-12.3
+      when: not snapraid_binary.stat.exists
+
+    - name: Build and install SnapRAID
+      ansible.builtin.shell: |
+        cd /tmp/snapraid-12.3
+        ./configure
+        make
+        make install
+      args:
+        creates: /usr/local/bin/snapraid
+      when: not snapraid_binary.stat.exists
+
+    - name: Create SnapRAID configuration
+      ansible.builtin.template:
+        src: templates/snapraid.conf.j2
+        dest: /etc/snapraid.conf
+        mode: "0644"
+        owner: root
+        group: root
+        backup: true
+
+    # ========================================================================
+    # Phase 5: Setup NFS Server
+    # ========================================================================
+
+    - name: Install NFS server
+      ansible.builtin.apt:
+        name: nfs-kernel-server
+        state: present
+        update_cache: true
+
+    - name: Create NFS export directories
+      ansible.builtin.file:
+        path: "{{ mergerfs_mount_point }}/{{ item }}"
+        state: directory
+        mode: "0777"  # Permissive for K3s pods with different UIDs
+        owner: root
+        group: root
+      loop:
+        - media
+        - media/torrents
+        - media/torrents/movies
+        - media/torrents/tv
+        - media/torrents/incomplete
+        - media/library
+        - media/library/movies
+        - media/library/tv
+
+    - name: Configure NFS exports
+      ansible.builtin.lineinfile:
+        path: /etc/exports
+        regexp: "^{{ item.path }}\\s+"
+        line: "{{ item.path }} {{ item.clients }}"
+        state: present
+        create: true
+        mode: "0644"
+        backup: true
+      loop: "{{ nfs_exports }}"
+
+    - name: Export NFS shares
+      ansible.builtin.command:
+        cmd: exportfs -ra
+      changed_when: true
+
+    - name: Start and enable NFS server
+      ansible.builtin.systemd:
+        name: nfs-kernel-server
+        state: started
+        enabled: true
+
+    # ========================================================================
+    # Phase 6: Initial SnapRAID Sync (Optional - can be run manually)
+    # ========================================================================
+
+    - name: Display SnapRAID sync reminder
+      ansible.builtin.debug:
+        msg: |
+          ╔══════════════════════════════════════════════════════════════╗
+          ║                 SnapRAID Initial Sync                        ║
+          ╠══════════════════════════════════════════════════════════════╣
+          ║ Run initial SnapRAID parity sync manually:                  ║
+          ║                                                              ║
+          ║   ssh beelink "snapraid sync"                               ║
+          ║                                                              ║
+          ║ This will take 1-2 hours for empty drives.                  ║
+          ║ You can skip this now and run it later.                     ║
+          ╚══════════════════════════════════════════════════════════════╝
+
+  post_tasks:
+    # ========================================================================
+    # Phase 7: Verification and Summary
+    # ========================================================================
+
+    - name: Verify MergerFS mount
+      ansible.builtin.command:
+        cmd: df -h {{ mergerfs_mount_point }}
+      register: mergerfs_df
+      changed_when: false
+
+    - name: Verify NFS exports
+      ansible.builtin.command:
+        cmd: showmount -e localhost
+      register: nfs_exports_output
+      changed_when: false
+
+    - name: Display configuration summary
+      ansible.builtin.debug:
+        msg: |
+          ╔══════════════════════════════════════════════════════════════╗
+          ║        Beelink Storage Reconfiguration Complete! ✓           ║
+          ╠══════════════════════════════════════════════════════════════╣
+          ║ Configuration:                                               ║
+          ║  • Encryption: LUKS (reused existing keys)                   ║
+          ║  • Data drives: {{ mergerfs_data_drives | length }} ({{ mergerfs_data_drives | join(', ') }})                 ║
+          ║  • Parity drive: {{ snapraid_parity_drives[0] }}                               ║
+          ║  • MergerFS pool: {{ mergerfs_mount_point }}                                ║
+          ║  • NFS exports: {{ nfs_exports | length }} configured                                    ║
+          ║                                                              ║
+          ║ MergerFS Status:                                             ║
+          {{ mergerfs_df.stdout_lines | map('regex_replace', '^', '║  ') | join('\n') }}
+          ║                                                              ║
+          ║ NFS Exports:                                                 ║
+          {{ nfs_exports_output.stdout_lines | map('regex_replace', '^', '║  ') | join('\n') }}
+          ║                                                              ║
+          ║ Next Steps:                                                  ║
+          ║  1. Run initial SnapRAID sync:                               ║
+          ║     ssh beelink "snapraid sync"                             ║
+          ║                                                              ║
+          ║  2. Restart K3s agent:                                       ║
+          ║     ssh beelink "systemctl start k3s-agent"                 ║
+          ║                                                              ║
+          ║  3. Proceed to Phase 3 (restic backup setup)                ║
+          ║                                                              ║
+          ║  4. Proceed to Phase 4 (K3s NFS integration)                ║
+          ╚══════════════════════════════════════════════════════════════╝

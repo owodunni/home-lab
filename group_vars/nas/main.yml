@@ -60,6 +60,10 @@ minio_buckets:
     policy: private
     # Object locking for backup integrity
     object_locking: true
+  - name: restic-backups
+    policy: private
+    # Restic backup storage from Beelink
+    object_locking: false
   - name: cluster-logs
     policy: private
   - name: media-storage
@@ -71,6 +75,11 @@ minio_users:
     password: "{{ vault_longhorn_backup_password }}"
     buckets_acl:
       - name: longhorn-backups
+        policy: read-write
+  - name: restic-backup
+    password: "{{ vault_restic_backup_password }}"
+    buckets_acl:
+      - name: restic-backups
         policy: read-write
   - name: readonly-user
     password: "{{ vault_readonly_user_password }}"
@@ -84,6 +93,10 @@ minio_service_accounts:
     access_key: "{{ vault_longhorn_s3_access_key }}"
     secret_key: "{{ vault_longhorn_s3_secret_key }}"
     description: "Longhorn backup S3 access"
+  - user: restic-backup
+    access_key: "{{ vault_restic_s3_access_key }}"
+    secret_key: "{{ vault_restic_s3_secret_key }}"
+    description: "Restic incremental backups from Beelink"
 
 # Disable cgroups for NAS
 pi_cm5_config_cgroup_enabled: false
@@ -102,3 +115,68 @@ minio_user: "minio"
 # Cloudflare API configuration for DNS-01 challenges
 # This is the same token used by other services
 cloudflare_api_token: "{{ vault_cloudflare_api_token }}"
+
+# ============================================================================
+# MergerFS + SnapRAID Configuration (New Architecture)
+# ============================================================================
+# This configuration adds redundancy to MinIO storage using MergerFS for
+# pooling and SnapRAID for parity protection.
+#
+# Benefits:
+# - Survive single disk failure (SnapRAID parity recovery)
+# - Easy expansion (add more HDDs via SATA or USB)
+# - Consistent architecture with Beelink storage
+# - No LUKS encryption (MinIO provides HTTPS encryption in-transit)
+
+# Storage Drives Configuration (Updated for MergerFS)
+# ===================================================
+# 2x 2TB HDD SATA drives
+# OLD: Mounted separately at /mnt/minio-drive1 and /mnt/minio-drive2
+# NEW: One data drive, one parity drive
+
+minio_storage_drives_new:
+  - device: /dev/disk/by-id/wwn-0x5000c5008a1a78df
+    label: minio-data1
+    mount_point: /mnt/minio-disk1
+    filesystem: xfs
+  - device: /dev/disk/by-id/wwn-0x5000c5008a1a7d0f
+    label: minio-par1
+    mount_point: /mnt/minio-parity1
+    filesystem: xfs
+
+# MergerFS Configuration for MinIO
+# =================================
+minio_mergerfs_mount: /mnt/minio-storage
+
+# Data drives to pool (first drive only initially)
+minio_mergerfs_data_drives:
+  - /mnt/minio-disk1
+
+# MergerFS mount options (same as Beelink for consistency)
+minio_mergerfs_options: "defaults,allow_other,use_ino,cache.files=partial,dropcacheonclose=true,category.create=mfs"
+
+# SnapRAID Configuration for MinIO
+# =================================
+
+# Parity file location
+minio_snapraid_parity_drives:
+  - /mnt/minio-parity1/snapraid.parity
+
+# Data drives configuration
+minio_snapraid_data_drives:
+  - path: /mnt/minio-disk1
+    name: d1
+
+# Content file locations (metadata storage)
+minio_snapraid_content_files:
+  - /var/minio-snapraid.content
+  - /mnt/minio-disk1/.snapraid.content
+
+# Update MinIO data directories for new mount point
+# OLD: minio_server_datadirs: [/mnt/minio-drive1/data, /mnt/minio-drive2/data]
+# NEW: Single MergerFS mount point
+minio_server_datadirs_new: "/mnt/minio-storage"
+
+# Filesystem and mount options
+minio_filesystem: xfs  # Object storage optimized
+minio_mount_options_new: "defaults,noatime"

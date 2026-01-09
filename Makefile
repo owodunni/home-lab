@@ -2,7 +2,7 @@
 # Fix macOS fork safety issue with Python 3.13 + Ansible multiprocessing
 ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
-.PHONY: help setup beelink-setup beelink-storage beelink-complete beelink-gpu-setup lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio minio-uninstall k3s-cluster k3s-cluster-check k3s-uninstall kubeconfig-update lint-apps app-deploy app-upgrade app-list app-status app-delete apps-deploy-all teardown teardown-check
+.PHONY: help setup beelink-setup beelink-storage minio-storage backup-setup beelink-complete beelink-gpu-setup lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio minio-uninstall k3s-cluster k3s-cluster-check k3s-uninstall kubeconfig-update lint-apps app-deploy app-upgrade app-list app-status app-delete apps-deploy-all teardown teardown-check
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -19,19 +19,55 @@ beelink-setup: ## 🖥️ Configure passwordless sudo on beelink (first-time set
 	@echo "Configuring passwordless sudo on beelink..."
 	$(ANSIBLE_PLAYBOOK) playbooks/beelink/01-initial-setup.yml --ask-become-pass --limit beelink
 
-beelink-storage: ## 💽 Configure LUKS-encrypted LVM storage for Longhorn on beelink
-	@echo "⚠️  WARNING: First run will format NVMe drives on beelink!"
-	@echo "ℹ️  Note: Playbook is idempotent - safe to re-run (won't reformat existing LUKS/filesystems)"
+beelink-storage: ## 💽 Configure MergerFS + SnapRAID storage on Beelink (2 data + 1 parity = 4TB)
+	@echo "⚠️  WARNING: This will reconfigure NVMe drives on beelink!"
+	@echo "ℹ️  Storage: MergerFS pool + SnapRAID parity (filesystem-based storage)"
 	@echo ""
 	@echo "Configured drives:"
-	@echo "  - /dev/disk/by-id/nvme-CT2000P310SSD8_24454C177944"
-	@echo "  - /dev/disk/by-id/nvme-CT2000P310SSD8_24454C37CB1B"
-	@echo "  - /dev/disk/by-id/nvme-CT2000P310SSD8_24454C40D38E"
+	@echo "  - /dev/disk/by-id/nvme-CT2000P310SSD8_24454C177944 (disk1)"
+	@echo "  - /dev/disk/by-id/nvme-CT2000P310SSD8_24454C37CB1B (disk2)"
+	@echo "  - /dev/disk/by-id/nvme-CT2000P310SSD8_24454C40D38E (parity1)"
+	@echo ""
+	@echo "Result: /mnt/storage (4TB usable, NFS exported to K8s)"
 	@echo ""
 	@printf "Continue? (yes/no): " && read answer && [ "$$answer" = "yes" ] || (echo "Cancelled." && exit 1)
 	@echo ""
-	@echo "Configuring Beelink storage with LUKS + LVM + ext4..."
-	$(ANSIBLE_PLAYBOOK) playbooks/beelink/02-storage-config.yml --diff
+	@echo "Configuring Beelink storage with LUKS + MergerFS + SnapRAID..."
+	$(ANSIBLE_PLAYBOOK) playbooks/beelink/03-storage-reconfigure-mergerfs.yml --diff
+
+minio-storage: ## 🗄️ Configure MergerFS + SnapRAID storage on MinIO NAS (1 data + 1 parity = 2TB)
+	@echo "⚠️  WARNING: This will reconfigure storage on MinIO NAS!"
+	@echo "ℹ️  Storage: MergerFS pool + SnapRAID parity for MinIO backup target"
+	@echo ""
+	@echo "Configured drives:"
+	@echo "  - /dev/disk/by-id/wwn-0x5000c5008a1a78df (2TB data - minio-data1)"
+	@echo "  - /dev/disk/by-id/wwn-0x5000c5008a1a7d0f (2TB parity - minio-par1)"
+	@echo ""
+	@echo "Result: /mnt/minio-storage (2TB usable, MinIO data + parity protection)"
+	@echo ""
+	@printf "Continue? (yes/no): " && read answer && [ "$$answer" = "yes" ] || (echo "Cancelled." && exit 1)
+	@echo ""
+	@echo "Configuring MinIO storage with MergerFS + SnapRAID..."
+	$(ANSIBLE_PLAYBOOK) playbooks/nas/minio-storage-reconfigure.yml --diff
+
+backup-setup: ## 📦 Setup restic backups and SnapRAID automation (run after storage setup)
+	@echo "Setting up backup automation..."
+	@echo ""
+	@echo "This will configure:"
+	@echo "  - restic backups to MinIO S3 (daily 3 AM)"
+	@echo "  - Beelink SnapRAID sync (daily 4 AM)"
+	@echo "  - MinIO SnapRAID sync (daily 5 AM)"
+	@echo ""
+	@echo "Phase 1: Beelink restic backup setup..."
+	$(ANSIBLE_PLAYBOOK) playbooks/beelink/04-restic-backup-setup.yml --diff
+	@echo ""
+	@echo "Phase 2: Beelink SnapRAID automation..."
+	$(ANSIBLE_PLAYBOOK) playbooks/beelink/05-snapraid-sync-setup.yml --diff
+	@echo ""
+	@echo "Phase 3: MinIO SnapRAID automation..."
+	$(ANSIBLE_PLAYBOOK) playbooks/nas/minio-snapraid-sync-setup.yml --diff
+	@echo ""
+	@echo "✅ Backup automation configured successfully"
 
 beelink-complete: ## 🖥️ Complete beelink server configuration (all phases)
 	@echo "Running complete beelink server configuration..."

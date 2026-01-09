@@ -1,0 +1,9 @@
+---
+chart_repository: https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner
+chart_name: nfs-subdir-external-provisioner
+chart_version: 4.0.18
+release_name: nfs-provisioner
+namespace: kube-system
+description: "NFS subdir external provisioner for Beelink filesystem storage"
+create_namespace: false  # kube-system already exists
+wait_for_ready: true

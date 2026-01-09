@@ -1,0 +1,156 @@
+---
+# SnapRAID sync automation playbook for Beelink
+# Configures automated parity sync
+# Schedule: Daily at 4:00 AM (after restic backup at 3:00 AM)
+
+- name: Configure SnapRAID sync automation for Beelink
+  hosts: beelink
+  become: true
+
+  tasks:
+    # ========================================================================
+    # Phase 1: Create SnapRAID sync script
+    # ========================================================================
+
+    - name: Create SnapRAID sync script
+      ansible.builtin.copy:
+        dest: /usr/local/bin/snapraid-sync.sh
+        mode: "0755"
+        owner: root
+        group: root
+        content: |
+          #!/bin/bash
+          # SnapRAID sync script for Beelink media storage
+          # Syncs parity data daily to protect against disk failures
+
+          set -e  # Exit on error
+
+          LOG_FILE="/var/log/snapraid-sync.log"
+
+          # Logging function
+          log() {
+              echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
+          }
+
+          log "==== SnapRAID Sync Started ===="
+
+          # Pre-sync diff to show what will be synced
+          log "Running diff to check changes..."
+          snapraid diff 2>&1 | tee -a "$LOG_FILE" || true
+
+          # Sync parity
+          log "Syncing parity data..."
+          snapraid sync --verbose 2>&1 | tee -a "$LOG_FILE"
+
+          SYNC_EXIT_CODE=${PIPESTATUS[0]}
+
+          if [ $SYNC_EXIT_CODE -ne 0 ]; then
+              log "ERROR: SnapRAID sync failed with exit code $SYNC_EXIT_CODE"
+              exit $SYNC_EXIT_CODE
+          fi
+
+          log "SnapRAID sync completed successfully"
+
+          # Display status
+          log "SnapRAID status:"
+          snapraid status 2>&1 | tee -a "$LOG_FILE"
+
+          log "==== SnapRAID Sync Completed ===="
+
+          exit 0
+
+    # ========================================================================
+    # Phase 2: Configure systemd timer
+    # ========================================================================
+
+    - name: Create systemd service for SnapRAID sync
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/snapraid-sync.service
+        mode: "0644"
+        owner: root
+        group: root
+        content: |
+          [Unit]
+          Description=SnapRAID parity sync
+          After=network-online.target backup-media.service
+          Wants=network-online.target
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/bin/snapraid-sync.sh
+          User=root
+          StandardOutput=journal
+          StandardError=journal
+          # Nice priority (lower = higher priority, -20 to 19)
+          Nice=10
+          # IO priority (0-7, lower = higher priority)
+          IOSchedulingClass=best-effort
+          IOSchedulingPriority=5
+
+    - name: Create systemd timer for SnapRAID sync
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/snapraid-sync.timer
+        mode: "0644"
+        owner: root
+        group: root
+        content: |
+          [Unit]
+          Description=Daily SnapRAID parity sync timer
+          Requires=snapraid-sync.service
+
+          [Timer]
+          OnCalendar=daily
+          OnCalendar=*-*-* 04:00:00
+          Persistent=true
+          RandomizedDelaySec=5min
+
+          [Install]
+          WantedBy=timers.target
+
+    - name: Reload systemd daemon
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Enable and start SnapRAID sync timer
+      ansible.builtin.systemd:
+        name: snapraid-sync.timer
+        enabled: true
+        state: started
+
+    # ========================================================================
+    # Phase 3: Verification
+    # ========================================================================
+
+    - name: Display SnapRAID automation summary
+      ansible.builtin.debug:
+        msg: |
+          ╔══════════════════════════════════════════════════════════════╗
+          ║        SnapRAID Sync Automation Complete! ✓                  ║
+          ╠══════════════════════════════════════════════════════════════╣
+          ║ Configuration:                                               ║
+          ║  • Config: /etc/snapraid.conf                                ║
+          ║  • Schedule: Daily at 4:00 AM                                ║
+          ║  • Runs after: restic backup (3:00 AM)                       ║
+          ║  • Log file: /var/log/snapraid-sync.log                      ║
+          ║                                                              ║
+          ║ Manual sync:                                                 ║
+          ║   sudo /usr/local/bin/snapraid-sync.sh                      ║
+          ║                                                              ║
+          ║ Check status:                                                ║
+          ║   snapraid status                                            ║
+          ║                                                              ║
+          ║ Timer status:                                                ║
+          ║   systemctl status snapraid-sync.timer                      ║
+          ║   systemctl list-timers snapraid-sync.timer                ║
+          ╚══════════════════════════════════════════════════════════════╝
+
+  post_tasks:
+    - name: Verify timer is active
+      ansible.builtin.command:
+        cmd: systemctl is-enabled snapraid-sync.timer
+      register: timer_status
+      changed_when: false
+
+    - name: Confirm timer enabled
+      ansible.builtin.debug:
+        msg: "SnapRAID sync timer status: {{ timer_status.stdout }}"

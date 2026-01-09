@@ -149,7 +149,7 @@ See [Helm Standards](helm-standards.md) for complete conventions.
 - MinIO NAS: pi-cm5-4 (M.2 SATA drives, S3-compatible backup storage)
 
 **Beelink Storage Server:**
-- K3s Worker: beelink (Intel N150, 6TB LUKS-encrypted storage for Longhorn)
+- K3s Worker: beelink (Intel N150, 6TB LUKS-encrypted storage with MergerFS + SnapRAID, NFS exports)
 
 All devices managed via SSH with user `alexanderp`.
 
@@ -236,36 +236,115 @@ pi_storage_config:
 ```
 
 #### group_vars/beelink_nas/main.yml
-Beelink storage server configuration with LUKS-encrypted LVM:
+Beelink storage server configuration with MergerFS + SnapRAID:
 ```yaml
-# Hardware-specific storage configuration
-longhorn_storage_drives:
+# Hardware-specific storage configuration (3x 2TB NVMe drives)
+storage_drives:
   - device: /dev/disk/by-id/nvme-CT2000P310SSD8_24454C177944
-    label: LONGHORN1
-  # Additional drives...
+    label: disk1
+    mount_point: /mnt/disk1
+  - device: /dev/disk/by-id/nvme-CT2000P310SSD8_24454C37CB1B
+    label: disk2
+    mount_point: /mnt/disk2
+  - device: /dev/disk/by-id/nvme-CT2000P310SSD8_24454C40D38E
+    label: parity1
+    mount_point: /mnt/parity1
 
-# LUKS encryption configuration
+# LUKS encryption configuration (data-at-rest security)
 luks_key_file: "{{ inventory_dir }}/group_vars/beelink_nas/luks.key"
 luks_crypt_devices:
-  - name: longhorn1_crypt
-    device: "{{ longhorn_storage_drives[0].device }}"
+  - name: disk1_crypt
+    device: "{{ storage_drives[0].device }}"
+  - name: disk2_crypt
+    device: "{{ storage_drives[1].device }}"
+  - name: parity1_crypt
+    device: "{{ storage_drives[2].device }}"
 
-# LVM configuration
-lvm_volume_group: longhorn-vg
-lvm_logical_volume: longhorn-lv
-lvm_volume_size: 100%FREE
+# MergerFS configuration (pool data drives)
+mergerfs_mount_point: /mnt/storage
+mergerfs_data_drives:
+  - /mnt/disk1
+  - /mnt/disk2
+mergerfs_options: "defaults,allow_other,use_ino,cache.files=partial,dropcacheonclose=true,category.create=mfs"
 
-# Filesystem and mount configuration
-longhorn_filesystem: ext4
-longhorn_mount_point: /var/lib/longhorn
-longhorn_mount_options: "defaults,noatime"
+# SnapRAID configuration (parity protection)
+snapraid_parity_drives:
+  - /mnt/parity1/snapraid.parity
+snapraid_data_drives:
+  - path: /mnt/disk1
+    name: d1
+  - path: /mnt/disk2
+    name: d2
+snapraid_content_files:
+  - /var/snapraid.content
+  - /mnt/disk1/.snapraid.content
+  - /mnt/disk2/.snapraid.content
+
+# NFS export configuration (K3s pod access)
+nfs_exports:
+  - path: /mnt/storage
+    clients: "10.42.0.0/16(rw,sync,no_subtree_check,no_root_squash)"
+
+# Filesystem configuration
+storage_filesystem: ext4
+storage_mount_options: "defaults,noatime"
 ```
 
-**Key differences from Pi NAS:**
-- Uses LUKS encryption for data-at-rest security
-- Aggregates all drives with LVM (vs individual mounts)
-- ext4 filesystem (Longhorn recommended)
-- Single mount point for all storage
+**Storage architecture:**
+- **2 data drives + 1 parity drive** = 4TB usable storage
+- **LUKS encryption** for all drives (data-at-rest security)
+- **MergerFS** pools data drives into single mount point
+- **SnapRAID** provides parity protection (daily sync)
+- **NFS server** exports storage to K3s pods
+- **Expandable**: Add more drives to increase capacity
+
+#### group_vars/nas/main.yml
+MinIO NAS storage configuration with MergerFS + SnapRAID:
+```yaml
+# SATA HDD configuration (2x 2TB drives)
+minio_storage_drives:
+  - device: /dev/disk/by-id/wwn-0x5000c5008a1a78df
+    label: minio-disk1
+    mount_point: /mnt/minio-disk1
+  - device: /dev/disk/by-id/wwn-0x5000c5008a1a7d0f
+    label: minio-parity1
+    mount_point: /mnt/minio-parity1
+
+# MergerFS configuration (pool data drives)
+minio_mergerfs_mount: /mnt/minio-storage
+minio_mergerfs_data_drives:
+  - /mnt/minio-disk1
+minio_mergerfs_options: "defaults,allow_other,use_ino,cache.files=partial,dropcacheonclose=true,category.create=mfs"
+
+# SnapRAID configuration (parity protection)
+minio_snapraid_parity_drives:
+  - /mnt/minio-parity1/snapraid.parity
+minio_snapraid_data_drives:
+  - path: /mnt/minio-disk1
+    name: d1
+minio_snapraid_content_files:
+  - /var/minio-snapraid.content
+  - /mnt/minio-disk1/.snapraid.content
+
+# MinIO service configuration
+minio_server_datadirs: "/mnt/minio-storage"
+minio_server_port: 9000
+minio_console_port: 443
+minio_root_user: miniosuperuser
+minio_root_password: "{{ vault_minio_root_password }}"
+
+# Filesystem configuration
+minio_filesystem: xfs  # Object storage optimized
+minio_mount_options: "defaults,noatime"
+```
+
+**Storage architecture:**
+- **1 data drive + 1 parity drive** = 2TB usable storage (2x 2TB HDDs)
+- **No LUKS encryption** (MinIO provides HTTPS encryption in-transit)
+- **MergerFS** pools data drives into single mount point
+- **SnapRAID** provides parity protection (daily sync at 5 AM)
+- **Expandable**: Add more HDDs via SATA or USB to increase capacity
+- **S3 backup target** for Longhorn config volumes and restic media backups
 
 #### host_vars/ (When to Use)
 Create `host_vars/hostname.yml` only for truly unique per-host settings:
@@ -274,6 +353,78 @@ Create `host_vars/hostname.yml` only for truly unique per-host settings:
 # host_vars/pi-cm5-1.yml (example)
 cluster_role: primary
 ```
+
+## Storage Architecture Strategy
+
+The infrastructure uses a **hybrid storage approach** that leverages the strengths of both Longhorn distributed storage and filesystem-based NFS storage.
+
+### Storage Type Selection
+
+**Use Longhorn for:**
+- **Application configs** (<10GB) - Database settings, metadata, small volumes
+- **Database volumes** - PostgreSQL, MySQL, MongoDB data directories
+- **Snapshots required** - Volumes needing point-in-time recovery
+- **Multi-node access** - Volumes with RWX (ReadWriteMany) requirements
+- **Examples**: Radarr config (1Gi), Jellyfin config (10Gi), PostgreSQL data (5Gi)
+
+**Use NFS (filesystem storage) for:**
+- **Large media volumes** (>50GB) - Movies, TV shows, photos, videos
+- **SSH access needed** - Data requiring manual file management
+- **Hardlink support** - Applications requiring same-filesystem hardlinks (media stack)
+- **Backup-friendly** - Large datasets needing incremental backups (restic)
+- **Examples**: Jellyfin media library (1TB+), Immich photos (500GB+), Nextcloud files (200GB+)
+
+### Why This Hybrid Approach?
+
+**Longhorn strengths:**
+- Kubernetes-native (PVC/PV integration)
+- Automatic snapshots and backups for small volumes
+- Works well for databases and configs (<10GB)
+- Disaster recovery tested and working
+
+**Longhorn limitations (discovered through 867GB data loss):**
+- Large volumes (>100GB) backup unreliability
+- Snapshot chain format makes data inaccessible without Longhorn engine
+- Cannot manually access data via SSH (must exec into pods)
+- Complex disaster recovery for large volumes
+
+**Filesystem (MergerFS + SnapRAID + NFS) strengths:**
+- Direct SSH access to files
+- Disk-level redundancy (survive single disk failure)
+- Easy expansion (add drives one at a time)
+- Incremental backups with restic (deduplication)
+- Simple disaster recovery (restic restore)
+- Better storage efficiency (parity vs 3x replication)
+
+### Architecture Diagram
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│ K3s Cluster Storage                                            │
+│                                                                │
+│  Small Volumes (<10GB)          Large Volumes (>50GB)         │
+│  ┌──────────────┐                ┌──────────────┐            │
+│  │  Longhorn    │                │  NFS Storage │            │
+│  │  (RWO/RWX)   │                │  (RWX)       │            │
+│  └──────┬───────┘                └──────┬───────┘            │
+│         │                               │                     │
+│         │                               │                     │
+│    ┌────▼─────────────┐        ┌───────▼──────────┐         │
+│    │ Config Volumes:  │        │ Media Volumes:   │         │
+│    │ - radarr-config  │        │ - media-stack-nfs│         │
+│    │ - sonarr-config  │        │ - nextcloud-data │         │
+│    │ - jellyfin-config│        │ - immich-library │         │
+│    └──────────────────┘        └──────────────────┘         │
+│                                                                │
+│  Backed up to MinIO S3 (daily)  Backed up via restic (daily) │
+└────────────────────────────────────────────────────────────────┘
+```
+
+### Deployment Pattern
+
+See [Storage Architecture Guide](storage-architecture.md) for complete implementation details.
+
+For app deployment examples, see [App Deployment Guide](app-deployment-guide.md#storage-selection).
 
 ## Configuration Strategy
 

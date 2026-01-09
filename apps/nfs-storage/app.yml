@@ -1,0 +1,7 @@
+---
+# NFS storage provisioner deployment playbook
+- name: Deploy NFS Storage Provisioner
+  import_playbook: ../../playbooks/deploy-helm-app.yml
+  vars:
+    app_chart_file: "{{ inventory_dir }}/apps/nfs-storage/Chart.yml"
+    app_values_file: "{{ inventory_dir }}/apps/nfs-storage/values.yml"

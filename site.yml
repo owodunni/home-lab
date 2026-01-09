@@ -20,13 +20,17 @@
           1. Base Pi CM5 configuration (all Pi nodes)
           2. System upgrades and security updates
           3. Storage configuration (NAS node disk preparation)
-          4. Parallel Infrastructure Services:
-             a. MinIO S3 backup service installation (NAS)
-             b. K3s cluster installation (cluster nodes)
+          4. Beelink storage (MergerFS + SnapRAID, 4TB usable)
+          5. MinIO storage (MergerFS + SnapRAID, 2TB usable)
+          6. MinIO S3 backup service installation
+          7. Backup automation (restic + SnapRAID sync)
+          8. K3s cluster installation
+          9. NFS storage provisioner (K8s integration)
 
-          Future Steps (see TODO.md):
-          - Longhorn distributed storage
-          - Integration and monitoring
+          Storage Architecture:
+          - Filesystem-based storage with disk redundancy
+          - Direct SSH access to media files
+          - Incremental backups with restic
 
 # Phase 1: Base Configuration for all Pi CM5 nodes
 - name: Phase 1 - Base Pi CM5 Configuration
@@ -42,119 +46,35 @@
 - name: Phase 3 - Storage Configuration
   import_playbook: playbooks/pi-storage-config.yml
 
-# Phase 4: Parallel Infrastructure Services Installation
-# MinIO and K3s run in parallel using async execution
-# They target different hosts and have no direct dependencies
-- name: Phase 4 - Parallel Infrastructure Services
-  hosts: localhost
-  gather_facts: true
-  tasks:
-    - name: Record parallel deployment start time
-      ansible.builtin.set_fact:
-        parallel_start_time: "{{ ansible_date_time.iso8601 }}"
+# Phase 4: Beelink Storage - MergerFS + SnapRAID
+- name: Phase 4 - Beelink Storage Configuration
+  import_playbook: playbooks/beelink/03-storage-reconfigure-mergerfs.yml
 
-    - name: Start MinIO installation (async)
-      ansible.builtin.command:
-        cmd: uv run ansible-playbook -i hosts.ini playbooks/minio-complete.yml --diff
-        chdir: "{{ playbook_dir }}"
-      async: 1800  # 30 minutes timeout
-      poll: 0
-      register: minio_job
-      changed_when: true  # This always makes changes (installation)
-      environment:
-        ANSIBLE_ROLES_PATH: "{{ playbook_dir }}/roles:~/.ansible/roles"
-        OBJC_DISABLE_INITIALIZE_FORK_SAFETY: "YES"
+# Phase 5: MinIO Storage - MergerFS + SnapRAID
+- name: Phase 5 - MinIO Storage Configuration
+  import_playbook: playbooks/nas/minio-storage-reconfigure.yml
 
-    - name: Start K3s installation (async)
-      ansible.builtin.command:
-        cmd: uv run ansible-playbook -i hosts.ini playbooks/k3s/k3s-complete.yml --diff
-        chdir: "{{ playbook_dir }}"
-      async: 1800  # 30 minutes timeout
-      poll: 0
-      register: k3s_job
-      changed_when: true  # This always makes changes (installation)
-      environment:
-        ANSIBLE_ROLES_PATH: "{{ playbook_dir }}/roles:~/.ansible/roles"
-        OBJC_DISABLE_INITIALIZE_FORK_SAFETY: "YES"
+# Phase 6: MinIO S3 Service Installation
+- name: Phase 6 - MinIO S3 Service
+  import_playbook: playbooks/minio-complete.yml
 
-    - name: Display parallel execution status
-      ansible.builtin.debug:
-        msg: |
-          🚀 Parallel Infrastructure Deployment Started
-          ==========================================
-          Start Time: {{ parallel_start_time }}
-          MinIO Installation: Job ID {{ minio_job.ansible_job_id }} (targeting nas hosts)
-          K3s Installation: Job ID {{ k3s_job.ansible_job_id }} (targeting cluster hosts)
+# Phase 7: Backup Automation Setup
+- name: Phase 7a - Beelink Restic Backup Setup
+  import_playbook: playbooks/beelink/04-restic-backup-setup.yml
 
-          Both services are installing simultaneously on different Pi nodes.
-          This typically reduces deployment time by 40% compared to sequential execution.
+- name: Phase 7b - Beelink SnapRAID Automation
+  import_playbook: playbooks/beelink/05-snapraid-sync-setup.yml
 
-          💡 MONITORING TIP: Open separate terminals to watch progress:
-          - MinIO progress: ssh pi-cm5-4.local "journalctl -u minio -f"
-          - K3s progress: ssh pi-cm5-1 "journalctl -u k3s -f"
+- name: Phase 7c - MinIO SnapRAID Automation
+  import_playbook: playbooks/nas/minio-snapraid-sync-setup.yml
 
-    - name: Wait for MinIO installation completion
-      ansible.builtin.async_status:
-        jid: "{{ minio_job.ansible_job_id }}"
-      register: minio_result
-      until: minio_result.finished
-      retries: 180  # 30 minutes with 10s intervals
-      delay: 10
+# Phase 8: K3s Cluster Installation
+- name: Phase 8 - K3s Cluster
+  import_playbook: playbooks/k3s/k3s-complete.yml
 
-    - name: Wait for K3s installation completion
-      ansible.builtin.async_status:
-        jid: "{{ k3s_job.ansible_job_id }}"
-      register: k3s_result
-      until: k3s_result.finished
-      retries: 180  # 30 minutes with 10s intervals
-      delay: 10
-
-    - name: Record parallel deployment completion time
-      ansible.builtin.set_fact:
-        parallel_end_time: "{{ ansible_date_time.iso8601 }}"
-
-    - name: Calculate deployment duration
-      ansible.builtin.set_fact:
-        _end_time: "{{ parallel_end_time | to_datetime('%Y-%m-%dT%H:%M:%SZ') }}"
-        _start_time: "{{ parallel_start_time | to_datetime('%Y-%m-%dT%H:%M:%SZ') }}"
-      when: not ansible_check_mode
-
-    - name: Set deployment duration
-      ansible.builtin.set_fact:
-        deployment_duration: "{{ ((_end_time - _start_time).total_seconds()) | int }}"
-      when: not ansible_check_mode
-
-    - name: Set deployment duration (check mode fallback)
-      ansible.builtin.set_fact:
-        deployment_duration: 0
-      when: ansible_check_mode
-
-    - name: Display parallel execution completion
-      ansible.builtin.debug:
-        msg: |
-          ✅ Parallel Infrastructure Deployment Complete
-          ============================================
-          Start Time: {{ parallel_start_time }}
-          End Time: {{ parallel_end_time }}
-          {% if not ansible_check_mode %}
-          Total Duration: {{ (deployment_duration | int) // 60 }}m {{ (deployment_duration | int) % 60 }}s
-          {% else %}
-          Total Duration: (check mode - no actual deployment)
-          {% endif %}
-
-          MinIO Status: {{ 'SUCCESS ✓' if minio_result.rc == 0 else 'FAILED ✗ (RC: ' + minio_result.rc | string + ')' }}
-          K3s Status: {{ 'SUCCESS ✓' if k3s_result.rc == 0 else 'FAILED ✗ (RC: ' + k3s_result.rc | string + ')' }}
-
-          Both services are now ready for Kubernetes applications deployment.
-          🎯 Parallel execution saved time by running MinIO and K3s simultaneously!
-
-    - name: Fail if any parallel job failed
-      ansible.builtin.fail:
-        msg: |
-          Parallel deployment failed:
-          MinIO: {{ 'OK' if minio_result.rc == 0 else 'FAILED (RC: ' + minio_result.rc | string + ')' }}
-          K3s: {{ 'OK' if k3s_result.rc == 0 else 'FAILED (RC: ' + k3s_result.rc | string + ')' }}
-      when: minio_result.rc != 0 or k3s_result.rc != 0
+# Phase 9: NFS Storage Provisioner
+- name: Phase 9 - NFS Storage Provisioner
+  import_playbook: apps/nfs-storage/app.yml
 
 # Final status summary
 - name: Setup Complete
@@ -170,33 +90,36 @@
           ✓ Base Pi CM5 configuration applied
           ✓ System updates completed on clean base
           ✓ Unattended upgrades configured
-          ✓ Storage configuration applied to NAS (4TB XFS ready)
-          ✓ MinIO S3 backup service with SSL certificates (parallel)
-          ✓ K3s HA cluster deployed (3-node HA, parallel with MinIO)
-          ✓ Kubernetes applications deployed (cert-manager)
+          ✓ Storage configuration applied to NAS nodes
+          ✓ Beelink storage: MergerFS + SnapRAID (4TB usable)
+          ✓ MinIO storage: MergerFS + SnapRAID (2TB usable)
+          ✓ MinIO S3 backup service with SSL certificates
+          ✓ Backup automation: restic + SnapRAID sync timers
+          ✓ K3s HA cluster deployed (3-node HA)
+          ✓ NFS storage provisioner for K8s integration
+
+          Storage Architecture:
+          - Beelink: /mnt/storage (2 data + 1 parity = 4TB, NFS exported)
+          - MinIO: /mnt/minio-storage (1 data + 1 parity = 2TB)
+          - Direct SSH access to all storage
+          - Daily restic backups (3 AM) + SnapRAID sync (4-5 AM)
+          - 7 daily, 4 weekly, 6 monthly retention
 
           Service Access:
           - MinIO Console (HTTPS): https://minio.jardoole.xyz/
           - MinIO API (HTTPS): https://minio.jardoole.xyz:9000
           - K3s API: https://pi-cm5-1:6443 (or pi-cm5-2, pi-cm5-3)
-          - MinIO Buckets: longhorn-backups, cluster-logs, media-storage
+          - Beelink storage: ssh beelink "ls /mnt/storage"
 
-          Certificate Management:
-          - MinIO: Let's Encrypt certificates via Cloudflare DNS-01 (direct certbot)
-          - cert-manager deployed for K8s certificate automation
-          - All SSL certificates configured with automatic renewal
-
-          Performance Benefits:
-          - TRUE parallel deployment: MinIO and K3s install simultaneously
-          - Parallel execution reduces total setup time by ~40%
-          - Better resource utilization across all Pi nodes
-          - Independent service deployment paths with async task orchestration
+          Storage Classes Available:
+          - nfs-media: Large volumes, RWX, direct filesystem access
+          - longhorn: Config volumes, snapshots, distributed storage
 
           Next Steps:
           1. Test K3s cluster: kubectl get nodes
-          2. Verify MinIO HTTPS access: curl -I https://minio.jardoole.xyz/
-          3. Install Longhorn distributed storage with MinIO backup
-          4. Set up application workloads and monitoring
+          2. Verify storage: kubectl get storageclass
+          3. Deploy media stack: make app-deploy APP=media-stack
+          4. Verify backups: ssh beelink "restic snapshots"
 
           Note: System reboots handled automatically during upgrade phase.
 

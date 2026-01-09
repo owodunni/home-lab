@@ -1,0 +1,53 @@
+---
+# NFS server configuration
+nfs:
+  server: beelink  # Hostname of Beelink ME Mini N150
+  path: /mnt/storage  # MergerFS mount point
+  mountOptions:
+    - nfsvers=4.2
+    - noatime
+    - rsize=1048576  # Read buffer size (1MB for better performance)
+    - wsize=1048576  # Write buffer size (1MB for better performance)
+
+# Storage class configuration
+storageClass:
+  name: nfs-media
+  defaultClass: false  # Don't make this the default (keep Longhorn as default)
+  accessModes: ReadWriteMany  # NFS supports RWX
+  reclaimPolicy: Retain  # Keep data when PVC is deleted
+  archiveOnDelete: false  # Don't move to archive directory on PVC delete
+  pathPattern: "${.PVC.namespace}-${.PVC.name}"  # Organize by namespace and PVC name
+
+# Resource limits for provisioner
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    cpu: 100m
+    memory: 128Mi
+
+# Node affinity - run provisioner on control plane for reliability
+affinity:
+  nodeAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        preference:
+          matchExpressions:
+            - key: node-role.kubernetes.io/control-plane
+              operator: Exists
+
+# Tolerations for control plane taints
+tolerations:
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+
+# Labels for organization
+labels:
+  app.kubernetes.io/component: storage
+  app.kubernetes.io/part-of: nfs-storage
+
+# Enable leader election for HA
+leaderElection:
+  enabled: true

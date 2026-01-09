@@ -1,7 +1,7 @@
 ---
 # Configuration for Beelink ME Mini N150 storage server
 # Hardware: Intel N150, 6x M.2 slots, Dual 2.5G LAN
-# Role: Longhorn distributed storage worker for K3s cluster
+# Role: NFS storage server with MergerFS + SnapRAID for K3s cluster
 
 # Hardware Overview
 # ================
@@ -88,3 +88,112 @@ longhorn_data_path: "{{ longhorn_mount_point }}"
 # Storage reservation (leave some space for filesystem overhead)
 # Longhorn will use 90% of available space, leaving 10% as buffer
 longhorn_storage_reserved_percentage: 10
+
+# ============================================================================
+# MergerFS + SnapRAID Configuration (New Architecture)
+# ============================================================================
+# This configuration replaces the Longhorn LVM setup with filesystem-based
+# storage using MergerFS for pooling and SnapRAID for parity protection.
+#
+# Benefits:
+# - Direct SSH access to files (no need to exec into pods)
+# - Better backup reliability for large volumes (restic to MinIO S3)
+# - Easy expansion (add drives one at a time)
+# - Survive single disk failure (SnapRAID parity recovery)
+# - More efficient (4TB usable vs 2TB with Longhorn 3x replication)
+
+# Storage Drives Configuration
+# ============================
+# Define individual drives for data and parity
+# IMPORTANT: Reuses existing LUKS-encrypted devices from Longhorn setup
+
+storage_drives:
+  - device: /dev/disk/by-id/nvme-CT2000P310SSD8_24454C177944
+    label: disk1
+    mount_point: /mnt/disk1
+  - device: /dev/disk/by-id/nvme-CT2000P310SSD8_24454C37CB1B
+    label: disk2
+    mount_point: /mnt/disk2
+  - device: /dev/disk/by-id/nvme-CT2000P310SSD8_24454C40D38E
+    label: parity1
+    mount_point: /mnt/parity1
+
+# LUKS Configuration (Updated for Individual Mounts)
+# ==================================================
+# Reuses existing LUKS keys, just changes device names for clarity
+#
+# NOTE: The old Longhorn setup used longhorn1_crypt, longhorn2_crypt, longhorn3_crypt
+# These will be recreated as disk1_crypt, disk2_crypt, parity1_crypt
+# This is handled by the reconfiguration playbook
+
+# Comment out old LUKS config (kept for reference)
+# luks_crypt_devices:
+#   - name: longhorn1_crypt
+#     device: "{{ longhorn_storage_drives[0].device }}"
+#   - name: longhorn2_crypt
+#     device: "{{ longhorn_storage_drives[1].device }}"
+#   - name: longhorn3_crypt
+#     device: "{{ longhorn_storage_drives[2].device }}"
+
+# New LUKS config for MergerFS + SnapRAID
+luks_crypt_devices:
+  - name: disk1_crypt
+    device: "{{ storage_drives[0].device }}"
+  - name: disk2_crypt
+    device: "{{ storage_drives[1].device }}"
+  - name: parity1_crypt
+    device: "{{ storage_drives[2].device }}"
+
+# Filesystem Configuration
+# ========================
+storage_filesystem: ext4  # Consistent with Longhorn choice
+storage_mount_options: "defaults,noatime"
+
+# MergerFS Configuration
+# ======================
+# Pool data drives into single mount point for unified storage
+
+mergerfs_mount_point: /mnt/storage
+
+# Data drives to pool (first 2 drives)
+mergerfs_data_drives:
+  - /mnt/disk1
+  - /mnt/disk2
+
+# MergerFS mount options
+# - allow_other: Allow non-root users to access
+# - use_ino: Preserve inode numbers (required for hardlinks)
+# - cache.files=partial: Cache file metadata for performance
+# - dropcacheonclose=true: Drop kernel cache when file closed
+# - category.create=mfs: Use "most free space" policy for new files
+mergerfs_options: "defaults,allow_other,use_ino,cache.files=partial,dropcacheonclose=true,category.create=mfs"
+
+# SnapRAID Configuration
+# ======================
+# Parity protection for disaster recovery
+
+# Parity file location(s)
+snapraid_parity_drives:
+  - /mnt/parity1/snapraid.parity
+
+# Data drives configuration
+snapraid_data_drives:
+  - path: /mnt/disk1
+    name: d1
+  - path: /mnt/disk2
+    name: d2
+
+# Content file locations (metadata storage)
+# Multiple locations for redundancy - if one disk fails, metadata survives
+snapraid_content_files:
+  - /var/snapraid.content
+  - /mnt/disk1/.snapraid.content
+  - /mnt/disk2/.snapraid.content
+
+# NFS Server Configuration
+# ========================
+# Export storage to K3s pods for media stack access
+
+nfs_exports:
+  - path: /mnt/storage
+    clients: "10.42.0.0/16(rw,sync,no_subtree_check,no_root_squash)"  # K3s pod network

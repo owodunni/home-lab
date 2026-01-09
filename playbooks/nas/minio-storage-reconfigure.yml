@@ -1,0 +1,282 @@
+---
+# MinIO storage reconfiguration playbook
+# Converts individual drive setup to MergerFS + SnapRAID
+# Architecture: 2x HDDs → XFS → MergerFS pool (1 data) + SnapRAID parity
+#
+# WARNING: This playbook will require MinIO downtime
+# Ensure Longhorn backups are accessible before running
+#
+# Prerequisites:
+# - MinIO is currently running and accessible
+# - Backup data verified (Longhorn backups accessible)
+
+- name: Reconfigure MinIO storage for MergerFS + SnapRAID
+  hosts: nas
+  become: true
+
+  pre_tasks:
+    - name: Display information about reconfiguration
+      ansible.builtin.pause:
+        prompt: |
+          ╔══════════════════════════════════════════════════════════════╗
+          ║              MinIO Storage Reconfiguration                   ║
+          ╠══════════════════════════════════════════════════════════════╣
+          ║ This playbook will reconfigure MinIO storage to use:        ║
+          ║  • MergerFS for pooling drives                              ║
+          ║  • SnapRAID for parity protection                           ║
+          ║                                                              ║
+          ║ Current setup:                                              ║
+          ║  • 2x drives mounted separately                             ║
+          ║  • /mnt/minio-drive1 and /mnt/minio-drive2                  ║
+          ║  • MinIO using both paths directly                          ║
+          ║                                                              ║
+          ║ New setup:                                                  ║
+          ║  • 1x data drive (/mnt/minio-disk1)                         ║
+          ║  • 1x parity drive (/mnt/minio-parity1)                     ║
+          ║  • MergerFS pool at /mnt/minio-storage                      ║
+          ║  • MinIO using single path                                  ║
+          ║                                                              ║
+          ║ This operation:                                             ║
+          ║  • Removes old drive mounts                                 ║
+          ║  • Formats drives with new labels                           ║
+          ║  • Installs MergerFS and SnapRAID                           ║
+          ║  • Creates storage pool for MinIO                           ║
+          ║                                                              ║
+          ║ ⚠️  WARNING: All existing data will be DELETED              ║
+          ║ Duration: Approximately 5-10 minutes                         ║
+          ╚══════════════════════════════════════════════════════════════╝
+
+          Press ENTER to continue or Ctrl+C to abort
+
+  tasks:
+    # ========================================================================
+    # Phase 1: Remove Old Drive Configuration
+    # ========================================================================
+
+    - name: Remove old fstab entries
+      ansible.posix.mount:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /mnt/minio-drive1
+        - /mnt/minio-drive2
+
+    - name: Wait for kernel to release devices
+      ansible.builtin.pause:
+        seconds: 3
+
+    - name: Flush drive buffers
+      ansible.builtin.command:
+        cmd: blockdev --flushbufs {{ item.device }}
+      loop: "{{ minio_storage_drives_new }}"
+      changed_when: false
+
+    # ========================================================================
+    # Phase 2: Setup New Filesystem Layout
+    # ========================================================================
+
+    - name: Create mount points for new layout
+      ansible.builtin.file:
+        path: "{{ item.mount_point }}"
+        state: directory
+        mode: "0755"
+        owner: root
+        group: root
+      loop: "{{ minio_storage_drives_new }}"
+
+    - name: Check for existing filesystem signatures
+      ansible.builtin.command:
+        cmd: wipefs {{ item.device }}
+      loop: "{{ minio_storage_drives_new }}"
+      register: wipefs_check
+      changed_when: false
+      failed_when: false
+
+    - name: Wipe filesystem signatures from drives (if present)
+      ansible.builtin.command:
+        cmd: wipefs --force --all {{ item.item.device }}
+      loop: "{{ wipefs_check.results }}"
+      when: item.stdout | length > 0
+      changed_when: true
+
+    - name: Ensure drives are unmounted before formatting
+      ansible.builtin.command:
+        cmd: umount {{ item.device }}
+      loop: "{{ minio_storage_drives_new }}"
+      ignore_errors: true
+      changed_when: false
+
+    - name: Create XFS filesystems on drives
+      community.general.filesystem:
+        fstype: xfs
+        dev: "{{ item.device }}"
+        opts: "-L {{ item.label }}"
+        force: true # Force recreation
+      loop: "{{ minio_storage_drives_new }}"
+
+    - name: Mount drives with new paths
+      ansible.posix.mount:
+        path: "{{ item.mount_point }}"
+        src: "LABEL={{ item.label }}"
+        fstype: xfs
+        opts: "{{ minio_mount_options_new }}"
+        state: mounted
+        backup: true
+      loop: "{{ minio_storage_drives_new }}"
+
+    # ========================================================================
+    # Phase 3: Install and Configure MergerFS
+    # ========================================================================
+
+    - name: Check if MergerFS is already installed
+      ansible.builtin.stat:
+        path: /usr/bin/mergerfs
+      register: mergerfs_binary
+
+    - name: Download MergerFS package (ARM64)
+      ansible.builtin.get_url:
+        url: https://github.com/trapexit/mergerfs/releases/download/2.40.2/mergerfs_2.40.2.debian-bookworm_arm64.deb
+        dest: /tmp/mergerfs.deb
+        mode: "0644"
+      when: not mergerfs_binary.stat.exists
+
+    - name: Install MergerFS
+      ansible.builtin.apt:
+        deb: /tmp/mergerfs.deb
+        state: present
+      when: not mergerfs_binary.stat.exists
+
+    - name: Create MergerFS mount point
+      ansible.builtin.file:
+        path: "{{ minio_mergerfs_mount }}"
+        state: directory
+        mode: "0755"
+        owner: root
+        group: root
+
+    - name: Configure MergerFS in fstab
+      ansible.posix.mount:
+        path: "{{ minio_mergerfs_mount }}"
+        src: "{{ minio_mergerfs_data_drives | join(':') }}"
+        fstype: fuse.mergerfs
+        opts: "{{ minio_mergerfs_options }}"
+        state: mounted
+        backup: true
+
+    # ========================================================================
+    # Phase 4: Install and Configure SnapRAID
+    # ========================================================================
+
+    - name: Install SnapRAID build dependencies
+      ansible.builtin.apt:
+        name:
+          - build-essential
+          - git
+          - wget
+        state: present
+        update_cache: true
+
+    - name: Check if SnapRAID is already installed
+      ansible.builtin.stat:
+        path: /usr/local/bin/snapraid
+      register: snapraid_binary
+
+    - name: Download SnapRAID source
+      ansible.builtin.get_url:
+        url: https://github.com/amadvance/snapraid/releases/download/v12.3/snapraid-12.3.tar.gz
+        dest: /tmp/snapraid-12.3.tar.gz
+        mode: "0644"
+      when: not snapraid_binary.stat.exists
+
+    - name: Extract SnapRAID source
+      ansible.builtin.unarchive:
+        src: /tmp/snapraid-12.3.tar.gz
+        dest: /tmp/
+        remote_src: true
+        creates: /tmp/snapraid-12.3
+      when: not snapraid_binary.stat.exists
+
+    - name: Build and install SnapRAID
+      ansible.builtin.shell: |
+        cd /tmp/snapraid-12.3
+        ./configure
+        make
+        make install
+      args:
+        creates: /usr/local/bin/snapraid
+      when: not snapraid_binary.stat.exists
+
+    - name: Create SnapRAID configuration for MinIO
+      ansible.builtin.template:
+        src: templates/snapraid-minio.conf.j2
+        dest: /etc/snapraid-minio.conf
+        mode: "0644"
+        owner: root
+        group: root
+        backup: true
+
+    # ========================================================================
+    # Phase 5: Cleanup
+    # ========================================================================
+    # Note: MinIO service will be installed and started in Phase 6 (minio-complete.yml)
+
+    - name: Remove temporary backup directory (if exists)
+      ansible.builtin.file:
+        path: /tmp/minio-backup
+        state: absent
+
+    - name: Remove old mount points
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /mnt/minio-drive1
+        - /mnt/minio-drive2
+
+  post_tasks:
+    # ========================================================================
+    # Phase 6: Verification and Summary
+    # ========================================================================
+
+    - name: Verify MergerFS mount
+      ansible.builtin.command:
+        cmd: df -h {{ minio_mergerfs_mount }}
+      register: mergerfs_df
+      changed_when: false
+
+    - name: Verify SnapRAID configuration
+      ansible.builtin.command:
+        cmd: snapraid -c /etc/snapraid-minio.conf status
+      register: snapraid_status
+      changed_when: false
+      failed_when: false
+
+    - name: Display configuration summary
+      ansible.builtin.debug:
+        msg: |
+          ╔══════════════════════════════════════════════════════════════╗
+          ║       MinIO Storage Reconfiguration Complete! ✓              ║
+          ╠══════════════════════════════════════════════════════════════╣
+          ║ Configuration:                                               ║
+          ║  • Data drive: {{ minio_mergerfs_data_drives[0] }}                              ║
+          ║  • Parity drive: {{ minio_snapraid_parity_drives[0] }}                        ║
+          ║  • MergerFS pool: {{ minio_mergerfs_mount }}                            ║
+          ║  • Target path: {{ minio_server_datadirs_new }}                    ║
+          ║                                                              ║
+          ║ MergerFS Status:                                             ║
+          {{ mergerfs_df.stdout_lines | map('regex_replace', '^', '║  ') | join('\n') }}
+          ║                                                              ║
+          ║ SnapRAID:                                                    ║
+          ║  • Config: /etc/snapraid-minio.conf                          ║
+          ║  • Status: {{ 'Ready ✓' if snapraid_status.rc == 0 else 'Needs sync' }}                                                     ║
+          ║                                                              ║
+          ║ Next Steps:                                                  ║
+          ║  1. Install MinIO service:                                   ║
+          ║     make minio                                               ║
+          ║                                                              ║
+          ║  2. Run initial SnapRAID sync:                               ║
+          ║     ssh {{ inventory_hostname }} "snapraid -c /etc/snapraid-minio.conf sync" ║
+          ║                                                              ║
+          ║  3. Setup backup automation:                                 ║
+          ║     make backup-setup                                        ║
+          ╚══════════════════════════════════════════════════════════════╝

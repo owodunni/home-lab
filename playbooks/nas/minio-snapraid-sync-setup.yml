@@ -1,0 +1,155 @@
+---
+# SnapRAID sync automation playbook for MinIO NAS
+# Configures automated parity sync
+# Schedule: Daily at 5:00 AM (after Beelink backup completes)
+
+- name: Configure SnapRAID sync automation for MinIO
+  hosts: nas
+  become: true
+
+  tasks:
+    # ========================================================================
+    # Phase 1: Create SnapRAID sync script
+    # ========================================================================
+
+    - name: Create SnapRAID sync script for MinIO
+      ansible.builtin.copy:
+        dest: /usr/local/bin/snapraid-minio-sync.sh
+        mode: "0755"
+        owner: root
+        group: root
+        content: |
+          #!/bin/bash
+          # SnapRAID sync script for MinIO NAS storage
+          # Syncs parity data daily to protect backup storage
+
+          set -e  # Exit on error
+
+          LOG_FILE="/var/log/snapraid-minio-sync.log"
+          SNAPRAID_CONFIG="/etc/snapraid-minio.conf"
+
+          # Logging function
+          log() {
+              echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
+          }
+
+          log "==== SnapRAID MinIO Sync Started ===="
+
+          # Pre-sync diff to show what will be synced
+          log "Running diff to check changes..."
+          snapraid -c "$SNAPRAID_CONFIG" diff 2>&1 | tee -a "$LOG_FILE" || true
+
+          # Sync parity
+          log "Syncing parity data..."
+          snapraid -c "$SNAPRAID_CONFIG" sync --verbose 2>&1 | tee -a "$LOG_FILE"
+
+          SYNC_EXIT_CODE=${PIPESTATUS[0]}
+
+          if [ $SYNC_EXIT_CODE -ne 0 ]; then
+              log "ERROR: SnapRAID sync failed with exit code $SYNC_EXIT_CODE"
+              exit $SYNC_EXIT_CODE
+          fi
+
+          log "SnapRAID sync completed successfully"
+
+          # Display status
+          log "SnapRAID status:"
+          snapraid -c "$SNAPRAID_CONFIG" status 2>&1 | tee -a "$LOG_FILE"
+
+          log "==== SnapRAID MinIO Sync Completed ===="
+
+          exit 0
+
+    # ========================================================================
+    # Phase 2: Configure systemd timer
+    # ========================================================================
+
+    - name: Create systemd service for MinIO SnapRAID sync
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/snapraid-minio-sync.service
+        mode: "0644"
+        owner: root
+        group: root
+        content: |
+          [Unit]
+          Description=SnapRAID parity sync for MinIO storage
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/bin/snapraid-minio-sync.sh
+          User=root
+          StandardOutput=journal
+          StandardError=journal
+          Nice=10
+          IOSchedulingClass=best-effort
+          IOSchedulingPriority=5
+
+    - name: Create systemd timer for MinIO SnapRAID sync
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/snapraid-minio-sync.timer
+        mode: "0644"
+        owner: root
+        group: root
+        content: |
+          [Unit]
+          Description=Daily SnapRAID parity sync timer for MinIO
+          Requires=snapraid-minio-sync.service
+
+          [Timer]
+          OnCalendar=daily
+          OnCalendar=*-*-* 05:00:00
+          Persistent=true
+          RandomizedDelaySec=5min
+
+          [Install]
+          WantedBy=timers.target
+
+    - name: Reload systemd daemon
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Enable and start MinIO SnapRAID sync timer
+      ansible.builtin.systemd:
+        name: snapraid-minio-sync.timer
+        enabled: true
+        state: started
+
+    # ========================================================================
+    # Phase 3: Verification
+    # ========================================================================
+
+    - name: Display MinIO SnapRAID automation summary
+      ansible.builtin.debug:
+        msg: |
+          ╔══════════════════════════════════════════════════════════════╗
+          ║      MinIO SnapRAID Sync Automation Complete! ✓              ║
+          ╠══════════════════════════════════════════════════════════════╣
+          ║ Configuration:                                               ║
+          ║  • Config: /etc/snapraid-minio.conf                          ║
+          ║  • Schedule: Daily at 5:00 AM                                ║
+          ║  • Runs after: Beelink backups complete                      ║
+          ║  • Log file: /var/log/snapraid-minio-sync.log                ║
+          ║                                                              ║
+          ║ Manual sync:                                                 ║
+          ║   sudo /usr/local/bin/snapraid-minio-sync.sh                ║
+          ║                                                              ║
+          ║ Check status:                                                ║
+          ║   snapraid -c /etc/snapraid-minio.conf status               ║
+          ║                                                              ║
+          ║ Timer status:                                                ║
+          ║   systemctl status snapraid-minio-sync.timer                ║
+          ║   systemctl list-timers snapraid-minio-sync.timer          ║
+          ╚══════════════════════════════════════════════════════════════╝
+
+  post_tasks:
+    - name: Verify timer is active
+      ansible.builtin.command:
+        cmd: systemctl is-enabled snapraid-minio-sync.timer
+      register: timer_status
+      changed_when: false
+
+    - name: Confirm timer enabled
+      ansible.builtin.debug:
+        msg: "MinIO SnapRAID sync timer status: {{ timer_status.stdout }}"

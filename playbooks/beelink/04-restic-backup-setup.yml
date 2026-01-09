@@ -1,0 +1,168 @@
+---
+# Restic backup setup playbook for Beelink media storage
+# Configures automated backups to MinIO S3
+# Schedule: Daily at 3:00 AM
+# Retention: 7 daily, 4 weekly, 6 monthly snapshots
+
+- name: Configure restic backup for media storage
+  hosts: beelink
+  become: true
+
+  tasks:
+    # ========================================================================
+    # Phase 1: Install restic
+    # ========================================================================
+
+    - name: Install restic from Debian repository
+      ansible.builtin.apt:
+        name: restic
+        state: present
+        update_cache: true
+
+    - name: Verify restic installation
+      ansible.builtin.command:
+        cmd: restic version
+      register: restic_version
+      changed_when: false
+
+    - name: Display restic version
+      ansible.builtin.debug:
+        msg: "Installed restic version: {{ restic_version.stdout }}"
+
+    # ========================================================================
+    # Phase 2: Configure restic credentials
+    # ========================================================================
+
+    - name: Create restic password file
+      ansible.builtin.copy:
+        content: "{{ vault_restic_password }}"
+        dest: /root/.restic-password
+        mode: "0600"
+        owner: root
+        group: root
+
+    - name: Check if restic repository already exists
+      ansible.builtin.command:
+        cmd: >
+          restic -r s3:https://{{ minio_internal_domain }}/restic-backups snapshots
+      environment:
+        RESTIC_PASSWORD_FILE: /root/.restic-password
+        AWS_ACCESS_KEY_ID: "{{ vault_restic_s3_access_key }}"
+        AWS_SECRET_ACCESS_KEY: "{{ vault_restic_s3_secret_key }}"
+      register: restic_check
+      changed_when: false
+      failed_when: false
+
+    - name: Initialize restic repository in MinIO
+      ansible.builtin.command:
+        cmd: >
+          restic -r s3:https://{{ minio_internal_domain }}/restic-backups init
+      environment:
+        RESTIC_PASSWORD_FILE: /root/.restic-password
+        AWS_ACCESS_KEY_ID: "{{ vault_restic_s3_access_key }}"
+        AWS_SECRET_ACCESS_KEY: "{{ vault_restic_s3_secret_key }}"
+      when: restic_check.rc != 0
+
+    # ========================================================================
+    # Phase 3: Create backup script
+    # ========================================================================
+
+    - name: Create restic backup script
+      ansible.builtin.template:
+        src: templates/backup-media.sh.j2
+        dest: /usr/local/bin/backup-media.sh
+        mode: "0755"
+        owner: root
+        group: root
+
+    # ========================================================================
+    # Phase 4: Configure systemd timer
+    # ========================================================================
+
+    - name: Create systemd service for media backup
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/backup-media.service
+        mode: "0644"
+        owner: root
+        group: root
+        content: |
+          [Unit]
+          Description=Backup media storage to MinIO S3
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/bin/backup-media.sh
+          User=root
+          StandardOutput=journal
+          StandardError=journal
+
+    - name: Create systemd timer for media backup
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/backup-media.timer
+        mode: "0644"
+        owner: root
+        group: root
+        content: |
+          [Unit]
+          Description=Daily media backup timer
+          Requires=backup-media.service
+
+          [Timer]
+          OnCalendar=daily
+          OnCalendar=*-*-* 03:00:00
+          Persistent=true
+          RandomizedDelaySec=5min
+
+          [Install]
+          WantedBy=timers.target
+
+    - name: Reload systemd daemon
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Enable and start backup timer
+      ansible.builtin.systemd:
+        name: backup-media.timer
+        enabled: true
+        state: started
+
+    # ========================================================================
+    # Phase 5: Test backup (optional)
+    # ========================================================================
+
+    - name: Display test backup instructions
+      ansible.builtin.debug:
+        msg: |
+          ╔══════════════════════════════════════════════════════════════╗
+          ║          Restic Backup Configuration Complete! ✓             ║
+          ╠══════════════════════════════════════════════════════════════╣
+          ║ Backup configuration:                                        ║
+          ║  • Repository: s3://{{ minio_internal_domain }}/restic-backups      ║
+          ║  • Source: /mnt/storage/media                                ║
+          ║  • Schedule: Daily at 3:00 AM                                ║
+          ║  • Retention: 7 daily, 4 weekly, 6 monthly                   ║
+          ║                                                              ║
+          ║ Test backup manually:                                        ║
+          ║   sudo /usr/local/bin/backup-media.sh                       ║
+          ║                                                              ║
+          ║ List snapshots:                                              ║
+          ║   restic -r s3:https://{{ minio_internal_domain }}/restic-backups \  ║
+          ║     snapshots                                                ║
+          ║                                                              ║
+          ║ Timer status:                                                ║
+          ║   systemctl status backup-media.timer                       ║
+          ║   systemctl list-timers backup-media.timer                 ║
+          ╚══════════════════════════════════════════════════════════════╝
+
+  post_tasks:
+    - name: Verify timer is active
+      ansible.builtin.command:
+        cmd: systemctl is-enabled backup-media.timer
+      register: timer_status
+      changed_when: false
+
+    - name: Confirm timer enabled
+      ansible.builtin.debug:
+        msg: "Backup timer status: {{ timer_status.stdout }}"

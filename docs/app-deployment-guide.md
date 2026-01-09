@@ -258,37 +258,144 @@ ingress:
         - app.jardoole.xyz
 ```
 
-### Persistent Storage
+### Storage Selection
 
-Use Longhorn for persistent volumes:
+The infrastructure uses a **hybrid storage approach**. Choose the right storage type for your application:
+
+#### When to Use Longhorn Storage
+
+**Use for:**
+- Application configs and databases (<10GB)
+- Volumes needing Kubernetes-native snapshots
+- Apps requiring multi-node access (RWX)
+
+**Examples:**
+- Database volumes (PostgreSQL, MySQL, MongoDB)
+- Application configs (Radarr, Sonarr, Jellyfin config)
+- Small persistent data (<10GB)
+
+**Configuration:**
+```yaml
+persistence:
+  config:
+    enabled: true
+    type: persistentVolumeClaim
+    storageClass: longhorn
+    size: 5Gi
+    accessMode: ReadWriteOnce
+```
+
+**Automatic Backups**: All Longhorn volumes backed up to MinIO S3:
+- **Daily**: 2:00 AM (7-day retention)
+- **Weekly**: Sunday 3:00 AM (4-week retention)
+- **Backup location**: s3://minio/longhorn-backups/
+
+#### When to Use NFS Storage
+
+**Use for:**
+- Large media volumes (>50GB)
+- Data needing SSH access for manual management
+- Applications requiring hardlinks (media stack)
+- Volumes needing incremental backups
+
+**Examples:**
+- Media libraries (Jellyfin, Plex) - Movies, TV shows
+- Photo storage (Immich) - Photo libraries
+- File sharing (Nextcloud) - User files
+- Any volume >50GB
+
+**Configuration:**
+```yaml
+persistence:
+  data:
+    enabled: true
+    type: persistentVolumeClaim
+    storageClass: nfs-media
+    size: 500Gi
+    accessMode: ReadWriteMany  # NFS supports multi-node access
+
+# Required: Apps using NFS must run on Beelink (NFS server location)
+defaultPodOptions:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values:
+                  - beelink
+```
+
+**Backups**: NFS volumes backed up via restic to MinIO S3:
+- **Schedule**: Daily 3:00 AM
+- **Retention**: 7 daily, 4 weekly, 6 monthly snapshots
+- **Backup location**: s3://minio/restic-backups/
+- **Features**: Deduplication, incremental backups
+
+#### Hybrid Example: Nextcloud
+
+Most applications benefit from both storage types:
 
 ```yaml
 persistence:
-  enabled: true
-  storageClass: longhorn
-  size: 10Gi
-  accessMode: ReadWriteOnce
+  # Small config volume - Longhorn
+  config:
+    enabled: true
+    type: persistentVolumeClaim
+    storageClass: longhorn
+    size: 5Gi
+    accessMode: ReadWriteOnce
+
+  # Large data volume - NFS
+  data:
+    enabled: true
+    type: persistentVolumeClaim
+    storageClass: nfs-media
+    size: 500Gi
+    accessMode: ReadWriteMany
+
+defaultPodOptions:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values:
+                  - beelink
 ```
 
-**Automatic Backups**: All Longhorn volumes are automatically backed up to external MinIO storage:
-- **Daily backups**: 2:00 AM (7-day retention)
-- **Weekly backups**: Sunday 3:00 AM (4-week retention)
-- **Backup location**: MinIO S3 on pi-cm5-4 (external to cluster)
+#### Storage Class Reference
 
-**Best Practices**:
-1. **Size appropriately**: Request only what you need (impacts backup time/storage)
-2. **Use ReadWriteOnce**: Most apps should use RWO (single-node access)
-3. **Monitor usage**: Check Longhorn UI for volume capacity
-4. **Test restores**: Validate backup/restore workflow for critical data
+| Storage Class | Type | Capacity | Redundancy | Backup Method | Best For |
+|---------------|------|----------|------------|---------------|----------|
+| `longhorn` | Distributed | Varies | 3x replication | Longhorn → MinIO S3 | Configs, databases (<10GB) |
+| `nfs-media` | NFS (Beelink) | 4TB | SnapRAID parity | restic → MinIO S3 | Media, large files (>50GB) |
+| `local-path` | Local | Node-specific | None | None | Temporary data only |
 
-**Storage Classes**:
-- `longhorn` (default): Distributed storage with automatic backups
-- `local-path`: Local-only storage (no replication, no backups)
+#### Best Practices
 
-**Related Documentation**:
-- [Longhorn README](../apps/longhorn/README.md) - Backup configuration details
-- [Disaster Recovery Guide](./longhorn-disaster-recovery.md) - Recovery procedures
-- [PostgreSQL Test Example](../apps/postgres-test/README.md) - Complete backup/restore example
+**Longhorn volumes:**
+1. **Size appropriately**: Impacts backup time and storage
+2. **Use ReadWriteOnce**: Unless multi-node access needed
+3. **Monitor usage**: Check Longhorn UI for capacity
+4. **Test restores**: Validate backup/restore workflow
+
+**NFS volumes:**
+1. **Node affinity required**: Pods must run on Beelink (NFS server)
+2. **SSH access available**: Can manage files directly via SSH
+3. **Hardlink support**: Same filesystem required for hardlinks
+4. **Incremental backups**: restic deduplicates and compresses
+
+#### Related Documentation
+
+- [Storage Architecture Guide](./storage-architecture.md) - Complete storage architecture details
+- [Disaster Recovery Guide](./disaster-recovery.md) - Backup and restore procedures
+- [Project Structure](./project-structure.md#storage-architecture-strategy) - Storage selection strategy
+- [Longhorn README](../apps/longhorn/README.md) - Longhorn configuration
+- [Media Stack Guide](./media-stack-complete-guide.md) - NFS storage example
 
 ## Troubleshooting
 
