@@ -102,8 +102,8 @@ minio_service_accounts:
 pi_cm5_config_cgroup_enabled: false
 
 # SSL Certificate configuration for NAS services
-# Domain for internal MinIO access with SSL
-minio_internal_domain: "minio.jardoole.xyz"
+# Note: minio_internal_domain is defined in group_vars/all/main.yml
+# (available to all hosts for backup and storage access)
 
 # Let's Encrypt configuration
 letsencrypt_email: "{{ vault_letsencrypt_email }}"

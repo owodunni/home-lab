@@ -1,0 +1,8 @@
+---
+# Common variables available to all hosts
+# Variables defined here can be overridden in more specific group_vars
+
+# MinIO S3 Service
+# ================
+# Domain for MinIO S3 service (used by all hosts for backups and storage)
+minio_internal_domain: "minio.jardoole.xyz"
