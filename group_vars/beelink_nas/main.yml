@@ -196,4 +196,4 @@ snapraid_content_files:
 
 nfs_exports:
   - path: /mnt/storage
-    clients: "10.42.0.0/16(rw,sync,no_subtree_check,no_root_squash)"  # K3s pod network
+    clients: "10.42.0.0/16(rw,sync,no_subtree_check,no_root_squash,fsid=0)"  # K3s pod network
