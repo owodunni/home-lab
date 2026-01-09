@@ -44,7 +44,7 @@
     - name: Check if restic repository already exists
       ansible.builtin.command:
         cmd: >
-          restic -r s3:https://{{ minio_internal_domain }}/restic-backups snapshots
+          restic -r s3:https://{{ minio_internal_domain }}:9000/restic-backups snapshots
       environment:
         RESTIC_PASSWORD_FILE: /root/.restic-password
         AWS_ACCESS_KEY_ID: "{{ vault_restic_s3_access_key }}"
@@ -52,16 +52,26 @@
       register: restic_check
       changed_when: false
       failed_when: false
+      async: 30
+      poll: 0
+
+    - name: Wait for restic check to complete
+      ansible.builtin.async_status:
+        jid: "{{ restic_check.ansible_job_id }}"
+      register: restic_check_result
+      until: restic_check_result.finished
+      retries: 6
+      delay: 5
 
     - name: Initialize restic repository in MinIO
       ansible.builtin.command:
         cmd: >
-          restic -r s3:https://{{ minio_internal_domain }}/restic-backups init
+          restic -r s3:https://{{ minio_internal_domain }}:9000/restic-backups init
       environment:
         RESTIC_PASSWORD_FILE: /root/.restic-password
         AWS_ACCESS_KEY_ID: "{{ vault_restic_s3_access_key }}"
         AWS_SECRET_ACCESS_KEY: "{{ vault_restic_s3_secret_key }}"
-      when: restic_check.rc != 0
+      when: restic_check_result.rc != 0
 
     # ========================================================================
     # Phase 3: Create backup script
