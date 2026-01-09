@@ -177,14 +177,14 @@
     - name: Mount data drives
       ansible.posix.mount:
         path: "{{ item.mount_point }}"
-        src: "/dev/mapper/{{ luks_crypt_devices[loop.index0].name }}"
+        src: "/dev/mapper/{{ luks_crypt_devices[idx].name }}"
         fstype: "{{ storage_filesystem }}"
         opts: "{{ storage_mount_options }}"
         state: mounted
         backup: true
       loop: "{{ storage_drives[:2] }}"  # First 2 drives are data
       loop_control:
-        extended: true
+        index_var: idx
 
     - name: Mount parity drive
       ansible.posix.mount:
