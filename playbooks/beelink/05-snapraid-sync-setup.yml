@@ -99,7 +99,6 @@
           Requires=snapraid-sync.service
 
           [Timer]
-          OnCalendar=daily
           OnCalendar=*-*-* 04:00:00
           Persistent=true
           RandomizedDelaySec=5min

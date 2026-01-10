@@ -121,7 +121,6 @@
           Requires=backup-media.service
 
           [Timer]
-          OnCalendar=daily
           OnCalendar=*-*-* 03:00:00
           Persistent=true
           RandomizedDelaySec=5min
