@@ -109,10 +109,8 @@
                 requiredDuringSchedulingIgnoredDuringExecution:
                   nodeSelectorTerms:
                     - matchExpressions:
-                        - key: kubernetes.io/hostname
-                          operator: In
-                          values:
-                            - beelink
+                        - key: node-role.kubernetes.io/control-plane
+                          operator: Exists
             containers:
               - name: init-directories
                 image: busybox:1.36
