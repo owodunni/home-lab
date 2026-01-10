@@ -1,7 +1,8 @@
 ---
-# Phase 4: Storage Systems (Longhorn)
-# Installs Longhorn distributed storage system for persistent volumes
-# Note: MinIO backup integration will be added in a future phase
+# Phase 4: Storage Systems (Longhorn + NFS)
+# Installs storage provisioners for persistent volumes:
+# - Longhorn: Default storage class for small volumes and configs
+# - NFS: Storage class for large media volumes backed by Beelink filesystem
 
 - name: Phase 4a - Install Longhorn Prerequisites on All Nodes
   hosts: k3s_cluster
@@ -37,22 +38,34 @@
     - name: Display Phase 4 overview
       ansible.builtin.debug:
         msg: |
-          Phase 4: Storage Systems (Longhorn)
-          ===================================
+          Phase 4: Storage Systems (Longhorn + NFS)
+          ==========================================
           - Install Longhorn {{ longhorn_chart_version }} distributed storage
-          - Configure basic storage class with 1 replica (matches infrastructure)
+          - Install NFS subdir external provisioner
+          - Configure storage classes for different workload types
           - Set up Longhorn UI access via Traefik ingress
           - Verify storage system functionality
 
           Infrastructure:
           - 1 worker node (beelink) with 6TB storage at /var/lib/longhorn
+          - 1 NFS server (beelink) with 4TB at /mnt/storage (MergerFS + SnapRAID)
           - 3 control plane nodes (pi-cm5-1,2,3)
 
-          Longhorn provides:
+          Storage Systems:
+
+          Longhorn (default):
           - Distributed block storage with automatic failover
           - CSI-compliant dynamic volume provisioning
-          - Snapshot and backup capabilities (backup config in future phase)
+          - Snapshot and backup capabilities to MinIO S3
           - Web UI for management
+          - Best for: Small volumes, configs, databases
+
+          NFS (nfs-media):
+          - ReadWriteMany (RWX) NFS-backed volumes
+          - Direct filesystem access via SSH
+          - Backed up via restic to MinIO S3
+          - SnapRAID parity for disaster recovery
+          - Best for: Large media, hardlinks, bulk data
 
     - name: Verify Longhorn storage path exists on worker nodes
       ansible.builtin.stat:
@@ -185,8 +198,61 @@
           - Total capacity: ~6TB
 
           Next Steps:
+          - Install NFS provisioner for large media volumes
           - Deploy applications with PersistentVolumeClaims
           - Monitor storage usage in Longhorn UI
-          - Future: Add MinIO S3 backup integration
 
-          Ready for application deployment with persistent storage!
+- name: Phase 4e - Deploy NFS Storage Provisioner
+  import_playbook: ../../apps/nfs-storage/app.yml
+
+- name: Phase 4f - Storage Systems Verification
+  hosts: control_plane
+  become: true
+  gather_facts: false
+  run_once: true
+
+  tasks:
+    - name: Get all storage classes
+      kubernetes.core.k8s_info:
+        api_version: storage.k8s.io/v1
+        kind: StorageClass
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: all_storage_classes
+
+    - name: Verify NFS provisioner pod is running
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: kube-system
+        label_selectors:
+          - app=nfs-subdir-external-provisioner
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: nfs_provisioner_pods
+
+    - name: Display Phase 4 final summary
+      ansible.builtin.debug:
+        msg: |
+          Phase 4 Complete: Storage Systems (Longhorn + NFS)
+          ===================================================
+          ✓ Longhorn: Default storage class (RWO, replicated)
+          ✓ NFS: Large volume storage class (RWX, Beelink filesystem)
+
+          Storage classes available:
+          {% for sc in all_storage_classes.resources %}
+          - {{ sc.metadata.name }}
+            Provisioner: {{ sc.provisioner }}
+            Default: {{ 'yes' if sc.metadata.annotations.get('storageclass.kubernetes.io/is-default-class') == 'true' else 'no' }}
+          {% endfor %}
+
+          NFS Provisioner:
+          - Pods running: {{ nfs_provisioner_pods.resources | length }}
+          - NFS Server: beelink
+          - NFS Path: /mnt/storage
+          - Backup: restic daily to MinIO S3 (3 AM)
+          - Redundancy: SnapRAID parity (4 AM sync)
+
+          Storage Selection Guide:
+          - Use 'longhorn' for: Small volumes (<50GB), configs, databases
+          - Use 'nfs-media' for: Large media (>50GB), hardlinks, SSH access
+
+          Ready for application deployment with dual storage options!
