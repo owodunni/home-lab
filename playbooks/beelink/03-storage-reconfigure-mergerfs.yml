@@ -243,6 +243,17 @@
         state: mounted
         backup: true
 
+    - name: Create storage subdirectories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+        owner: root
+        group: root
+      loop:
+        - "{{ mergerfs_mount_point }}/longhorn"
+        - "{{ mergerfs_mount_point }}/media"
+
     # ========================================================================
     # Phase 4: Install and Configure SnapRAID
     # ========================================================================
