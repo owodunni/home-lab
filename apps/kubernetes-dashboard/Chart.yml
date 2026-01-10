@@ -5,5 +5,5 @@ chart_version: 7.11.0
 release_name: kubernetes-dashboard
 namespace: dashboard
 description: "Kubernetes Dashboard for cluster management"
-create_namespace: false  # Already created in Phase 5
+create_namespace: true
 wait_for_ready: true
