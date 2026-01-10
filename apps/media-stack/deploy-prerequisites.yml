@@ -1,0 +1,14 @@
+---
+# Media Stack Prerequisites Playbook
+# Wrapper to run media stack prerequisites as a standalone playbook
+# Used by jellyfin to ensure shared infrastructure exists before deployment
+
+- name: Deploy Media Stack Prerequisites
+  hosts: control_plane
+  become: true
+  gather_facts: false
+  run_once: true
+
+  tasks:
+    - name: Run media stack prerequisites
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/_common/prerequisites.yml"
