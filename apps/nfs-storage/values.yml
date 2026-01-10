@@ -2,7 +2,7 @@
 # NFS server configuration
 nfs:
   server: beelink  # Hostname of Beelink ME Mini N150
-  path: /mnt/storage  # MergerFS mount point
+  path: /mnt/storage  # MergerFS mount point on Beelink
   mountOptions:
     - nfsvers=4.2
     - noatime
