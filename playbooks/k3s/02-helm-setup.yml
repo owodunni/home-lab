@@ -182,6 +182,14 @@
       register: helm_repo_intel
       failed_when: false
 
+    - name: Add NFS Subdir External Provisioner repository
+      kubernetes.core.helm_repository:
+        name: nfs-subdir-external-provisioner
+        repo_url: https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: helm_repo_nfs_provisioner
+      failed_when: false
+
     - name: Update all Helm repositories
       ansible.builtin.command:
         cmd: helm repo update
