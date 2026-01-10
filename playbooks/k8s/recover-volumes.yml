@@ -90,6 +90,7 @@
       ansible.builtin.set_fact:
         released_pvs: "{{ all_pvs.resources | selectattr('status.phase', 'equalto', 'Released') | list }}"
         available_pvs: "{{ all_pvs.resources | selectattr('status.phase', 'equalto', 'Available') | list }}"
+      when: missing_pvs | length > 0
 
     - name: Display recovery summary
       ansible.builtin.debug:
@@ -102,6 +103,7 @@
           - "Released PVs to recover: {{ released_pvs | length }}"
           - "Available PVs (will auto-bind): {{ available_pvs | length }}"
           - "═══════════════════════════════════════════════════════"
+      when: missing_pvs | length > 0
 
     - name: Skip recovery if no Released PVs
       ansible.builtin.debug:
