@@ -143,12 +143,24 @@
                   - namespaceSelector:
                       matchLabels:
                         name: "{{ item.name }}"
-              - to: []  # Allow external traffic
+              - to:  # Allow Kubernetes API access
+                  - namespaceSelector:
+                      matchLabels:
+                        name: "default"
+                ports:
+                  - protocol: TCP
+                    port: 443
+              - to:  # Allow kube-system access (DNS, etc)
+                  - namespaceSelector:
+                      matchLabels:
+                        name: "kube-system"
                 ports:
                   - protocol: TCP
                     port: 53
                   - protocol: UDP
                     port: 53
+              - to: []  # Allow external traffic (internet)
+                ports:
                   - protocol: TCP
                     port: 443
                   - protocol: TCP
