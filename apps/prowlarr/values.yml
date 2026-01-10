@@ -84,5 +84,14 @@ persistence:
     globalMounts:
       - path: /config
 
-# No node affinity - can run on any node
-defaultPodOptions: {}
+# Pin to beelink node (for consistency with other media apps)
+defaultPodOptions:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values:
+                  - beelink

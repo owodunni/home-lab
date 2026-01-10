@@ -86,10 +86,19 @@ persistence:
 
   data:
     enabled: true
-    type: persistentVolumeClaim
-    existingClaim: media-stack-data
+    type: hostPath
+    hostPath: /mnt/storage/media-media-stack-data
     globalMounts:
       - path: /data
 
-# No node affinity - can run on any node (NFS storage accessible from all nodes)
-defaultPodOptions: {}
+# Pin to beelink node (where media storage is located)
+defaultPodOptions:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values:
+                  - beelink
