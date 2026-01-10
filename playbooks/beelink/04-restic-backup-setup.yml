@@ -62,6 +62,7 @@
       until: restic_check_result.finished
       retries: 6
       delay: 5
+      failed_when: false
 
     - name: Initialize restic repository in MinIO
       ansible.builtin.command:
