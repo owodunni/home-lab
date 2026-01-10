@@ -31,7 +31,7 @@ controllers:
             spec:
               httpGet:
                 path: /ping
-                port: 8989
+                port: 7878
               initialDelaySeconds: 60
               periodSeconds: 10
               timeoutSeconds: 5
@@ -41,7 +41,7 @@ controllers:
             spec:
               httpGet:
                 path: /ping
-                port: 8989
+                port: 7878
               initialDelaySeconds: 45
               periodSeconds: 10
               timeoutSeconds: 5
@@ -51,7 +51,7 @@ service:
     controller: radarr
     ports:
       http:
-        port: 8989
+        port: 7878
 
 ingress:
   app:
