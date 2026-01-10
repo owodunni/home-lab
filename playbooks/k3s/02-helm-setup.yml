@@ -190,6 +190,14 @@
       register: helm_repo_nfs_provisioner
       failed_when: false
 
+    - name: Add Kubernetes Dashboard repository
+      kubernetes.core.helm_repository:
+        name: kubernetes-dashboard
+        repo_url: https://kubernetes.github.io/dashboard
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: helm_repo_kubernetes_dashboard
+      failed_when: false
+
     - name: Update all Helm repositories
       ansible.builtin.command:
         cmd: helm repo update

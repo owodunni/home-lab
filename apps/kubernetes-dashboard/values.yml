@@ -1,0 +1,76 @@
+---
+# Kubernetes Dashboard configuration
+
+# Service configuration
+service:
+  type: ClusterIP
+  externalPort: 443
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - dashboard.jardoole.xyz
+  tls:
+    - secretName: kubernetes-dashboard-tls
+      hosts:
+        - dashboard.jardoole.xyz
+
+# Resource limits
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
+
+# Metrics scraper sidecar
+metricsScraper:
+  enabled: true
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 50m
+      memory: 64Mi
+
+# Security settings
+settings:
+  clusterName: "Home Lab K3s"
+  itemsPerPage: 25
+  logsAutoRefreshTimeInterval: 5
+  resourceAutoRefreshTimeInterval: 5
+  disableAccessDeniedNotifications: false
+
+# RBAC settings
+rbac:
+  create: true
+  clusterReadOnlyRole: false  # Admin access
+  clusterAdminRole: true
+
+# Service account
+serviceAccount:
+  create: true
+  name: kubernetes-dashboard
+
+# Pod security
+podSecurityContext:
+  runAsUser: 1001
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsUser: 1001
+  runAsNonRoot: true
+  capabilities:
+    drop:
+      - ALL
