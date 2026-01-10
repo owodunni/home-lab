@@ -176,8 +176,8 @@ persistence:
 
   data:
     enabled: true
-    type: persistentVolumeClaim
-    existingClaim: media-stack-data
+    type: hostPath
+    hostPath: /mnt/storage/media-media-stack-data
     globalMounts:
       - path: /data
 
