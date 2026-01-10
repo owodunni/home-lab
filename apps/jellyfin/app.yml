@@ -1,5 +1,10 @@
 ---
 # Jellyfin deployment playbook
+# Requires both media stack common prerequisites AND GPU hardware setup
+
+- name: Run media stack common prerequisites
+  import_playbook: ../media-stack/_common/prerequisites.yml
+
 - name: Deploy Jellyfin
   import_playbook: ../../playbooks/deploy-helm-app.yml
   vars:
