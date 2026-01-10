@@ -47,9 +47,13 @@
           - Verify storage system functionality
 
           Infrastructure:
-          - 1 worker node (beelink) with 6TB storage at /var/lib/longhorn
-          - 1 NFS server (beelink) with 4TB at /mnt/storage (MergerFS + SnapRAID)
+          - 1 worker node (beelink) with 4TB MergerFS pool at /mnt/storage
           - 3 control plane nodes (pi-cm5-1,2,3)
+
+          Storage Layout on Beelink:
+          - /mnt/storage/longhorn → Longhorn data (automatic backup to MinIO)
+          - /mnt/storage/media    → Media files (restic backup to MinIO)
+          - No backup overlap: separate S3 buckets
 
           Storage Systems:
 
@@ -69,7 +73,7 @@
 
     - name: Verify Longhorn storage path exists on worker nodes
       ansible.builtin.stat:
-        path: /var/lib/longhorn
+        path: "{{ hostvars[item].longhorn_data_path | default('/var/lib/longhorn') }}"
       register: longhorn_path
       delegate_to: "{{ item }}"
       loop: "{{ groups['workers'] }}"
@@ -80,9 +84,10 @@
     - name: Display storage path verification
       ansible.builtin.debug:
         msg: |
-          ✓ Verified /var/lib/longhorn exists on worker nodes
-          - This path should be mounted from LUKS-encrypted LVM volume
-          - Total storage capacity: ~6TB across {{ groups['workers'] | length }} node(s)
+          ✓ Verified Longhorn storage paths on worker nodes
+          - Beelink: /mnt/storage/longhorn (MergerFS pool with SnapRAID parity)
+          - Backed up to MinIO S3 via Longhorn automatic backups
+          - Total storage capacity: ~4TB on {{ groups['workers'] | length }} node(s)
 
 - name: Phase 4c - Deploy Longhorn Application
   import_playbook: ../../apps/longhorn/app.yml
@@ -194,8 +199,13 @@
           Storage Configuration:
           - Replica count: 1 (matches 1 worker node with storage)
           - Data locality: best-effort (prefer local node)
-          - Storage path: /var/lib/longhorn on worker nodes
-          - Total capacity: ~6TB
+          - Storage path: /mnt/storage/longhorn on Beelink (MergerFS pool)
+          - Total capacity: ~4TB shared with media
+
+          Backup Strategy:
+          - Longhorn automatic backups to s3://longhorn-backups (daily)
+          - SnapRAID parity protection (daily at 4 AM)
+          - No overlap with media backups (separate paths)
 
           Next Steps:
           - Install NFS provisioner for large media volumes
@@ -248,8 +258,11 @@
           - Pods running: {{ nfs_provisioner_pods.resources | length }}
           - NFS Server: beelink
           - NFS Path: /mnt/storage
-          - Backup: restic daily to MinIO S3 (3 AM)
-          - Redundancy: SnapRAID parity (4 AM sync)
+
+          Backup Strategy (No Overlap):
+          - Longhorn data: /mnt/storage/longhorn → s3://longhorn-backups (automatic)
+          - Media files:   /mnt/storage/media    → s3://restic-backups (daily 3 AM)
+          - Redundancy:    SnapRAID parity for both paths (daily 4 AM)
 
           Storage Selection Guide:
           - Use 'longhorn' for: Small volumes (<50GB), configs, databases

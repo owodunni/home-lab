@@ -38,16 +38,6 @@ longhorn_storage_drives:
 # inventory_dir points to the repository root where group_vars lives
 luks_key_file: "{{ inventory_dir }}/group_vars/beelink_nas/luks.key"
 
-# Crypttab device names (for /etc/crypttab)
-# Maps encrypted devices to /dev/mapper/* names
-luks_crypt_devices:
-  - name: longhorn1_crypt
-    device: "{{ longhorn_storage_drives[0].device }}"
-  - name: longhorn2_crypt
-    device: "{{ longhorn_storage_drives[1].device }}"
-  - name: longhorn3_crypt
-    device: "{{ longhorn_storage_drives[2].device }}"
-
 # LVM Configuration
 # =================
 # Aggregate all encrypted drives into single volume group
@@ -72,18 +62,21 @@ lvm_volume_size: 100%FREE
 
 longhorn_filesystem: ext4
 
-# Longhorn mount point (standard location)
-longhorn_mount_point: /var/lib/longhorn
+# Longhorn Configuration (MergerFS Architecture)
+# ================================================
+# Longhorn uses MergerFS pool at /mnt/storage/longhorn
+# Benefits:
+# - Part of MergerFS filesystem (SnapRAID parity protection)
+# - Easy SSH access if needed
+# - Separate backup path from media (no overlap with restic)
+#
+# Backup Strategy (No Double Backups):
+# - Longhorn: /mnt/storage/longhorn → s3://longhorn-backups (automatic daily)
+# - restic:   /mnt/storage/media    → s3://restic-backups (automatic daily)
+# - SnapRAID: Parity protection for both paths
 
-# Mount options for Longhorn storage
-# noatime = performance optimization (no access time updates)
-# defaults = rw, suid, dev, exec, auto, nouser, async
-longhorn_mount_options: "defaults,noatime"
-
-# Longhorn Configuration
-# ======================
-# Path where Longhorn will store replica data
-longhorn_data_path: "{{ longhorn_mount_point }}"
+# Longhorn data path on Beelink (subdirectory of MergerFS pool)
+longhorn_data_path: /mnt/storage/longhorn
 
 # Storage reservation (leave some space for filesystem overhead)
 # Longhorn will use 90% of available space, leaving 10% as buffer
@@ -146,7 +139,7 @@ luks_crypt_devices:
 
 # Filesystem Configuration
 # ========================
-storage_filesystem: ext4  # Consistent with Longhorn choice
+storage_filesystem: ext4 # Consistent with Longhorn choice
 storage_mount_options: "defaults,noatime"
 
 # MergerFS Configuration
@@ -196,4 +189,4 @@ snapraid_content_files:
 
 nfs_exports:
   - path: /mnt/storage
-    clients: "10.42.0.0/16(rw,sync,no_subtree_check,no_root_squash,fsid=0)"  # K3s pod network
+    clients: "10.42.0.0/16(rw,sync,no_subtree_check,no_root_squash,fsid=0)" # K3s pod network

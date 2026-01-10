@@ -400,24 +400,37 @@ sudo chmod 700 /etc/wireguard
 sudo nano /etc/wireguard/homelab.conf
 ```
 
-Paste the following (replace keys and endpoint):
+Paste the following configuration:
 
 ```ini
 [Interface]
-PrivateKey = <paste-laptop-private-key-here>
+PrivateKey = <SEE BELOW>
 Address = 10.99.0.20/32
 DNS = 192.168.92.1
 
 [Peer]
-PublicKey = <paste-pfsense-public-key-here>
-Endpoint = <your-public-ip-or-dyndns>:51820
+PublicKey = <SEE BELOW>
+Endpoint = jardoole.xyz:51820
 AllowedIPs = 192.168.92.0/24, 192.168.0.0/24, 192.168.10.0/24, 10.99.0.0/24
 ```
 
-**Key Difference from MinIO**: No `PersistentKeepalive` - laptop initiates connections on-demand.
+**Where to find the keys:**
+- **Laptop PrivateKey**: Decrypt from vault:
+  ```bash
+  cd ~/Prog/home-lab
+  uv run ansible-vault view vault_passwords/wireguard-laptop-private.key
+  ```
+- **pfSense PublicKey**: Navigate to `VPN → WireGuard → Tunnels` in pfSense, view "HomeLabVPN" tunnel, copy the Public Key
 
+**Configuration Notes:**
+- `Address`: Laptop's VPN IP address (10.99.0.20/32)
+- `DNS`: pfSense IP for DNS resolution through VPN
+- `Endpoint`: Public hostname (jardoole.xyz) or IP, port 51820
+- `AllowedIPs`: Networks to route through VPN (split tunnel - internet traffic goes direct)
+- **No PersistentKeepalive**: Laptop initiates connections on-demand (unlike MinIO which is behind NAT)
+
+**Secure the file:**
 ```bash
-# Set permissions
 sudo chmod 600 /etc/wireguard/homelab.conf
 ```
 
