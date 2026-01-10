@@ -64,11 +64,11 @@
           managed-by: ansible
       spec:
         accessModes:
-          - ReadWriteOnce
-        storageClassName: longhorn
+          - ReadWriteMany
+        storageClassName: nfs-media
         resources:
           requests:
-            storage: 1Ti
+            storage: 4Ti
     state: present
     kubeconfig: /etc/rancher/k3s/k3s.yaml
 

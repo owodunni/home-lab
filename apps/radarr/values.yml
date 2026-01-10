@@ -91,14 +91,5 @@ persistence:
     globalMounts:
       - path: /data
 
-# Node affinity for Beelink node (where storage is attached)
-defaultPodOptions:
-  affinity:
-    nodeAffinity:
-      requiredDuringSchedulingIgnoredDuringExecution:
-        nodeSelectorTerms:
-          - matchExpressions:
-              - key: kubernetes.io/hostname
-                operator: In
-                values:
-                  - beelink
+# No node affinity - can run on any node (NFS storage accessible from all nodes)
+defaultPodOptions: {}
