@@ -126,6 +126,14 @@
         mode: "0644"
         backup: true
       loop: "{{ luks_crypt_devices }}"
+      register: crypttab_updated
+
+    - name: Update initramfs to include LUKS keyfiles
+      ansible.builtin.command:
+        cmd: update-initramfs -u -k all
+      when: crypttab_updated.changed
+      async: 120
+      poll: 5
 
     - name: Create mount points for individual drives
       ansible.builtin.file:
