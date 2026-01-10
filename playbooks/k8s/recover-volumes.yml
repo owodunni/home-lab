@@ -44,6 +44,11 @@
           rejectattr('metadata.name', 'in', all_pvs.resources | map(attribute='metadata.name') | list) |
           list }}"
 
+    - name: Initialize PV tracking variables
+      ansible.builtin.set_fact:
+        released_pvs: []
+        available_pvs: []
+
     - name: Create missing PVs for Longhorn volumes
       kubernetes.core.k8s:
         state: present
