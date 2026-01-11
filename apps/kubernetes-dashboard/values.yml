@@ -1,24 +1,36 @@
 ---
 # Kubernetes Dashboard configuration
+# Official kubernetes-dashboard Helm chart (NOT bjw-s app-template)
+
+app:
+  # Ingress configuration
+  ingress:
+    enabled: true
+    # Use Traefik as ingress controller
+    ingressClassName: traefik
+    useDefaultIngressClass: false
+    # Disable default nginx annotations, use Traefik-specific ones
+    useDefaultAnnotations: false
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - dashboard.jardoole.xyz
+    path: /
+    pathType: Prefix
+    # TLS configuration with cert-manager
+    issuer:
+      name: letsencrypt-prod
+      scope: cluster  # Uses cluster-issuer
+    tls:
+      enabled: true
+      secretName: kubernetes-dashboard-tls
+    labels: {}
 
 # Service configuration
 service:
   type: ClusterIP
   externalPort: 443
-
-# Ingress configuration
-ingress:
-  enabled: true
-  className: traefik
-  annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: websecure
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-  hosts:
-    - dashboard.jardoole.xyz
-  tls:
-    - secretName: kubernetes-dashboard-tls
-      hosts:
-        - dashboard.jardoole.xyz
 
 # Resource limits
 resources:
@@ -40,7 +52,7 @@ metricsScraper:
       cpu: 50m
       memory: 64Mi
 
-# Security settings
+# Dashboard settings
 settings:
   clusterName: "Home Lab K3s"
   itemsPerPage: 25
@@ -51,21 +63,22 @@ settings:
 # RBAC settings
 rbac:
   create: true
-  clusterReadOnlyRole: false  # Admin access
-  clusterAdminRole: true
+  clusterReadOnlyRole: false
+  clusterAdminRole: true  # Full admin access
 
 # Service account
 serviceAccount:
   create: true
   name: kubernetes-dashboard
 
-# Pod security
+# Pod security context
 podSecurityContext:
   runAsUser: 1001
   runAsNonRoot: true
   seccompProfile:
     type: RuntimeDefault
 
+# Container security context
 containerSecurityContext:
   allowPrivilegeEscalation: false
   readOnlyRootFilesystem: true
