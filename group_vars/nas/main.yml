@@ -175,3 +175,34 @@ minio_snapraid_content_files:
 # Filesystem and mount options for new MergerFS setup
 minio_filesystem: xfs  # Object storage optimized
 minio_mount_options_new: "defaults,noatime"
+
+# ============================================================================
+# Disk Spin-Down Configuration (hdparm)
+# ============================================================================
+# Reduces power consumption and extends HDD lifespan during idle periods.
+# MinIO S3 storage has infrequent access (backup storage only), making it
+# ideal for automatic spin-down after extended idle periods.
+#
+# Power savings: ~5.5W per drive when spun down (~11W total for both drives)
+#
+# How it works:
+# - hdparm -S sets timeout in 5-second units (360 * 5 = 1800 seconds = 30 minutes)
+# - hdparm -B sets APM level (128 = balanced: enables spin-down, preserves performance)
+# - udev rules ensure settings persist across reboots
+# - Drives automatically spin up on-demand when accessed (transparent to MinIO)
+
+# Spin-down timeout in 5-second units (360 = 30 minutes)
+# hdparm -S parameter: 1-240 = (value * 5) seconds
+minio_disk_spindown_timeout: 360
+
+# Advanced Power Management level (1-255)
+# 128-254 = performance mode with APM enabled (128=balanced, 254=max perf)
+# 1-127 = power saving mode (1=max power save, 127=moderate)
+# 255 = disable APM
+minio_disk_apm_level: 128
+
+# List of disk device identifiers to configure for spin-down
+# Uses WWN identifiers (stable across reboots, not affected by /dev/sdX changes)
+minio_spindown_devices:
+  - /dev/disk/by-id/wwn-0x5000c5008a1a78df  # minio-disk1 (data)
+  - /dev/disk/by-id/wwn-0x5000c5008a1a7d0f  # minio-parity1 (parity)

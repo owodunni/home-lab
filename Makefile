@@ -2,7 +2,7 @@
 # Fix macOS fork safety issue with Python 3.13 + Ansible multiprocessing
 ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
-.PHONY: help setup beelink-setup beelink-storage minio-storage backup-setup beelink-complete beelink-gpu-setup lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio minio-uninstall k3s k3s-check k3s-helm-setup k3s-teardown k3s-cluster k3s-cluster-check k3s-uninstall kubeconfig-update lint-apps app-deploy app-upgrade app-list app-status app-delete apps-deploy-all teardown teardown-check
+.PHONY: help setup beelink-setup beelink-storage minio-storage nas-spindown backup-setup beelink-complete beelink-gpu-setup lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio minio-uninstall k3s k3s-check k3s-helm-setup k3s-teardown k3s-cluster k3s-cluster-check k3s-uninstall kubeconfig-update lint-apps app-deploy app-upgrade app-list app-status app-delete apps-deploy-all teardown teardown-check
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -49,6 +49,22 @@ minio-storage: ## 🗄️ Configure MergerFS + SnapRAID storage on MinIO NAS (1 
 	@echo ""
 	@echo "Configuring MinIO storage with MergerFS + SnapRAID..."
 	$(ANSIBLE_PLAYBOOK) playbooks/nas/minio-storage-reconfigure.yml --diff
+
+nas-spindown: ## ⏸️  Configure disk spin-down for MinIO NAS HDDs (30-minute timeout)
+	@echo "Configuring disk spin-down for MinIO NAS storage..."
+	@echo ""
+	@echo "This will configure:"
+	@echo "  - hdparm spin-down timeout: 30 minutes idle"
+	@echo "  - APM level: 128 (balanced power/performance)"
+	@echo "  - Persistent udev rules for automatic application"
+	@echo ""
+	@echo "Target drives:"
+	@echo "  - wwn-0x5000c5008a1a78df (minio-disk1)"
+	@echo "  - wwn-0x5000c5008a1a7d0f (minio-parity1)"
+	@echo ""
+	@echo "Expected power savings: ~11W during idle periods"
+	@echo ""
+	$(ANSIBLE_PLAYBOOK) playbooks/nas/minio-disk-spindown-setup.yml --diff
 
 backup-setup: ## 📦 Setup restic backups and SnapRAID automation (run after storage setup)
 	@echo "Setting up backup automation..."

@@ -36,12 +36,21 @@ home-lab/
 │       └── README.md           # App-specific documentation
 ├── playbooks/                  # Ansible playbooks
 │   ├── deploy-helm-app.yml     # Reusable Helm app deployment playbook
-│   ├── beelink-setup.yml       # Initial beelink setup (passwordless sudo)
-│   ├── beelink-storage-config.yml # Beelink LUKS+LVM storage configuration
 │   ├── upgrade.yml             # System upgrade playbook
 │   ├── unattended-upgrades.yml # Unattended upgrades setup
 │   ├── pi-base-config.yml      # Pi CM5 base settings and power optimization
 │   ├── pi-storage-config.yml   # Pi CM5 storage and PCIe configuration
+│   ├── beelink/                # Beelink-specific playbooks
+│   │   ├── 01-initial-setup.yml           # Passwordless sudo setup
+│   │   ├── 02-storage-config.yml          # LUKS encryption configuration
+│   │   ├── 03-storage-reconfigure-mergerfs.yml # MergerFS + SnapRAID setup
+│   │   ├── 04-restic-backup-setup.yml     # Restic backup automation
+│   │   ├── 05-snapraid-sync-setup.yml     # SnapRAID sync automation
+│   │   └── beelink-complete.yml           # Complete Beelink deployment
+│   ├── nas/                    # NAS-specific playbooks
+│   │   ├── minio-storage-reconfigure.yml  # MinIO storage MergerFS + SnapRAID
+│   │   ├── minio-snapraid-sync-setup.yml  # MinIO SnapRAID automation
+│   │   └── minio-disk-spindown-setup.yml  # Disk power management
 │   └── k3s/                    # K3s cluster deployment
 │       ├── k3s-complete.yml    # Complete K3s deployment orchestrator
 │       ├── 01-k3s-cluster.yml  # K3s cluster installation
