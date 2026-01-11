@@ -28,8 +28,12 @@ app:
     labels: {}
 
 # Disable Kong API gateway (not needed for home lab, causes ResourceQuota issues)
+# Note: Must provide proxy.tls.servicePort even when disabled due to chart template bug
 kong:
   enabled: false
+  proxy:
+    tls:
+      servicePort: 443
 
 # Service configuration
 service:
