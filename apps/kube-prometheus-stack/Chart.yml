@@ -2,7 +2,7 @@
 # Chart metadata for kube-prometheus-stack
 chart_repository: prometheus-community
 chart_name: kube-prometheus-stack
-chart_version: 67.4.0
+chart_version: 80.13.3
 release_name: prometheus
 namespace: monitoring
 description: "Prometheus monitoring stack with Grafana and Alertmanager"

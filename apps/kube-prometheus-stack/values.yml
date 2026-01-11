@@ -105,9 +105,6 @@ grafana:
   nodeSelector:
     kubernetes.io/os: linux
 
-  # Admin password from vault
-  adminPassword: "{{ vault_grafana_admin_password }}"
-
   # Ingress for Grafana UI
   ingress:
     enabled: true
@@ -165,6 +162,22 @@ alertmanager:
             memory: 128Mi
     nodeSelector:
       kubernetes.io/os: linux
+
+    # Ingress for Grafana UI
+    ingress:
+      enabled: true
+      ingressClassName: traefik
+      annotations:
+        traefik.ingress.kubernetes.io/router.entrypoints: websecure
+        cert-manager.io/cluster-issuer: letsencrypt-prod
+      hosts:
+        - alert-manager.jardoole.xyz
+      path: /
+      pathType: Prefix
+      tls:
+        - secretName: alert-manager-tls-secret
+          hosts:
+            - alert-manager.jardoole.xyz
 
 prometheusOperator:
   # Resource limits for operator
