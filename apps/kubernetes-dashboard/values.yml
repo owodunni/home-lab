@@ -27,6 +27,10 @@ app:
       secretName: kubernetes-dashboard-tls
     labels: {}
 
+# Disable Kong API gateway (not needed for home lab, causes ResourceQuota issues)
+kong:
+  enabled: false
+
 # Service configuration
 service:
   type: ClusterIP
