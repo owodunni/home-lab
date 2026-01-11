@@ -188,5 +188,9 @@ snapraid_content_files:
 # Export storage to K3s pods for media stack access
 
 nfs_exports:
+  # K3s management network (192.168.1.0/24) and pod network (10.42.0.0/16)
+  # fsid=1 required for MergerFS exports (NFSv4)
   - path: /mnt/storage
-    clients: "192.168.1.0/24(rw,sync,no_subtree_check,no_root_squash,fsid=1) 10.42.0.0/16(rw,sync,no_subtree_check,no_root_squash,fsid=1)" # K3s management and pod networks (fsid required for MergerFS)
+    clients: >-
+      192.168.1.0/24(rw,sync,no_subtree_check,no_root_squash,fsid=1)
+      10.42.0.0/16(rw,sync,no_subtree_check,no_root_squash,fsid=1)

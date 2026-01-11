@@ -251,7 +251,9 @@
           {% for sc in all_storage_classes.resources %}
           - {{ sc.metadata.name }}
             Provisioner: {{ sc.provisioner }}
-            Default: {{ 'yes' if (sc.metadata.annotations | default({})).get('storageclass.kubernetes.io/is-default-class') == 'true' else 'no' }}
+            Default: {{ 'yes' if (sc.metadata.annotations | default({})).
+                        get('storageclass.kubernetes.io/is-default-class') == 'true'
+                        else 'no' }}
           {% endfor %}
 
           NFS Provisioner:
