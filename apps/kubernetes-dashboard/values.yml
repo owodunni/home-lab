@@ -14,11 +14,6 @@ app:
     annotations:
       traefik.ingress.kubernetes.io/router.entrypoints: websecure
       cert-manager.io/cluster-issuer: letsencrypt-prod
-      # Tell Traefik that backend (Kong) uses HTTPS
-      traefik.ingress.kubernetes.io/service.serversscheme: https
-      # Skip TLS verification for Kong's self-signed certificate
-      # Reference ServersTransport CRD (requires @kubernetescrd suffix)
-      traefik.ingress.kubernetes.io/service.serverstransport: dashboard-insecure@kubernetescrd
     hosts:
       - dashboard.jardoole.xyz
     path: /
@@ -42,6 +37,11 @@ kong:
     type: ClusterIP
     http:
       enabled: false  # Disable HTTP, use HTTPS only
+    annotations:
+      # Tell Traefik that backend uses HTTPS
+      traefik.ingress.kubernetes.io/service.serversscheme: https
+      # Skip TLS verification for Kong's self-signed certificate
+      traefik.ingress.kubernetes.io/service.serverstransport: dashboard-insecure@kubernetescrd
 
   # Resource limits for proxy container (required by ResourceQuota)
   resources:
