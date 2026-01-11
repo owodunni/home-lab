@@ -7,7 +7,9 @@ k3s_release_version: v1.34.1+k3s1
 k3s_become: true
 
 # HA Configuration - Control node setting now handled per-host in inventory
-k3s_server_manifests_templates: []
+# Custom manifests deployed to K3s server nodes
+k3s_server_manifests_templates:
+  - traefik-config.yml.j2
 
 # HA etcd configuration - handled per-node in host_vars
 
