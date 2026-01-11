@@ -73,7 +73,7 @@
       kind: ServersTransport
       metadata:
         name: dashboard-insecure
-        namespace: kube-system  # Must be in Traefik's namespace
+        namespace: dashboard  # Same namespace as Kong service
       spec:
         insecureSkipVerify: true
     state: present
