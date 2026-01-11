@@ -66,6 +66,19 @@
     state: present
     kubeconfig: /etc/rancher/k3s/k3s.yaml
 
+- name: Create ServersTransport for insecure Kong backend
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: traefik.io/v1alpha1
+      kind: ServersTransport
+      metadata:
+        name: dashboard-insecure
+        namespace: dashboard
+      spec:
+        insecureSkipVerify: true
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
 - name: Display dashboard access instructions
   ansible.builtin.debug:
     msg: |
