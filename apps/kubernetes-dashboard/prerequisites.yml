@@ -1,0 +1,90 @@
+---
+# Kubernetes Dashboard Prerequisites
+# Creates namespace, ServiceAccount and long-lived token Secret
+
+- name: Create dashboard namespace
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: dashboard
+        labels:
+          name: dashboard
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Create ServiceAccount for dashboard admin access
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: kubernetes-dashboard
+        namespace: dashboard
+        labels:
+          app: kubernetes-dashboard
+          managed-by: ansible
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Create ClusterRoleBinding for admin access
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: kubernetes-dashboard-admin
+        labels:
+          app: kubernetes-dashboard
+          managed-by: ansible
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: cluster-admin
+      subjects:
+        - kind: ServiceAccount
+          name: kubernetes-dashboard
+          namespace: dashboard
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Create dashboard token Secret from vault
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: kubernetes-dashboard-token
+        namespace: dashboard
+        labels:
+          app: kubernetes-dashboard
+          managed-by: ansible
+      type: Opaque
+      stringData:
+        token: "{{ vault_dashboard_token }}"
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Display dashboard access instructions
+  ansible.builtin.debug:
+    msg: |
+      ╔═══════════════════════════════════════════════════════════════════════╗
+      ║ Kubernetes Dashboard Deployed                                        ║
+      ╠═══════════════════════════════════════════════════════════════════════╣
+      ║                                                                       ║
+      ║ Access URL: https://dashboard.jardoole.xyz                           ║
+      ║                                                                       ║
+      ║ Authentication:                                                       ║
+      ║   The dashboard uses the token stored in ansible vault              ║
+      ║   (vault_dashboard_token variable)                                   ║
+      ║                                                                       ║
+      ║ To retrieve your token for login:                                    ║
+      ║                                                                       ║
+      ║   kubectl get secret kubernetes-dashboard-token -n dashboard \       ║
+      ║     -o jsonpath='{.data.token}' | base64 -d                          ║
+      ║                                                                       ║
+      ║ The token has cluster-admin privileges via the                       ║
+      ║ kubernetes-dashboard-admin ClusterRoleBinding.                       ║
+      ║                                                                       ║
+      ╚═══════════════════════════════════════════════════════════════════════╝
