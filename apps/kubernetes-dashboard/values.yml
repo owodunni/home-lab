@@ -17,7 +17,8 @@ app:
       # Tell Traefik that backend (Kong) uses HTTPS
       traefik.ingress.kubernetes.io/service.serversscheme: https
       # Skip TLS verification for Kong's self-signed certificate
-      traefik.ingress.kubernetes.io/service.serverstransport: dashboard-insecure
+      # Reference ServersTransport CRD (requires @kubernetescrd suffix)
+      traefik.ingress.kubernetes.io/service.serverstransport: dashboard-insecure@kubernetescrd
     hosts:
       - dashboard.jardoole.xyz
     path: /
