@@ -40,8 +40,8 @@ kong:
     annotations:
       # Tell Traefik that backend uses HTTPS
       traefik.ingress.kubernetes.io/service.serversscheme: https
-      # Skip TLS verification for Kong's self-signed certificate
-      traefik.ingress.kubernetes.io/service.serverstransport: dashboard-insecure@kubernetescrd
+      # Skip TLS verification for Kong's self-signed certificate (same-namespace reference)
+      traefik.ingress.kubernetes.io/service.serverstransport: dashboard-insecure
 
   # Resource limits for proxy container (required by ResourceQuota)
   resources:
