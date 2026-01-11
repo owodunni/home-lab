@@ -27,13 +27,30 @@ app:
       secretName: kubernetes-dashboard-tls
     labels: {}
 
-# Disable Kong API gateway (not needed for home lab, causes ResourceQuota issues)
-# Note: Must provide proxy.tls.servicePort even when disabled due to chart template bug
+# Kong API gateway configuration
+# Enable with resource limits to satisfy ResourceQuota requirements
 kong:
-  enabled: false
-  proxy:
-    tls:
-      servicePort: 443
+  enabled: true
+
+  # Resource limits for proxy container (required by ResourceQuota)
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  # Init container resource limits (required by ResourceQuota)
+  initContainers:
+    clear-stale-pid:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          cpu: 50m
+          memory: 32Mi
 
 # Service configuration
 service:
