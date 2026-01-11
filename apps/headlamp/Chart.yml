@@ -1,0 +1,9 @@
+---
+chart_repository: headlamp
+chart_name: headlamp
+chart_version: 0.39.0
+release_name: headlamp
+namespace: kube-system
+description: "Kubernetes Dashboard for cluster management"
+create_namespace: false
+wait_for_ready: true

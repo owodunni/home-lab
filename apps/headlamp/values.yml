@@ -1,0 +1,28 @@
+---
+# Kubernetes Dashboard configuration
+# Official kubernetes-dashboard Helm chart (NOT bjw-s app-template)
+
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: headlamp.jardoole.xyz
+      paths:
+        - path: /
+          type: Prefix
+  tls:
+    - secretName: headlamp-tls
+      hosts:
+        - headlamp.jardoole.xyz
+
+# -- CPU/Memory resource requests/limits
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 100m
+    memory: 128Mi

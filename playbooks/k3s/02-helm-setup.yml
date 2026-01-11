@@ -45,7 +45,6 @@
           - cert-manager (SSL certificate automation)
           - Longhorn (distributed storage)
           - Prometheus/Grafana (monitoring stack)
-          - Kubernetes Dashboard (cluster management)
 
     - name: Check if Helm is already installed
       ansible.builtin.command:
@@ -190,12 +189,12 @@
       register: helm_repo_nfs_provisioner
       failed_when: false
 
-    - name: Add Kubernetes Dashboard repository
+    - name: Add Headlamp repository
       kubernetes.core.helm_repository:
-        name: kubernetes-dashboard
-        repo_url: https://kubernetes.github.io/dashboard
+        name: headlamp
+        repo_url: https://kubernetes-sigs.github.io/headlamp/
         kubeconfig: /etc/rancher/k3s/k3s.yaml
-      register: helm_repo_kubernetes_dashboard
+      register: helm_repo_headlamp
       failed_when: false
 
     - name: Update all Helm repositories

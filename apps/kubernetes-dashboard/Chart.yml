@@ -1,9 +1,0 @@
----
-chart_repository: kubernetes-dashboard
-chart_name: kubernetes-dashboard
-chart_version: 7.11.0
-release_name: kubernetes-dashboard
-namespace: dashboard
-description: "Kubernetes Dashboard for cluster management"
-create_namespace: true
-wait_for_ready: true
