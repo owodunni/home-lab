@@ -10,8 +10,9 @@ The MinIO NAS (pi-cm5-4) uses 2x 2TB SATA HDDs for S3 backup storage. These driv
 
 ## Configuration
 
-- **Spin-down timeout:** 30 minutes after last access
+- **Spin-down timeout:** 5 minutes after last access
 - **APM level:** 128 (balanced - enables spin-down while preserving performance)
+- **MinIO scanner:** Slowest speed, 6-hour cycle delay
 - **Persistence:** udev rules automatically apply settings on boot and device hotplug
 - **Technology:** hdparm (industry-standard disk power management tool)
 
@@ -95,7 +96,9 @@ After 30 minutes of inactivity, the drive state should change from `active/idle`
 
 ## How It Works
 
-1. **hdparm -S 360**: Sets spin-down timeout to 30 minutes (360 × 5 seconds = 1800 seconds)
+1. **hdparm -S 60**: Sets spin-down timeout to 5 minutes
+   - Values 1-240: timeout in 5-second units (e.g., 60 = 5 min, 240 = 20 min)
+   - Values 241-251: timeout in 30-minute units (241 = 30 min, 242 = 60 min, etc.)
 2. **hdparm -B 128**: Sets APM (Advanced Power Management) level to 128 (balanced mode)
    - Values 128-254: Performance mode with APM enabled
    - 128 = Balanced (enables spin-down while preserving performance)
@@ -109,11 +112,28 @@ The configuration uses a udev rule that matches drives by WWN (World Wide Name):
 
 ```
 # /etc/udev/rules.d/69-hdparm-spindown.rules
-ACTION=="add|change", ENV{ID_WWN}=="0x5000c5008a1a78df", RUN+="/usr/sbin/hdparm -S 360 -B 128 /dev/%k"
-ACTION=="add|change", ENV{ID_WWN}=="0x5000c5008a1a7d0f", RUN+="/usr/sbin/hdparm -S 360 -B 128 /dev/%k"
+ACTION=="add|change", ENV{ID_WWN}=="0x5000c5008a1a78df", RUN+="/usr/sbin/hdparm -S 60 -B 128 /dev/%k"
+ACTION=="add|change", ENV{ID_WWN}=="0x5000c5008a1a7d0f", RUN+="/usr/sbin/hdparm -S 60 -B 128 /dev/%k"
 ```
 
 WWN identifiers are stable across reboots and not affected by `/dev/sdX` device name changes.
+
+### MinIO Background Activity Configuration
+
+MinIO runs background processes (scanner, healing, and drive health monitoring) that can prevent drives from spinning down. The configuration minimizes this activity:
+
+```bash
+# /etc/minio/minio.conf (via group_vars/nas/main.yml)
+MINIO_SCANNER_SPEED="slowest"          # Minimize disk I/O during scans
+MINIO_SCANNER_CYCLE="6h"               # Only scan every 6 hours
+MINIO_HEAL_BITROTSCAN="off"            # Disable bitrot scanning (background reads)
+MINIO_HEAL_MAX_SLEEP="5s"              # Slow down healing operations
+_MINIO_DRIVE_ACTIVE_MONITORING="off"   # Disable drive health checks (prevents tmp writes)
+```
+
+**Warning**: Disabling drive health monitoring means MinIO won't proactively detect hung drives or I/O issues. Since this is a backup-only system with infrequent access, the risk is acceptable.
+
+This allows drives to remain spun down for up to 6 hours between scanner cycles, significantly improving power savings.
 
 ## Expected Behavior
 
@@ -121,8 +141,9 @@ WWN identifiers are stable across reboots and not affected by `/dev/sdX` device 
 
 1. MinIO backup runs → drives spin up automatically
 2. Backup completes → drives become idle
-3. After 30 minutes idle → drives spin down to standby
+3. After 5 minutes idle → drives spin down to standby
 4. Next backup → drives spin up automatically (transparent to MinIO)
+5. MinIO scanner runs every 6 hours (drives spin up briefly)
 
 ### Daily SnapRAID Sync (5 AM)
 
@@ -161,11 +182,10 @@ At typical electricity rates (~$0.12/kWh), this saves approximately **$8.67 per 
 To adjust timeout or APM level, edit `/home/alexanderp/Prog/home-lab/group_vars/nas/main.yml`:
 
 ```yaml
-# Spin-down timeout in 5-second units
-# 360 = 30 minutes (360 * 5 = 1800 seconds)
-# 120 = 10 minutes (120 * 5 = 600 seconds)
-# 240 = 20 minutes (240 * 5 = 1200 seconds)
-minio_disk_spindown_timeout: 360
+# Spin-down timeout: hdparm -S parameter (0-255)
+# 1-240: timeout in 5-second units (e.g., 60 = 5 min, 120 = 10 min, 240 = 20 min)
+# 241-251: timeout in 30-minute units (241 = 30 min, 242 = 60 min, etc.)
+minio_disk_spindown_timeout: 60
 
 # APM level (1-255)
 # 1 = maximum power saving (aggressive spin-down)

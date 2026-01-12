@@ -49,6 +49,20 @@ minio_enable_tls: true
 minio_server_addr: "" # Empty = bind to all interfaces (0.0.0.0)
 # Client connection configuration - use proper domain name for SSL certificate compatibility
 minio_server_address: "{{ minio_internal_domain }}"
+# Scanner configuration - minimize disk access for spin-down compatibility
+# Scanner runs periodically to check bucket usage and health
+# Slowest speed + long cycle allows drives to spin down during idle
+minio_server_env_extra: |
+  # Scanner speed (slowest = minimize disk access)
+  MINIO_SCANNER_SPEED="slowest"
+  # Scanner cycle interval (time between scanner runs)
+  MINIO_SCANNER_CYCLE="6h"
+  # Disable bitrot scanning (prevents background disk reads)
+  MINIO_HEAL_BITROTSCAN="off"
+  # Increase healing sleep duration to reduce I/O frequency
+  MINIO_HEAL_MAX_SLEEP="5s"
+  # Disable drive health monitoring (prevents constant tmp file writes)
+  _MINIO_DRIVE_ACTIVE_MONITORING="off"
 # Certificate files will be provided via symlinks from minio-complete.yml
 # Do not define minio_cert/minio_key to prevent overwriting Let's Encrypt symlinks
 # minio_cert: "{{ minio_cert_path }}/public.crt"  # REMOVED - prevents symlink overwrite
@@ -191,9 +205,10 @@ minio_mount_options_new: "defaults,noatime"
 # - udev rules ensure settings persist across reboots
 # - Drives automatically spin up on-demand when accessed (transparent to MinIO)
 
-# Spin-down timeout in 5-second units (360 = 30 minutes)
-# hdparm -S parameter: 1-240 = (value * 5) seconds
-minio_disk_spindown_timeout: 360
+# Spin-down timeout: hdparm -S parameter (0-255)
+# 1-240 = (value * 5) seconds, 241-251 = (value-240) * 30 minutes
+# 60 = 5 minutes (60 * 5 = 300 seconds)
+minio_disk_spindown_timeout: 60
 
 # Advanced Power Management level (1-255)
 # 128-254 = performance mode with APM enabled (128=balanced, 254=max perf)
