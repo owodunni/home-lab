@@ -1,20 +1,71 @@
 ---
+# Homepage Dashboard - Dedicated Namespace
+# Isolated from applications namespace due to elevated ClusterRole permissions
+# for Kubernetes API access (watch ingresses, read metrics)
+---
 # Namespace
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: applications
+  name: homepage
+  labels:
+    name: homepage
+---
+# NetworkPolicy - Allow API access for service discovery
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: homepage-network-policy
+  namespace: homepage
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow Traefik ingress controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 3000
+          protocol: TCP
+  egress:
+    # Allow DNS resolution
+    - ports:
+        - port: 53
+          protocol: TCP
+        - port: 53
+          protocol: UDP
+    # Allow Kubernetes API server (ClusterIP)
+    - to:
+        - ipBlock:
+            cidr: 10.43.0.1/32
+      ports:
+        - port: 443
+          protocol: TCP
+    # Allow metrics-server in kube-system
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 443
+          protocol: TCP
+        - port: 10250
+          protocol: TCP
 ---
 # ServiceAccount
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: homepage
-  namespace: applications
+  namespace: homepage
   labels:
     app.kubernetes.io/name: homepage
 ---
-# ClusterRole
+# ClusterRole - Read-only access for service discovery and metrics
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -73,14 +124,14 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: homepage
-    namespace: applications
+    namespace: homepage
 ---
 # ConfigMap: kubernetes.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: homepage-kubernetes
-  namespace: applications
+  namespace: homepage
   labels:
     app.kubernetes.io/name: homepage
 data:
@@ -92,7 +143,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: homepage-settings
-  namespace: applications
+  namespace: homepage
   labels:
     app.kubernetes.io/name: homepage
 data:
@@ -115,7 +166,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: homepage-widgets
-  namespace: applications
+  namespace: homepage
   labels:
     app.kubernetes.io/name: homepage
 data:
@@ -132,29 +183,24 @@ data:
           cpu: true
           memory: true
           showLabel: true
-    - resources:
-        label: "System Resources"
-        expanded: true
-        cpu: true
-        memory: true
 ---
-# ConfigMap: services.yaml
+# ConfigMap: services.yaml (empty - uses auto-discovery)
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: homepage-services
-  namespace: applications
+  namespace: homepage
   labels:
     app.kubernetes.io/name: homepage
 data:
   services.yaml: ""
 ---
-# ConfigMap: bookmarks.yaml
+# ConfigMap: bookmarks.yaml (empty)
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: homepage-bookmarks
-  namespace: applications
+  namespace: homepage
   labels:
     app.kubernetes.io/name: homepage
 data:
@@ -165,7 +211,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: homepage
-  namespace: applications
+  namespace: homepage
   labels:
     app.kubernetes.io/name: homepage
 spec:
@@ -249,7 +295,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: homepage
-  namespace: applications
+  namespace: homepage
   labels:
     app.kubernetes.io/name: homepage
 spec:
@@ -267,7 +313,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: homepage
-  namespace: applications
+  namespace: homepage
   labels:
     app.kubernetes.io/name: homepage
   annotations:
