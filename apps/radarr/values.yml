@@ -60,6 +60,12 @@ ingress:
     annotations:
       traefik.ingress.kubernetes.io/router.entrypoints: websecure
       cert-manager.io/cluster-issuer: letsencrypt-prod
+      # Homepage auto-discovery
+      gethomepage.dev/enabled: "true"
+      gethomepage.dev/name: "Radarr"
+      gethomepage.dev/description: "Movie Collection Manager"
+      gethomepage.dev/group: "Media"
+      gethomepage.dev/icon: "radarr.png"
     hosts:
       - host: radarr.jardoole.xyz
         paths:

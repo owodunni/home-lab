@@ -32,6 +32,7 @@
         state: directory
         owner: minio
         group: minio
+        mode: "0750"
       loop: "{{ minio_server_datadirs }}"
 
     - name: Configure MinIO environment file (basic configuration)

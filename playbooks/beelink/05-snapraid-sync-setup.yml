@@ -144,7 +144,7 @@
           ╚══════════════════════════════════════════════════════════════╝
 
   post_tasks:
-    - name: Verify timer is active
+    - name: Verify timer is active  # noqa: command-instead-of-module
       ansible.builtin.command:
         cmd: systemctl is-enabled snapraid-sync.timer
       register: timer_status

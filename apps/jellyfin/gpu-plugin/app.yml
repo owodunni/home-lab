@@ -1,7 +1,7 @@
 ---
 # Deploy Intel Device Plugins Operator
 - name: Deploy Intel Device Plugins Operator
-  import_playbook: ../../playbooks/deploy-helm-app.yml
+  import_playbook: ../../../playbooks/deploy-helm-app.yml
   vars:
     app_chart_file: "{{ inventory_dir }}/apps/intel-gpu-plugin/Chart.yml"
     app_values_file: "{{ inventory_dir }}/apps/intel-gpu-plugin/values.yml"

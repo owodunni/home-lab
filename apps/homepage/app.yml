@@ -1,0 +1,9 @@
+---
+- name: Deploy Homepage Dashboard
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Apply Homepage manifests
+      ansible.builtin.command:
+        cmd: kubectl apply -f {{ playbook_dir }}/manifests.yml
+      changed_when: true

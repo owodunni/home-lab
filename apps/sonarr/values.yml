@@ -60,6 +60,12 @@ ingress:
     annotations:
       traefik.ingress.kubernetes.io/router.entrypoints: websecure
       cert-manager.io/cluster-issuer: letsencrypt-prod
+      # Homepage auto-discovery
+      gethomepage.dev/enabled: "true"
+      gethomepage.dev/name: "Sonarr"
+      gethomepage.dev/description: "TV Series Manager"
+      gethomepage.dev/group: "Media"
+      gethomepage.dev/icon: "sonarr.png"
     hosts:
       - host: sonarr.jardoole.xyz
         paths:

@@ -52,13 +52,13 @@
       ansible.builtin.systemd:
         name: k3s-agent
         state: stopped
-      ignore_errors: true # Service might not exist yet
+      failed_when: false  # Service might not exist yet
 
     - name: Unmount Longhorn storage
       ansible.posix.mount:
         path: /var/lib/longhorn
         state: unmounted
-      ignore_errors: true
+      failed_when: false  # Mount might not exist
 
     - name: Remove LVM logical volume
       community.general.lvol:
@@ -67,20 +67,20 @@
         state: absent
         force: true
       when: lvm_volume_group is defined and lvm_logical_volume is defined
-      ignore_errors: true
+      failed_when: false  # LV might not exist
 
     - name: Remove LVM volume group
       community.general.lvg:
         vg: "{{ lvm_volume_group }}"
         state: absent
       when: lvm_volume_group is defined
-      ignore_errors: true
+      failed_when: false  # VG might not exist
 
     - name: Remove /var/lib/longhorn from fstab
       ansible.posix.mount:
         path: /var/lib/longhorn
         state: absent
-      ignore_errors: true
+      failed_when: false  # Entry might not exist
 
     # ========================================================================
     # Phase 2: Setup Individual Encrypted Filesystems
@@ -96,7 +96,8 @@
         - longhorn1_crypt
         - longhorn2_crypt
         - longhorn3_crypt
-      ignore_errors: true # Device might not be open
+      failed_when: false  # Device might not be open
+      changed_when: false  # Idempotent cleanup
 
     - name: Open LUKS devices with new names
       community.crypto.luks_device:
@@ -128,10 +129,11 @@
       loop: "{{ luks_crypt_devices }}"
       register: crypttab_updated
 
-    - name: Update initramfs to include LUKS keyfiles
+    - name: Update initramfs to include LUKS keyfiles  # noqa: no-handler
       ansible.builtin.command:
         cmd: update-initramfs -u -k all
       when: crypttab_updated.changed
+      changed_when: true  # Command always modifies initramfs when run
       async: 120
       poll: 5
 
@@ -148,7 +150,7 @@
       ansible.builtin.command:
         cmd: umount /dev/mapper/{{ item.name }}
       loop: "{{ luks_crypt_devices }}"
-      ignore_errors: true
+      failed_when: false  # Device might not be mounted
       changed_when: false
 
     - name: Wipe LVM signatures from LUKS devices

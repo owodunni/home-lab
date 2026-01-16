@@ -58,6 +58,12 @@ ingress:
     annotations:
       traefik.ingress.kubernetes.io/router.entrypoints: websecure
       cert-manager.io/cluster-issuer: letsencrypt-prod
+      # Homepage auto-discovery
+      gethomepage.dev/enabled: "true"
+      gethomepage.dev/name: "Jellyseerr"
+      gethomepage.dev/description: "Media Requests"
+      gethomepage.dev/group: "Media"
+      gethomepage.dev/icon: "jellyseerr.png"
     hosts:
       - host: jellyseerr.jardoole.xyz
         paths:

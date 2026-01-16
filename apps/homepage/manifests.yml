@@ -1,0 +1,297 @@
+---
+# Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: applications
+---
+# ServiceAccount
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: homepage
+  namespace: applications
+  labels:
+    app.kubernetes.io/name: homepage
+---
+# ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: homepage
+  labels:
+    app.kubernetes.io/name: homepage
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+      - pods
+      - nodes
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - extensions
+      - networking.k8s.io
+    resources:
+      - ingresses
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - traefik.containo.us
+      - traefik.io
+    resources:
+      - ingressroutes
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - metrics.k8s.io
+    resources:
+      - nodes
+      - pods
+    verbs:
+      - get
+      - list
+---
+# ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: homepage
+  labels:
+    app.kubernetes.io/name: homepage
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: homepage
+subjects:
+  - kind: ServiceAccount
+    name: homepage
+    namespace: applications
+---
+# ConfigMap: kubernetes.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homepage-kubernetes
+  namespace: applications
+  labels:
+    app.kubernetes.io/name: homepage
+data:
+  kubernetes.yaml: |
+    mode: cluster
+---
+# ConfigMap: settings.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homepage-settings
+  namespace: applications
+  labels:
+    app.kubernetes.io/name: homepage
+data:
+  settings.yaml: |
+    title: Homelab Dashboard
+    headerStyle: boxed
+    layout:
+      Media:
+        style: row
+        columns: 3
+      Monitoring:
+        style: row
+        columns: 3
+      Admin:
+        style: row
+        columns: 2
+---
+# ConfigMap: widgets.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homepage-widgets
+  namespace: applications
+  labels:
+    app.kubernetes.io/name: homepage
+data:
+  widgets.yaml: |
+    - kubernetes:
+        cluster:
+          show: true
+          cpu: true
+          memory: true
+          showLabel: true
+          label: "Homelab Cluster"
+        nodes:
+          show: true
+          cpu: true
+          memory: true
+          showLabel: true
+    - resources:
+        label: "System Resources"
+        expanded: true
+        cpu: true
+        memory: true
+---
+# ConfigMap: services.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homepage-services
+  namespace: applications
+  labels:
+    app.kubernetes.io/name: homepage
+data:
+  services.yaml: ""
+---
+# ConfigMap: bookmarks.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homepage-bookmarks
+  namespace: applications
+  labels:
+    app.kubernetes.io/name: homepage
+data:
+  bookmarks.yaml: ""
+---
+# Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: homepage
+  namespace: applications
+  labels:
+    app.kubernetes.io/name: homepage
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: homepage
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: homepage
+    spec:
+      serviceAccountName: homepage
+      automountServiceAccountToken: true
+      enableServiceLinks: false
+      containers:
+        - name: homepage
+          image: ghcr.io/gethomepage/homepage:v1.8.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+          volumeMounts:
+            - name: kubernetes-config
+              mountPath: /app/config/kubernetes.yaml
+              subPath: kubernetes.yaml
+            - name: settings-config
+              mountPath: /app/config/settings.yaml
+              subPath: settings.yaml
+            - name: widgets-config
+              mountPath: /app/config/widgets.yaml
+              subPath: widgets.yaml
+            - name: services-config
+              mountPath: /app/config/services.yaml
+              subPath: services.yaml
+            - name: bookmarks-config
+              mountPath: /app/config/bookmarks.yaml
+              subPath: bookmarks.yaml
+            - name: logs
+              mountPath: /app/config/logs
+      volumes:
+        - name: kubernetes-config
+          configMap:
+            name: homepage-kubernetes
+        - name: settings-config
+          configMap:
+            name: homepage-settings
+        - name: widgets-config
+          configMap:
+            name: homepage-widgets
+        - name: services-config
+          configMap:
+            name: homepage-services
+        - name: bookmarks-config
+          configMap:
+            name: homepage-bookmarks
+        - name: logs
+          emptyDir: {}
+      nodeSelector:
+        kubernetes.io/os: linux
+---
+# Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: homepage
+  namespace: applications
+  labels:
+    app.kubernetes.io/name: homepage
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: homepage
+---
+# Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: homepage
+  namespace: applications
+  labels:
+    app.kubernetes.io/name: homepage
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    gethomepage.dev/enabled: "true"
+    gethomepage.dev/name: "Homepage"
+    gethomepage.dev/description: "Application Dashboard"
+    gethomepage.dev/group: "Admin"
+    gethomepage.dev/icon: "homepage.png"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: home.jardoole.xyz
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: homepage
+                port:
+                  name: http
+  tls:
+    - secretName: homepage-tls
+      hosts:
+        - home.jardoole.xyz

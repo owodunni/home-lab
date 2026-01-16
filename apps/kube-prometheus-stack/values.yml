@@ -51,6 +51,12 @@ prometheus:
     annotations:
       traefik.ingress.kubernetes.io/router.entrypoints: websecure
       cert-manager.io/cluster-issuer: letsencrypt-prod
+      # Homepage auto-discovery
+      gethomepage.dev/enabled: "true"
+      gethomepage.dev/name: "Prometheus"
+      gethomepage.dev/description: "Metrics & Monitoring"
+      gethomepage.dev/group: "Monitoring"
+      gethomepage.dev/icon: "prometheus.png"
     hosts:
       - prometheus.jardoole.xyz
     paths:
@@ -112,6 +118,12 @@ grafana:
     annotations:
       traefik.ingress.kubernetes.io/router.entrypoints: websecure
       cert-manager.io/cluster-issuer: letsencrypt-prod
+      # Homepage auto-discovery
+      gethomepage.dev/enabled: "true"
+      gethomepage.dev/name: "Grafana"
+      gethomepage.dev/description: "Metrics Visualization"
+      gethomepage.dev/group: "Monitoring"
+      gethomepage.dev/icon: "grafana.png"
     hosts:
       - grafana.jardoole.xyz
     path: /
@@ -163,13 +175,19 @@ alertmanager:
     nodeSelector:
       kubernetes.io/os: linux
 
-    # Ingress for Grafana UI
+    # Ingress for AlertManager UI
     ingress:
       enabled: true
       ingressClassName: traefik
       annotations:
         traefik.ingress.kubernetes.io/router.entrypoints: websecure
         cert-manager.io/cluster-issuer: letsencrypt-prod
+        # Homepage auto-discovery
+        gethomepage.dev/enabled: "true"
+        gethomepage.dev/name: "AlertManager"
+        gethomepage.dev/description: "Alert Management"
+        gethomepage.dev/group: "Monitoring"
+        gethomepage.dev/icon: "alertmanager.png"
       hosts:
         - alert-manager.jardoole.xyz
       path: /

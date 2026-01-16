@@ -66,6 +66,12 @@ ingress:
     annotations:
       traefik.ingress.kubernetes.io/router.entrypoints: websecure
       cert-manager.io/cluster-issuer: letsencrypt-prod
+      # Homepage auto-discovery
+      gethomepage.dev/enabled: "true"
+      gethomepage.dev/name: "Jellyfin"
+      gethomepage.dev/description: "Media Server"
+      gethomepage.dev/group: "Media"
+      gethomepage.dev/icon: "jellyfin.png"
     hosts:
       - host: jellyfin.jardoole.xyz
         paths:

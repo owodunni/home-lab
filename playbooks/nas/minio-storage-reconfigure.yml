@@ -103,7 +103,7 @@
       ansible.builtin.command:
         cmd: umount {{ item.device }}
       loop: "{{ minio_storage_drives_new }}"
-      ignore_errors: true
+      failed_when: false  # Device might not be mounted
       changed_when: false
 
     - name: Create XFS filesystems on drives

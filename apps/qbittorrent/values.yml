@@ -150,6 +150,12 @@ ingress:
     annotations:
       traefik.ingress.kubernetes.io/router.entrypoints: websecure
       cert-manager.io/cluster-issuer: letsencrypt-prod
+      # Homepage auto-discovery
+      gethomepage.dev/enabled: "true"
+      gethomepage.dev/name: "qBittorrent"
+      gethomepage.dev/description: "Torrent Client"
+      gethomepage.dev/group: "Media"
+      gethomepage.dev/icon: "qbittorrent.png"
     hosts:
       - host: qbittorrent.jardoole.xyz
         paths:
