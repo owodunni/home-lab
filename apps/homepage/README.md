@@ -18,9 +18,11 @@ The included NetworkPolicy allows only:
 | Direction | Target | Ports | Purpose |
 |-----------|--------|-------|---------|
 | Ingress | kube-system (Traefik) | 3000 | Web traffic |
-| Egress | Any | 53 | DNS resolution |
-| Egress | 10.43.0.1/32 | 443 | Kubernetes API |
-| Egress | kube-system | 443, 10250 | metrics-server |
+| Egress | kube-system | 53 | DNS resolution |
+| Egress | 10.43.0.0/16 | 443 | ClusterIP services |
+| Egress | 192.168.1.0/24 | 6443 | Kubernetes API (control plane) |
+| Egress | applications | 80, 443 | Service discovery |
+| Egress | monitoring | 80, 443 | Prometheus integration |
 
 ## Features
 

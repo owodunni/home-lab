@@ -23,7 +23,7 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Allow Traefik ingress controller
+    # Allow Traefik ingress controller from kube-system
     - from:
         - namespaceSelector:
             matchLabels:
@@ -32,28 +32,48 @@ spec:
         - port: 3000
           protocol: TCP
   egress:
-    # Allow DNS resolution
-    - ports:
-        - port: 53
-          protocol: TCP
-        - port: 53
-          protocol: UDP
-    # Allow Kubernetes API server (ClusterIP)
-    - to:
-        - ipBlock:
-            cidr: 10.43.0.1/32
-      ports:
-        - port: 443
-          protocol: TCP
-    # Allow metrics-server in kube-system
+    # DNS resolution via CoreDNS
     - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: kube-system
       ports:
+        - port: 53
+          protocol: TCP
+        - port: 53
+          protocol: UDP
+    # Kubernetes API server (traffic DNATs to control plane nodes)
+    - to:
+        - ipBlock:
+            cidr: 10.43.0.0/16
+      ports:
         - port: 443
           protocol: TCP
-        - port: 10250
+    - to:
+        - ipBlock:
+            cidr: 192.168.1.0/24
+      ports:
+        - port: 6443
+          protocol: TCP
+    # Applications namespace for service discovery
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: applications
+      ports:
+        - port: 80
+          protocol: TCP
+        - port: 443
+          protocol: TCP
+    # Monitoring namespace (kube-prometheus-stack)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: 80
+          protocol: TCP
+        - port: 443
           protocol: TCP
 ---
 # ServiceAccount
@@ -79,6 +99,15 @@ rules:
       - namespaces
       - pods
       - nodes
+    verbs:
+      - get
+      - list
+      - watch
+  # Services for service discovery
+  - apiGroups:
+      - ""
+    resources:
+      - services
     verbs:
       - get
       - list
@@ -109,6 +138,7 @@ rules:
     verbs:
       - get
       - list
+      - watch
 ---
 # ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -206,6 +236,50 @@ metadata:
 data:
   bookmarks.yaml: ""
 ---
+# ConfigMap: docker.yaml (empty - not using Docker integration)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homepage-docker
+  namespace: homepage
+  labels:
+    app.kubernetes.io/name: homepage
+data:
+  docker.yaml: ""
+---
+# ConfigMap: custom.css (empty - required by Homepage)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homepage-custom-css
+  namespace: homepage
+  labels:
+    app.kubernetes.io/name: homepage
+data:
+  custom.css: ""
+---
+# ConfigMap: custom.js (empty - required by Homepage)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homepage-custom-js
+  namespace: homepage
+  labels:
+    app.kubernetes.io/name: homepage
+data:
+  custom.js: ""
+---
+# ConfigMap: proxmox.yaml (empty - required by Homepage)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homepage-proxmox
+  namespace: homepage
+  labels:
+    app.kubernetes.io/name: homepage
+data:
+  proxmox.yaml: ""
+---
 # Deployment
 apiVersion: apps/v1
 kind: Deployment
@@ -270,6 +344,18 @@ spec:
             - name: bookmarks-config
               mountPath: /app/config/bookmarks.yaml
               subPath: bookmarks.yaml
+            - name: docker-config
+              mountPath: /app/config/docker.yaml
+              subPath: docker.yaml
+            - name: custom-css
+              mountPath: /app/config/custom.css
+              subPath: custom.css
+            - name: custom-js
+              mountPath: /app/config/custom.js
+              subPath: custom.js
+            - name: proxmox-config
+              mountPath: /app/config/proxmox.yaml
+              subPath: proxmox.yaml
             - name: logs
               mountPath: /app/config/logs
       volumes:
@@ -288,6 +374,18 @@ spec:
         - name: bookmarks-config
           configMap:
             name: homepage-bookmarks
+        - name: docker-config
+          configMap:
+            name: homepage-docker
+        - name: custom-css
+          configMap:
+            name: homepage-custom-css
+        - name: custom-js
+          configMap:
+            name: homepage-custom-js
+        - name: proxmox-config
+          configMap:
+            name: homepage-proxmox
         - name: logs
           emptyDir: {}
       nodeSelector:
