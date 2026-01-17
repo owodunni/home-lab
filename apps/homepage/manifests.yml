@@ -75,6 +75,16 @@ spec:
           protocol: TCP
         - port: 443
           protocol: TCP
+        - port: 9090
+          protocol: TCP
+    # Longhorn storage metrics
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: longhorn-system
+      ports:
+        - port: 9500
+          protocol: TCP
 ---
 # ServiceAccount
 apiVersion: v1
@@ -180,7 +190,15 @@ data:
   settings.yaml: |
     title: Homelab Dashboard
     headerStyle: boxed
+    providers:
+      longhorn:
+        url: http://longhorn-backend.longhorn-system.svc.cluster.local:9500
+      prometheus:
+        url: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
     layout:
+      Node Storage:
+        style: row
+        columns: 4
       Media:
         style: row
         columns: 3
@@ -214,7 +232,7 @@ data:
           memory: true
           showLabel: true
 ---
-# ConfigMap: services.yaml (empty - uses auto-discovery)
+# ConfigMap: services.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -223,7 +241,72 @@ metadata:
   labels:
     app.kubernetes.io/name: homepage
 data:
-  services.yaml: ""
+  services.yaml: |
+    - Node Storage:
+        - beelink:
+            icon: mdi-harddisk
+            widget:
+              type: prometheusmetric
+              url: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+              metrics:
+                - label: Used
+                  query: |
+                    100 - (node_filesystem_avail_bytes{instance="192.168.1.76:9100",mountpoint="/"} / node_filesystem_size_bytes{instance="192.168.1.76:9100",mountpoint="/"} * 100)
+                  format:
+                    type: number
+                    suffix: "%"
+                - label: Free
+                  query: node_filesystem_avail_bytes{instance="192.168.1.76:9100",mountpoint="/"}
+                  format:
+                    type: bytes
+        - pi-cm5-1:
+            icon: mdi-raspberry-pi
+            widget:
+              type: prometheusmetric
+              url: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+              metrics:
+                - label: Used
+                  query: |
+                    100 - (node_filesystem_avail_bytes{instance="192.168.1.23:9100",mountpoint="/"} / node_filesystem_size_bytes{instance="192.168.1.23:9100",mountpoint="/"} * 100)
+                  format:
+                    type: number
+                    suffix: "%"
+                - label: Free
+                  query: node_filesystem_avail_bytes{instance="192.168.1.23:9100",mountpoint="/"}
+                  format:
+                    type: bytes
+        - pi-cm5-2:
+            icon: mdi-raspberry-pi
+            widget:
+              type: prometheusmetric
+              url: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+              metrics:
+                - label: Used
+                  query: |
+                    100 - (node_filesystem_avail_bytes{instance="192.168.1.19:9100",mountpoint="/"} / node_filesystem_size_bytes{instance="192.168.1.19:9100",mountpoint="/"} * 100)
+                  format:
+                    type: number
+                    suffix: "%"
+                - label: Free
+                  query: node_filesystem_avail_bytes{instance="192.168.1.19:9100",mountpoint="/"}
+                  format:
+                    type: bytes
+        - pi-cm5-3:
+            icon: mdi-raspberry-pi
+            widget:
+              type: prometheusmetric
+              url: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+              metrics:
+                - label: Used
+                  query: |
+                    100 - (node_filesystem_avail_bytes{instance="192.168.1.13:9100",mountpoint="/"} / node_filesystem_size_bytes{instance="192.168.1.13:9100",mountpoint="/"} * 100)
+                  format:
+                    type: number
+                    suffix: "%"
+                - label: Free
+                  query: node_filesystem_avail_bytes{instance="192.168.1.13:9100",mountpoint="/"}
+                  format:
+                    type: bytes
 ---
 # ConfigMap: bookmarks.yaml (empty)
 apiVersion: v1
