@@ -636,10 +636,10 @@ After completing all steps, verify:
   - vault_sonarr_api_key
   - vault_jellyfin_api_key
 
-- [ ] **Verify Longhorn backups configured**
+- [ ] **Verify restic backups configured**
 
   ```bash
-  # Open: https://longhorn.jardoole.xyz
+  # Open: https://beelink (SSH)
   # Backup tab: Verify all config PVCs have recent backups
   # Note: media-stack-data is NOT backed up (too large, replaceable)
   ```
@@ -650,7 +650,7 @@ After completing all steps, verify:
 
 - [ ] **Test Individual PVC Restore**
 
-  **Goal**: Verify you can restore a single PVC from Longhorn backup.
+  **Goal**: Verify you can restore a single PVC from restic backup.
 
   ```bash
   # Choose a test PVC (e.g., prowlarr-config - smallest, least critical)
@@ -658,7 +658,7 @@ After completing all steps, verify:
   kubectl exec -n media deployment/prowlarr -- ls -la /config/
 
   # Step 2: Take manual backup
-  # Longhorn UI → Volume → prowlarr-config → Create Backup
+  # NFS storage → Volume → prowlarr-config → Create Backup
   # Note backup name (e.g., backup-abc123...)
 
   # Step 3: Simulate data loss
@@ -666,7 +666,7 @@ After completing all steps, verify:
   # Wait for volume to delete
 
   # Step 4: Restore from backup
-  # Longhorn UI → Backup → Select backup → Restore
+  # restic backup → Restore
   # Name: prowlarr-config
   # Wait for PVC creation
 
@@ -693,7 +693,7 @@ After completing all steps, verify:
   helm list --all-namespaces > cluster-helm-releases.txt
 
   # Document Longhorn S3 settings
-  # Longhorn UI → Setting → Backup Target → Note S3 URL and bucket
+  # NFS storage → Setting → Backup Target → Note S3 URL and bucket
   ```
 
 - [ ] **Test Full Cluster Disaster Recovery** (OPTIONAL - high risk)
@@ -711,11 +711,11 @@ After completing all steps, verify:
   make longhorn       # Storage layer
 
   # Step 3: Configure same MinIO S3 backend in Longhorn
-  # Longhorn UI → Setting → Backup Target → Enter same S3 URL
+  # NFS storage → Setting → Backup Target → Enter same S3 URL
   # (Uses existing S3 bucket with all previous backups)
 
   # Step 4: Restore all config PVCs from S3
-  # Longhorn UI → Backup → Filter by namespace
+  # NFS storage → Backup → Filter by namespace
   # Restore each: jellyfin-config, radarr-config, sonarr-config, etc.
 
   # Step 5: Redeploy all applications
@@ -804,13 +804,13 @@ After completing all steps, verify:
 
 ### Daily (Automated)
 
-- Longhorn config backups (2:00 AM)
+- restic backups (2:00 AM)
 - Sonarr checks for new TV episodes
 - qBittorrent seeding management (auto-pause at ratio 2.0)
 
 ### Weekly (Automated)
 
-- Longhorn full backups (Sunday 3:00 AM)
+- restic backups (Sunday 3:00 AM)
 - Radarr quality upgrade checks
 
 ### Monthly (Manual)

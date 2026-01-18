@@ -8,7 +8,7 @@ Radarr monitors movie releases and automatically searches for, downloads, and or
 
 ## Dependencies
 
-- **Longhorn**: For persistent configuration storage
+- **hostPath storage (on beelink)
 - **cert-manager**: For TLS certificates
 - **Traefik**: For ingress routing
 - **Media stack shared storage**: `media-stack-data` PVC (created by prerequisites)
@@ -19,7 +19,7 @@ Radarr monitors movie releases and automatically searches for, downloads, and or
 
 ### Storage
 
-- **Config volume**: 1Gi Longhorn PVC for Radarr database and settings
+- **Config volume**: 1Gi hostPath volume for Radarr database and settings
 - **Data volume**: Shared `media-stack-data` PVC mounted at `/data`
   - `/data/media/movies/` - Movie library (root folder)
   - `/data/torrents/movies/` - Download destination

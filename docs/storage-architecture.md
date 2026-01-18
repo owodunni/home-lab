@@ -1,11 +1,10 @@
 # Storage Architecture Guide
 
-This document describes the filesystem-based storage architecture using MergerFS + SnapRAID for large volumes, complementing Longhorn for small volumes.
+This document describes the filesystem-based storage architecture using MergerFS + SnapRAID + NFS for all Kubernetes persistent volumes.
 
 ## Table of Contents
 
 - [Overview](#overview)
-- [Architecture Comparison](#architecture-comparison)
 - [Technology Stack](#technology-stack)
 - [Beelink Storage Configuration](#beelink-storage-configuration)
 - [MinIO NAS Storage Configuration](#minio-nas-storage-configuration)
@@ -16,38 +15,20 @@ This document describes the filesystem-based storage architecture using MergerFS
 
 ## Overview
 
-The home lab uses a **hybrid storage approach**:
-- **Longhorn**: Small config volumes and databases (<10GB)
-- **MergerFS + SnapRAID + NFS**: Large media volumes (>50GB)
+The home lab uses **NFS-based storage** backed by Beelink's MergerFS pool:
+- **NFS storage class**: Default storage for all Kubernetes persistent volumes
+- **MergerFS**: Pools multiple drives into single mount point
+- **SnapRAID**: Parity protection for disaster recovery
+- **restic**: Incremental backups to MinIO S3
 
-### Why This Architecture?
+### Why NFS-Only?
 
-**Problem**: 867GB data loss during Longhorn disaster recovery due to:
-- Large volume (1TB) backup failures
-- Inaccessible snapshot chain format
-- No direct SSH access to files
-- Complex recovery procedures
-
-**Solution**: Filesystem-based storage for large volumes with:
-- Direct SSH access (manage files like normal filesystem)
-- Incremental backups via restic (deduplication, reliable)
-- Disk redundancy via SnapRAID (survive single disk failure)
-- Easy expansion (add drives one at a time)
-- Simple disaster recovery (restic restore)
-
-## Architecture Comparison
-
-| Aspect | Longhorn (Old) | MergerFS + SnapRAID (New) |
-|--------|----------------|---------------------------|
-| **Data accessibility** | Exec into pods only | Direct SSH access |
-| **Backup reliability** | Failed for 1TB volume | Incremental, deduplicated |
-| **Disaster recovery** | Complex (UI restore + rebind) | Simple (restic restore) |
-| **Storage efficiency** | 3x replication overhead | 1x parity overhead |
-| **Expandability** | Add drives to Longhorn | Add drives to MergerFS |
-| **Performance** | Network overhead | Local disk + NFS |
-| **Redundancy** | Real-time replicas | Async parity (24h lag) |
-| **Config volumes** | Works great ✓ | Keep Longhorn ✓ |
-| **Pod portability** | Can run on any node | Must run on Beelink |
+- **Direct SSH access**: Manage files like normal filesystem
+- **Incremental backups**: restic with deduplication to MinIO S3
+- **Disk redundancy**: SnapRAID parity (survive single disk failure)
+- **Easy expansion**: Add drives one at a time without rebuild
+- **Simple disaster recovery**: restic restore
+- **Efficient storage**: 1x parity overhead vs 3x replication
 
 ## Technology Stack
 
@@ -150,11 +131,13 @@ SnapRAID sync → daily 4 AM
 
 ```
 /mnt/storage/
+├── k8s-apps/               # Kubernetes app configs (restic backup)
+│   └── <namespace>-<pvc>/  # PVC directories created by NFS provisioner
 ├── media/                  # Media stack data (NFS mounted by K3s)
 │   ├── torrents/           # Download directory (qBittorrent)
 │   │   ├── movies/         # Radarr category
 │   │   ├── tv/             # Sonarr category
-│   │   └── incomplete/     # Partial downloads
+│   │   └── incomplete/     # Partial downloads (excluded from backup)
 │   └── library/            # Final media library
 │       ├── movies/         # Jellyfin/Radarr root
 │       └── tv/             # Jellyfin/Sonarr root
@@ -243,8 +226,7 @@ SnapRAID sync → daily 5 AM
 
 ```
 /mnt/minio-storage/
-├── longhorn-backups/       # Longhorn config volume backups
-├── restic-backups/         # Media stack restic backups
+├── restic-backups/         # k8s-apps and media restic backups
 └── cluster-logs/           # Future: Cluster log aggregation
 ```
 
@@ -386,33 +368,10 @@ nfs:
     - noatime
 
 storageClass:
-  name: nfs-media
-  defaultClass: false
+  name: nfs
+  defaultClass: true
   accessModes: ReadWriteMany
   reclaimPolicy: Retain
-```
-
-### Static NFS PersistentVolume
-
-**Media stack PV**:
-```yaml
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: media-stack-nfs
-spec:
-  capacity:
-    storage: 4Ti
-  accessModes:
-    - ReadWriteMany
-  persistentVolumeReclaimPolicy: Retain
-  storageClassName: nfs-media
-  mountOptions:
-    - nfsvers=4.2
-    - noatime
-  nfs:
-    server: beelink
-    path: /mnt/storage/media
 ```
 
 ### Application Integration Example
@@ -423,26 +382,16 @@ persistence:
   config:
     enabled: true
     type: persistentVolumeClaim
-    storageClass: longhorn  # Small config volume
+    storageClass: nfs  # Default NFS storage
     size: 1Gi
 
   data:
     enabled: true
     type: persistentVolumeClaim
-    existingClaim: media-stack-nfs  # Large NFS volume
+    storageClass: nfs
+    size: 500Gi
     globalMounts:
       - path: /data
-
-defaultPodOptions:
-  affinity:
-    nodeAffinity:
-      requiredDuringSchedulingIgnoredDuringExecution:
-        nodeSelectorTerms:
-          - matchExpressions:
-              - key: kubernetes.io/hostname
-                operator: In
-                values:
-                  - beelink  # Run on Beelink (NFS server)
 ```
 
 ### Hardlink Verification
@@ -644,6 +593,6 @@ kubectl exec -n media deployment/radarr -- ls -li /data/library/movie.mkv
 ## Related Documentation
 
 - [Project Structure](project-structure.md) - Variable configuration
-- [App Deployment Guide](app-deployment-guide.md) - Storage selection for apps
+- [App Deployment Guide](app-deployment-guide.md) - Storage usage for apps
 - [Disaster Recovery Guide](disaster-recovery.md) - Backup and restore procedures
 - [Beelink Storage Setup](beelink-storage-setup.md) - Hardware configuration

@@ -34,7 +34,7 @@ Jellyfin provides a Netflix-like web interface for streaming your media library 
 - **GpuDevicePlugin CR**: Shares GPU among up to 10 containers
 
 **Storage**:
-- **Longhorn**: Persistent config storage with automatic backups to MinIO
+- **Storage**: hostPath on beelink (/mnt/storage/k8s-apps)
 - **cert-manager**: TLS certificate for HTTPS ingress
 - **Traefik**: Ingress routing
 
@@ -143,7 +143,7 @@ kubectl logs -n media -l app.kubernetes.io/name=jellyfin --tail=200 | grep ffmpe
 ### Storage
 
 ```yaml
-config: 10Gi Longhorn PVC
+config: 10Gi hostPath volume
   /config/data/       # SQLite database, settings
   /config/cache/      # Metadata cache
   /config/transcodes/ # HLS segments (auto-cleaned)

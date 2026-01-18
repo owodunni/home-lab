@@ -172,18 +172,15 @@ ingress:
 persistence:
   config:
     enabled: true
-    type: persistentVolumeClaim
-    storageClass: longhorn
-    accessMode: ReadWriteOnce
-    size: 500Mi
-    retain: true
+    type: hostPath
+    hostPath: /mnt/storage/k8s-apps/qbittorrent
     globalMounts:
       - path: /config
 
   data:
     enabled: true
     type: hostPath
-    hostPath: /mnt/storage/media-media-stack-data
+    hostPath: /mnt/storage/media
     globalMounts:
       - path: /data
 

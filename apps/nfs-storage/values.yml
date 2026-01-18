@@ -11,8 +11,8 @@ nfs:
 
 # Storage class configuration
 storageClass:
-  name: nfs-media
-  defaultClass: false  # Don't make this the default (keep Longhorn as default)
+  name: nfs  # Simplified name (was nfs-media)
+  defaultClass: true  # Make this the cluster default (replacing Longhorn)
   accessModes: ReadWriteMany  # NFS supports RWX
   reclaimPolicy: Retain  # Keep data when PVC is deleted
   archiveOnDelete: false  # Don't move to archive directory on PVC delete

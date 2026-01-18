@@ -75,11 +75,11 @@ replicaCount: 1
 nodeSelector:
   kubernetes.io/os: linux
 
-# 4. Storage configuration
+# 4. Storage configuration (apps on beelink use hostPath)
 persistence:
   enabled: true
-  storageClassName: longhorn
-  size: 10Gi
+  type: hostPath
+  hostPath: /mnt/storage/k8s-apps/<app-name>
 
 # 5. Network configuration
 service:
@@ -195,27 +195,36 @@ tolerations:
 
 ## Storage Configuration
 
-### Using Longhorn
+### Using hostPath (Media Apps on Beelink)
 
-Standard Longhorn persistent volume pattern:
+Apps running on beelink use hostPath for direct storage access:
+
+```yaml
+persistence:
+  config:
+    enabled: true
+    type: hostPath
+    hostPath: /mnt/storage/k8s-apps/<app-name>
+    globalMounts:
+      - path: /config
+```
+
+### Using NFS (Apps on Control Plane)
+
+Apps running on control plane nodes use NFS storage class:
 
 ```yaml
 persistence:
   enabled: true
-  storageClassName: longhorn
-  accessMode: ReadWriteOnce  # Default for block storage
+  storageClassName: nfs
+  accessMode: ReadWriteOnce
   size: 10Gi
 ```
 
 ### Access Modes
 
 - **ReadWriteOnce** (RWO): Single pod write access - default for most apps
-- **ReadOnlyMany** (ROX): Multiple pods read access - for static content
-- **ReadWriteMany** (RWX): Multiple pods write access - requires NFS, use sparingly
-
-### Volume Reclaim Policy
-
-Longhorn uses `Retain` policy by default - volumes are not deleted when PVC is removed.
+- **ReadWriteMany** (RWX): Multiple pods write access - NFS supports this
 
 ## Ingress Configuration
 

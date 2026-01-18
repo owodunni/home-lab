@@ -77,13 +77,12 @@ spec:
           protocol: TCP
         - port: 9090
           protocol: TCP
-    # Longhorn storage metrics
+    # NFS access to beelink
     - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: longhorn-system
+        - ipBlock:
+            cidr: 192.168.1.76/32
       ports:
-        - port: 9500
+        - port: 2049
           protocol: TCP
 ---
 # ServiceAccount
@@ -191,8 +190,6 @@ data:
     title: Homelab Dashboard
     headerStyle: boxed
     providers:
-      longhorn:
-        url: http://longhorn-backend.longhorn-system.svc.cluster.local:9500
       prometheus:
         url: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
     layout:
@@ -250,8 +247,10 @@ data:
               url: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
               metrics:
                 - label: Used
-                  query: |
-                    100 - (node_filesystem_avail_bytes{instance="192.168.1.76:9100",mountpoint="/"} / node_filesystem_size_bytes{instance="192.168.1.76:9100",mountpoint="/"} * 100)
+                  query: >-
+                    100 - (node_filesystem_avail_bytes{instance="192.168.1.76:9100",mountpoint="/"}
+                    / node_filesystem_size_bytes{instance="192.168.1.76:9100",mountpoint="/"}
+                    * 100)
                   format:
                     type: number
                     suffix: "%"
@@ -266,8 +265,10 @@ data:
               url: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
               metrics:
                 - label: Used
-                  query: |
-                    100 - (node_filesystem_avail_bytes{instance="192.168.1.23:9100",mountpoint="/"} / node_filesystem_size_bytes{instance="192.168.1.23:9100",mountpoint="/"} * 100)
+                  query: >-
+                    100 - (node_filesystem_avail_bytes{instance="192.168.1.23:9100",mountpoint="/"}
+                    / node_filesystem_size_bytes{instance="192.168.1.23:9100",mountpoint="/"}
+                    * 100)
                   format:
                     type: number
                     suffix: "%"
@@ -282,8 +283,10 @@ data:
               url: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
               metrics:
                 - label: Used
-                  query: |
-                    100 - (node_filesystem_avail_bytes{instance="192.168.1.19:9100",mountpoint="/"} / node_filesystem_size_bytes{instance="192.168.1.19:9100",mountpoint="/"} * 100)
+                  query: >-
+                    100 - (node_filesystem_avail_bytes{instance="192.168.1.19:9100",mountpoint="/"}
+                    / node_filesystem_size_bytes{instance="192.168.1.19:9100",mountpoint="/"}
+                    * 100)
                   format:
                     type: number
                     suffix: "%"
@@ -298,8 +301,10 @@ data:
               url: http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
               metrics:
                 - label: Used
-                  query: |
-                    100 - (node_filesystem_avail_bytes{instance="192.168.1.13:9100",mountpoint="/"} / node_filesystem_size_bytes{instance="192.168.1.13:9100",mountpoint="/"} * 100)
+                  query: >-
+                    100 - (node_filesystem_avail_bytes{instance="192.168.1.13:9100",mountpoint="/"}
+                    / node_filesystem_size_bytes{instance="192.168.1.13:9100",mountpoint="/"}
+                    * 100)
                   format:
                     type: number
                     suffix: "%"
@@ -362,6 +367,22 @@ metadata:
     app.kubernetes.io/name: homepage
 data:
   proxmox.yaml: ""
+---
+# PersistentVolumeClaim for Homepage data
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: homepage-data
+  namespace: homepage
+  labels:
+    app.kubernetes.io/name: homepage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: nfs
+  resources:
+    requests:
+      storage: 100Mi
 ---
 # Deployment
 apiVersion: apps/v1
@@ -470,7 +491,8 @@ spec:
           configMap:
             name: homepage-proxmox
         - name: logs
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: homepage-data
       nodeSelector:
         kubernetes.io/os: linux
 ---

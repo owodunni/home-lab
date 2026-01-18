@@ -8,11 +8,11 @@ prometheus:
     storageSpec:
       volumeClaimTemplate:
         spec:
-          storageClassName: longhorn
+          storageClassName: nfs
           accessModes: ["ReadWriteOnce"]
           resources:
             requests:
-              storage: 10Gi
+              storage: 20Gi
     # Resource limits for Pi CM5 nodes
     resources:
       requests:
@@ -57,6 +57,7 @@ prometheus:
       gethomepage.dev/description: "Metrics & Monitoring"
       gethomepage.dev/group: "Monitoring"
       gethomepage.dev/icon: "prometheus.png"
+      gethomepage.dev/pod-selector: "app.kubernetes.io/name=prometheus"
     hosts:
       - prometheus.jardoole.xyz
     paths:
@@ -71,7 +72,7 @@ grafana:
   # Persistent storage for dashboards and data
   persistence:
     enabled: true
-    storageClassName: longhorn
+    storageClassName: nfs
     size: 5Gi
 
   # Resource limits
@@ -124,6 +125,7 @@ grafana:
       gethomepage.dev/description: "Metrics Visualization"
       gethomepage.dev/group: "Monitoring"
       gethomepage.dev/icon: "grafana.png"
+      gethomepage.dev/pod-selector: "app.kubernetes.io/name=grafana"
     hosts:
       - grafana.jardoole.xyz
     path: /
@@ -139,7 +141,7 @@ alertmanager:
     storage:
       volumeClaimTemplate:
         spec:
-          storageClassName: longhorn
+          storageClassName: nfs
           accessModes: ["ReadWriteOnce"]
           resources:
             requests:

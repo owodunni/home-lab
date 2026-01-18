@@ -147,7 +147,6 @@ uv run ansible-vault view group_vars/groupname/vault.yml
 ```yaml
 # MinIO credentials
 vault_minio_root_password: "***"
-vault_longhorn_backup_password: "***"
 
 # K3s cluster credentials
 vault_k3s_control_token: "***"
@@ -290,7 +289,7 @@ make app-status APP=<app-name>
    Brief description.
 
    ## Dependencies
-   - Longhorn (storage)
+   - NFS storage (persistent storage)
    - cert-manager (TLS)
 
    ## Access
@@ -310,9 +309,9 @@ make app-status APP=<app-name>
 - **All secrets use vault** - Reference `{{ vault_app_secret }}` pattern
 - **HTTPS ingress** - Use cert-manager annotations for auto TLS
 - **ResourceQuota compliance** - All containers MUST specify resource limits
-- **Persistent storage** - Use `storageClass: longhorn` for automatic backups to MinIO S3
-  - Daily backups (2 AM), weekly backups (Sunday 3 AM)
-  - See [Disaster Recovery Guide](docs/longhorn-disaster-recovery.md) for restore procedures
+- **Persistent storage** - Use `storageClass: nfs` (default) for NFS-backed storage
+  - Backed up via restic to MinIO S3 (daily 3 AM)
+  - See [Disaster Recovery Guide](docs/disaster-recovery.md) for restore procedures
 
 See [App Deployment Guide](docs/app-deployment-guide.md) for complete workflow.
 

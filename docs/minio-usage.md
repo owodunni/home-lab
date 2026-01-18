@@ -2,7 +2,7 @@
 
 ## Overview
 
-MinIO is deployed on pi-cm5-4 with 2TB XFS storage providing S3-compatible object storage for Longhorn backups and general use.
+MinIO is deployed on pi-cm5-4 with 2TB XFS storage providing S3-compatible object storage for restic backups and general use.
 
 ## Access Information
 
@@ -14,12 +14,12 @@ MinIO is deployed on pi-cm5-4 with 2TB XFS storage providing S3-compatible objec
 ## Buckets and Service Accounts
 
 ### Buckets
-- **longhorn-backups**: Private bucket with object locking for Kubernetes backups
+- **restic-backups**: Private bucket with object locking for Kubernetes backups
 - **cluster-logs**: Private bucket for log aggregation
 - **media-storage**: Read-write bucket for general file storage
 
 ### Service Accounts
-- **longhorn-backup**: Read-write access to longhorn-backups bucket
+- **longhorn-backup**: Read-write access to restic-backups bucket
 - **readonly-user**: Read-only access to media-storage bucket
 
 ## Web Console Access
@@ -64,7 +64,7 @@ mc rm homelab/media-storage/file.txt
 mc mirror /local/directory homelab/media-storage/backup/
 
 # List objects in bucket
-mc ls homelab/longhorn-backups --recursive
+mc ls homelab/restic-backups --recursive
 
 # Show bucket info and usage
 mc du homelab/media-storage
@@ -142,8 +142,8 @@ longhorn_client = boto3.client(
     region_name='us-east-1'
 )
 
-# Upload backup file (only works with longhorn-backups bucket)
-longhorn_client.upload_file('backup.tar.gz', 'longhorn-backups', 'backups/2025-01-01/backup.tar.gz')
+# Upload backup file (only works with restic-backups bucket)
+longhorn_client.upload_file('backup.tar.gz', 'restic-backups', 'backups/2025-01-01/backup.tar.gz')
 ```
 
 ## Monitoring and Maintenance
@@ -214,7 +214,7 @@ kind: Setting
 metadata:
   name: backup-target
 spec:
-  value: s3://longhorn-backups@us-east-1/
+  value: s3://restic-backups@us-east-1/
 
 ---
 apiVersion: longhorn.io/v1beta1
@@ -262,7 +262,7 @@ echo "Backup completed: configs.tar.gz uploaded to MinIO"
 ### Access Control
 - Use service accounts with minimal required permissions
 - Regularly rotate passwords and access keys
-- Enable object locking for critical buckets (longhorn-backups)
+- Enable object locking for critical buckets (restic-backups)
 - Monitor access logs for unusual activity
 
 ### Planned Security Enhancements
@@ -305,7 +305,7 @@ mc admin logs homelab --type audit
 
 After Phase 5 security enhancements are complete:
 - HTTPS access via custom domain names
-- Server-side encryption for longhorn-backups and cluster-logs
+- Server-side encryption for restic-backups and cluster-logs
 - Secure WireGuard-only access for remote management
 - Automated backup verification and integrity checks
 - Integration with monitoring stack for alerting

@@ -4,7 +4,7 @@ Configuration for automatic disk spin-down on MinIO NAS storage to reduce power 
 
 ## Overview
 
-The MinIO NAS (pi-cm5-4) uses 2x 2TB SATA HDDs for S3 backup storage. These drives are accessed infrequently (primarily for Longhorn and restic backups), making them ideal candidates for automatic spin-down to reduce power consumption and extend drive lifespan during idle periods.
+The MinIO NAS (pi-cm5-4) uses 2x 2TB SATA HDDs for S3 backup storage. These drives are accessed infrequently (primarily for restic backups), making them ideal candidates for automatic spin-down to reduce power consumption and extend drive lifespan during idle periods.
 
 **Power Savings:** ~11W during idle periods (both drives spun down)
 
@@ -154,7 +154,7 @@ This allows drives to remain spun down for up to 6 hours between scanner cycles,
 ### Backup Schedules
 
 The NAS drives are accessed during:
-- **Longhorn backups**: As configured in Longhorn System settings
+- **restic backups**: As configured in Longhorn System settings
 - **Restic backups from Beelink**: Daily at 3 AM
 - **SnapRAID sync**: Daily at 5 AM (MinIO NAS)
 

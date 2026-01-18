@@ -8,7 +8,7 @@ Jellyseerr provides a beautiful interface for users to request movies and TV sho
 
 ## Dependencies
 
-- **Longhorn**: For persistent configuration storage
+- **hostPath storage (on beelink)
 - **cert-manager**: For TLS certificates
 - **Traefik**: For ingress routing
 - **Jellyfin**: For authentication and library information
@@ -19,7 +19,7 @@ Jellyseerr provides a beautiful interface for users to request movies and TV sho
 
 ### Storage
 
-- **Config volume**: 500Mi Longhorn PVC for Jellyseerr database and settings
+- **Config volume**: 500Mi hostPath volume for Jellyseerr database and settings
 
 ### Resources
 

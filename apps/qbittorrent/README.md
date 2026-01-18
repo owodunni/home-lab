@@ -8,7 +8,7 @@ qBittorrent handles torrent downloads for the automated media pipeline. It integ
 
 ## Dependencies
 
-- **Longhorn**: For persistent configuration storage
+- **hostPath storage (on beelink)
 - **cert-manager**: For TLS certificates
 - **Traefik**: For ingress routing
 - **Media stack shared storage**: `media-stack-data` PVC (created by prerequisites)
@@ -17,7 +17,7 @@ qBittorrent handles torrent downloads for the automated media pipeline. It integ
 
 ### Storage
 
-- **Config volume**: 500Mi Longhorn PVC for qBittorrent settings and database
+- **Config volume**: 500Mi hostPath volume for qBittorrent settings and database
 - **Data volume**: Shared `media-stack-data` PVC (1TB) mounted at `/data`
   - `/data/torrents/movies/` - Movie downloads
   - `/data/torrents/tv/` - TV show downloads

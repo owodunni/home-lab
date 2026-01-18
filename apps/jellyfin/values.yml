@@ -88,18 +88,15 @@ ingress:
 persistence:
   config:
     enabled: true
-    type: persistentVolumeClaim
-    storageClass: longhorn
-    accessMode: ReadWriteOnce
-    size: 10Gi # Expanded from 2Gi to accommodate transcodes
-    retain: true
+    type: hostPath
+    hostPath: /mnt/storage/k8s-apps/jellyfin
     globalMounts:
       - path: /config
 
   media:
     enabled: true
     type: hostPath
-    hostPath: /mnt/storage/media-media-stack-data
+    hostPath: /mnt/storage/media
     globalMounts:
       - path: /media
 

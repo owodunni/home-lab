@@ -353,7 +353,7 @@ minio_mount_options: "defaults,noatime"
 - **MergerFS** pools data drives into single mount point
 - **SnapRAID** provides parity protection (daily sync at 5 AM)
 - **Expandable**: Add more HDDs via SATA or USB to increase capacity
-- **S3 backup target** for Longhorn config volumes and restic media backups
+- **S3 backup target** for restic backups (k8s-apps and media)
 
 #### host_vars/ (When to Use)
 Create `host_vars/hostname.yml` only for truly unique per-host settings:
@@ -365,45 +365,16 @@ cluster_role: primary
 
 ## Storage Architecture Strategy
 
-The infrastructure uses a **hybrid storage approach** that leverages the strengths of both Longhorn distributed storage and filesystem-based NFS storage.
+The infrastructure uses **NFS-based storage** backed by Beelink's MergerFS pool for all Kubernetes persistent volumes.
 
-### Storage Type Selection
+### Storage Overview
 
-**Use Longhorn for:**
-- **Application configs** (<10GB) - Database settings, metadata, small volumes
-- **Database volumes** - PostgreSQL, MySQL, MongoDB data directories
-- **Snapshots required** - Volumes needing point-in-time recovery
-- **Multi-node access** - Volumes with RWX (ReadWriteMany) requirements
-- **Examples**: Radarr config (1Gi), Jellyfin config (10Gi), PostgreSQL data (5Gi)
-
-**Use NFS (filesystem storage) for:**
-- **Large media volumes** (>50GB) - Movies, TV shows, photos, videos
-- **SSH access needed** - Data requiring manual file management
-- **Hardlink support** - Applications requiring same-filesystem hardlinks (media stack)
-- **Backup-friendly** - Large datasets needing incremental backups (restic)
-- **Examples**: Jellyfin media library (1TB+), Immich photos (500GB+), Nextcloud files (200GB+)
-
-### Why This Hybrid Approach?
-
-**Longhorn strengths:**
-- Kubernetes-native (PVC/PV integration)
-- Automatic snapshots and backups for small volumes
-- Works well for databases and configs (<10GB)
-- Disaster recovery tested and working
-
-**Longhorn limitations (discovered through 867GB data loss):**
-- Large volumes (>100GB) backup unreliability
-- Snapshot chain format makes data inaccessible without Longhorn engine
-- Cannot manually access data via SSH (must exec into pods)
-- Complex disaster recovery for large volumes
-
-**Filesystem (MergerFS + SnapRAID + NFS) strengths:**
-- Direct SSH access to files
-- Disk-level redundancy (survive single disk failure)
-- Easy expansion (add drives one at a time)
-- Incremental backups with restic (deduplication)
-- Simple disaster recovery (restic restore)
-- Better storage efficiency (parity vs 3x replication)
+**NFS Storage (default):**
+- **All persistent volumes** - Configs, databases, media, and application data
+- **Direct SSH access** - Manage files like normal filesystem
+- **Incremental backups** - restic with deduplication to MinIO S3
+- **Disk redundancy** - SnapRAID parity protection
+- **Easy expansion** - Add drives one at a time
 
 ### Architecture Diagram
 
@@ -411,21 +382,22 @@ The infrastructure uses a **hybrid storage approach** that leverages the strengt
 ┌────────────────────────────────────────────────────────────────┐
 │ K3s Cluster Storage                                            │
 │                                                                │
-│  Small Volumes (<10GB)          Large Volumes (>50GB)         │
-│  ┌──────────────┐                ┌──────────────┐            │
-│  │  Longhorn    │                │  NFS Storage │            │
-│  │  (RWO/RWX)   │                │  (RWX)       │            │
-│  └──────┬───────┘                └──────┬───────┘            │
-│         │                               │                     │
-│         │                               │                     │
-│    ┌────▼─────────────┐        ┌───────▼──────────┐         │
-│    │ Config Volumes:  │        │ Media Volumes:   │         │
-│    │ - radarr-config  │        │ - media-stack-nfs│         │
-│    │ - sonarr-config  │        │ - nextcloud-data │         │
-│    │ - jellyfin-config│        │ - immich-library │         │
-│    └──────────────────┘        └──────────────────┘         │
+│  ┌──────────────────────────────────────────────────────────┐ │
+│  │                    NFS Storage (default)                  │ │
+│  │                    Backed by Beelink MergerFS             │ │
+│  └──────────────────────────────────────────────────────────┘ │
+│                              │                                 │
+│         ┌────────────────────┴────────────────────┐           │
+│         │                                          │           │
+│    ┌────▼─────────────┐              ┌────────────▼────────┐  │
+│    │ /mnt/storage/    │              │ /mnt/storage/       │  │
+│    │ k8s-apps/        │              │ media/              │  │
+│    │ - app configs    │              │ - movies/tv         │  │
+│    │ - databases      │              │ - photos            │  │
+│    └──────────────────┘              └─────────────────────┘  │
 │                                                                │
-│  Backed up to MinIO S3 (daily)  Backed up via restic (daily) │
+│  Backed up via restic to MinIO S3 (daily 3 AM)                │
+│  SnapRAID parity protection (daily 4 AM)                      │
 └────────────────────────────────────────────────────────────────┘
 ```
 

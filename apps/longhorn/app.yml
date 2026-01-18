@@ -1,9 +1,0 @@
----
-# Longhorn deployment playbook
-- name: Deploy Longhorn
-  import_playbook: ../../playbooks/deploy-helm-app.yml
-  vars:
-    app_chart_file: "{{ inventory_dir }}/apps/longhorn/Chart.yml"
-    app_values_file: "{{ inventory_dir }}/apps/longhorn/values.yml"
-    prerequisites_playbook: "{{ inventory_dir }}/apps/longhorn/prerequisites.yml"
-    postinstall_playbook: "{{ inventory_dir }}/apps/longhorn/postinstall.yml"

@@ -8,7 +8,7 @@ Sonarr monitors TV show releases and automatically searches for, downloads, and 
 
 ## Dependencies
 
-- **Longhorn**: For persistent configuration storage
+- **hostPath storage (on beelink)
 - **cert-manager**: For TLS certificates
 - **Traefik**: For ingress routing
 - **Media stack shared storage**: `media-stack-data` PVC (created by prerequisites)
@@ -19,7 +19,7 @@ Sonarr monitors TV show releases and automatically searches for, downloads, and 
 
 ### Storage
 
-- **Config volume**: 1Gi Longhorn PVC for Sonarr database and settings
+- **Config volume**: 1Gi hostPath volume for Sonarr database and settings
 - **Data volume**: Shared `media-stack-data` PVC mounted at `/data`
   - `/data/media/tv/` - TV show library (root folder)
   - `/data/torrents/tv/` - Download destination

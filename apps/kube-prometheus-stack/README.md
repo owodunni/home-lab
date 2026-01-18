@@ -14,7 +14,7 @@ The kube-prometheus-stack provides a complete monitoring platform:
 
 ## Dependencies
 
-- **Longhorn**: For persistent storage (metrics data, Grafana dashboards)
+- **hostPath storage (on beelink) (metrics data, Grafana dashboards)
 - **cert-manager**: For TLS certificates (HTTPS access)
 - **Traefik**: For ingress routing
 - **vault_grafana_admin_password**: Vault variable for Grafana admin password
@@ -22,21 +22,21 @@ The kube-prometheus-stack provides a complete monitoring platform:
 ## Configuration
 
 ### Prometheus
-- **Storage**: 10Gi Longhorn persistent volume
+- **Storage**: 10Gi NFS persistent volume
 - **Retention**: Default 15 days
 - **Resource limits**: 200m-500m CPU, 512Mi-1Gi memory
 - **Scrape interval**: Default 30s
 - **HTTPS access**: https://prometheus.jardoole.xyz
 
 ### Grafana
-- **Storage**: 5Gi Longhorn persistent volume
+- **Storage**: 5Gi NFS persistent volume
 - **Resource limits**: 100m-200m CPU, 128Mi-256Mi memory
 - **Admin password**: From vault (vault_grafana_admin_password)
 - **Sidecar**: Auto-loads dashboards and datasources from ConfigMaps
 - **HTTPS access**: https://grafana.jardoole.xyz
 
 ### Alertmanager
-- **Storage**: 5Gi Longhorn persistent volume
+- **Storage**: 5Gi NFS persistent volume
 - **Resource limits**: 100m-200m CPU, 128Mi-256Mi memory
 - **Configuration**: Default alert routing (customize via AlertmanagerConfig CRDs)
 

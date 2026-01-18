@@ -1,28 +1,18 @@
 ---
-# Phase 4: Storage Systems (Longhorn + NFS)
-# Installs storage provisioners for persistent volumes:
-# - Longhorn: Default storage class for small volumes and configs
-# - NFS: Storage class for large media volumes backed by Beelink filesystem
+# Phase 4: Storage Systems (NFS)
+# Installs NFS storage provisioner for persistent volumes backed by Beelink filesystem
 
-- name: Phase 4a - Install Longhorn Prerequisites on All Nodes
+- name: Phase 4a - Install NFS Prerequisites on All Nodes
   hosts: k3s_cluster
   become: true
   gather_facts: true
 
   tasks:
-    - name: Install Longhorn prerequisites
+    - name: Install NFS client packages
       ansible.builtin.package:
         name:
-          - open-iscsi # Required for iSCSI block storage
-          - nfs-common # Required for RWX volumes (future)
-          - nfs-kernel-server
+          - nfs-common  # Required for NFS client mounts
         state: present
-
-    - name: Enable and start iscsid service
-      ansible.builtin.systemd:
-        name: iscsid
-        enabled: true
-        state: started
 
 - name: Phase 4b - Pre-deployment Verification
   hosts: control_plane
@@ -30,192 +20,49 @@
   gather_facts: true
   run_once: true
 
-  vars:
-    longhorn_namespace: "longhorn-system"
-    longhorn_chart_version: "1.10.0" # Latest stable as of 2025 november
-
   tasks:
     - name: Display Phase 4 overview
       ansible.builtin.debug:
         msg: |
-          Phase 4: Storage Systems (Longhorn + NFS)
-          ==========================================
-          - Install Longhorn {{ longhorn_chart_version }} distributed storage
+          Phase 4: Storage Systems (NFS)
+          ==============================
           - Install NFS subdir external provisioner
-          - Configure storage classes for different workload types
-          - Set up Longhorn UI access via Traefik ingress
+          - Configure NFS as default storage class
           - Verify storage system functionality
 
           Infrastructure:
-          - 1 worker node (beelink) with 4TB MergerFS pool at /mnt/storage
+          - NFS server: beelink (192.168.1.76) with 4TB MergerFS pool at /mnt/storage
           - 3 control plane nodes (pi-cm5-1,2,3)
 
           Storage Layout on Beelink:
-          - /mnt/storage/longhorn → Longhorn data (automatic backup to MinIO)
+          - /mnt/storage/k8s-apps → Kubernetes app configs (restic backup to MinIO)
           - /mnt/storage/media    → Media files (restic backup to MinIO)
-          - No backup overlap: separate S3 buckets
 
-          Storage Systems:
+          Storage System:
+          - NFS (default):
+            - ReadWriteMany (RWX) NFS-backed volumes
+            - Direct filesystem access via SSH
+            - Backed up via restic to MinIO S3
+            - SnapRAID parity for disaster recovery
+            - Best for: All persistent volume needs
 
-          Longhorn (default):
-          - Distributed block storage with automatic failover
-          - CSI-compliant dynamic volume provisioning
-          - Snapshot and backup capabilities to MinIO S3
-          - Web UI for management
-          - Best for: Small volumes, configs, databases
+    - name: Verify NFS server is accessible
+      ansible.builtin.command:
+        cmd: showmount -e beelink
+      register: nfs_exports
+      changed_when: false
+      failed_when: nfs_exports.rc != 0
 
-          NFS (nfs-media):
-          - ReadWriteMany (RWX) NFS-backed volumes
-          - Direct filesystem access via SSH
-          - Backed up via restic to MinIO S3
-          - SnapRAID parity for disaster recovery
-          - Best for: Large media, hardlinks, bulk data
-
-    - name: Verify Longhorn storage path exists on worker nodes
-      ansible.builtin.stat:
-        path: "{{ hostvars[item].longhorn_data_path | default('/var/lib/longhorn') }}"
-      register: longhorn_path
-      delegate_to: "{{ item }}"
-      loop: "{{ groups['workers'] }}"
-      failed_when: >
-        not longhorn_path.stat.exists or
-        not longhorn_path.stat.isdir
-
-    - name: Display storage path verification
+    - name: Display NFS exports verification
       ansible.builtin.debug:
         msg: |
-          ✓ Verified Longhorn storage paths on worker nodes
-          - Beelink: /mnt/storage/longhorn (MergerFS pool with SnapRAID parity)
-          - Backed up to MinIO S3 via Longhorn automatic backups
-          - Total storage capacity: ~4TB on {{ groups['workers'] | length }} node(s)
+          ✓ Verified NFS server is accessible
+          {{ nfs_exports.stdout }}
 
-- name: Phase 4c - Deploy Longhorn Application
-  import_playbook: ../../apps/longhorn/app.yml
-
-- name: "Phase 4c-1 - Disaster Recovery: Manual Longhorn System Restore"
-  hosts: control_plane
-  become: true
-  gather_facts: false
-  run_once: true
-
-  tasks:
-    - name: Display Longhorn System Restore Instructions
-      ansible.builtin.pause:
-        prompt: |
-
-          ═══════════════════════════════════════════════════════════════════════════════
-          ⚠️  MANUAL ACTION REQUIRED - Longhorn System Restore (Disaster Recovery Only)
-          ═══════════════════════════════════════════════════════════════════════════════
-
-          This step is ONLY needed if you are performing disaster recovery from backups.
-          If this is a fresh installation, simply press ENTER to continue.
-
-          DISASTER RECOVERY INSTRUCTIONS:
-          ───────────────────────────────────────────────────────────────────────────────
-
-          1. Open Longhorn UI in your browser:
-             → https://longhorn.jardoole.xyz
-
-          2. Navigate to "System Backup" in the left menu
-
-          3. Click "Restore Latest Backup" button
-             (Or select a specific backup date if needed)
-
-          4. Wait for system restore to complete
-             - This typically takes 1-2 minutes
-             - The UI will show "Restore completed successfully"
-
-          5. DO NOT manually restore individual volumes
-             - Volume restoration will be automated after this step
-
-          ═══════════════════════════════════════════════════════════════════════════════
-
-          When ready to continue:
-          - Fresh installation: Press ENTER now
-          - After system restore: Press ENTER when restore is complete
-
-          ═══════════════════════════════════════════════════════════════════════════════
-
-- name: Phase 4c-2 - Automatic Volume Recovery (After System Restore)
-  import_playbook: ../k8s/recover-volumes.yml
-
-- name: Phase 4d - Post-deployment Verification
-  hosts: control_plane
-  become: true
-  gather_facts: true
-  run_once: true
-
-  vars:
-    longhorn_namespace: "longhorn-system"
-    longhorn_chart_version: "1.10.0"
-
-  tasks:
-    - name: Get Longhorn system status
-      kubernetes.core.k8s_info:
-        api_version: v1
-        kind: Pod
-        namespace: "{{ longhorn_namespace }}"
-        label_selectors:
-          - app=longhorn-manager
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-      register: longhorn_pods
-
-    - name: Get storage classes
-      kubernetes.core.k8s_info:
-        api_version: storage.k8s.io/v1
-        kind: StorageClass
-        kubeconfig: /etc/rancher/k3s/k3s.yaml
-      register: storage_classes
-
-    - name: Verify default storage class exists
-      ansible.builtin.assert:
-        that:
-          - storage_classes.resources | selectattr('metadata.name', 'equalto', 'longhorn') | list | length == 1
-        fail_msg: "Longhorn default storage class not found!"
-        success_msg: "✓ Longhorn storage class created successfully"
-
-    - name: Display Phase 4 completion
-      ansible.builtin.debug:
-        msg: |
-          Phase 4 Complete: Storage Systems (Longhorn)
-          ============================================
-          ✓ Longhorn {{ longhorn_chart_version }} installed in {{ longhorn_namespace }} namespace
-          ✓ Longhorn manager pods: {{ longhorn_pods.resources | length }} running
-          ✓ Storage classes available: {{ storage_classes.resources | selectattr('metadata.name', 'match', '^longhorn.*') | list | length }}
-
-          Available storage classes:
-          {% for sc in storage_classes.resources %}
-          {% if 'longhorn' in sc.metadata.name %}
-          - {{ sc.metadata.name }}
-            Provisioner: {{ sc.provisioner }}
-            Reclaim Policy: {{ sc.reclaimPolicy }}
-            Default: {{ 'yes' if sc.metadata.name == 'longhorn' else 'no' }}
-          {% endif %}
-          {% endfor %}
-
-          Access Longhorn UI:
-          - https://longhorn.jardoole.xyz (via Traefik with TLS)
-
-          Storage Configuration:
-          - Replica count: 1 (matches 1 worker node with storage)
-          - Data locality: best-effort (prefer local node)
-          - Storage path: /mnt/storage/longhorn on Beelink (MergerFS pool)
-          - Total capacity: ~4TB shared with media
-
-          Backup Strategy:
-          - Longhorn automatic backups to s3://longhorn-backups (daily)
-          - SnapRAID parity protection (daily at 4 AM)
-          - No overlap with media backups (separate paths)
-
-          Next Steps:
-          - Install NFS provisioner for large media volumes
-          - Deploy applications with PersistentVolumeClaims
-          - Monitor storage usage in Longhorn UI
-
-- name: Phase 4e - Deploy NFS Storage Provisioner
+- name: Phase 4c - Deploy NFS Storage Provisioner
   import_playbook: ../../apps/nfs-storage/app.yml
 
-- name: Phase 4f - Storage Systems Verification
+- name: Phase 4d - Storage Systems Verification
   hosts: control_plane
   become: true
   gather_facts: false
@@ -239,13 +86,19 @@
         kubeconfig: /etc/rancher/k3s/k3s.yaml
       register: nfs_provisioner_pods
 
+    - name: Verify NFS storage class is default
+      ansible.builtin.assert:
+        that:
+          - all_storage_classes.resources | selectattr('metadata.name', 'equalto', 'nfs') | list | length == 1
+        fail_msg: "NFS storage class not found!"
+        success_msg: "✓ NFS storage class created successfully"
+
     - name: Display Phase 4 final summary
       ansible.builtin.debug:
         msg: |
-          Phase 4 Complete: Storage Systems (Longhorn + NFS)
-          ===================================================
-          ✓ Longhorn: Default storage class (RWO, replicated)
-          ✓ NFS: Large volume storage class (RWX, Beelink filesystem)
+          Phase 4 Complete: Storage Systems (NFS)
+          =======================================
+          ✓ NFS: Default storage class (RWX, Beelink filesystem)
 
           Storage classes available:
           {% for sc in all_storage_classes.resources %}
@@ -261,13 +114,9 @@
           - NFS Server: beelink
           - NFS Path: /mnt/storage
 
-          Backup Strategy (No Overlap):
-          - Longhorn data: /mnt/storage/longhorn → s3://longhorn-backups (automatic)
-          - Media files:   /mnt/storage/media    → s3://restic-backups (daily 3 AM)
-          - Redundancy:    SnapRAID parity for both paths (daily 4 AM)
+          Backup Strategy:
+          - k8s-apps: /mnt/storage/k8s-apps → s3://restic-backups (daily 3 AM)
+          - Media:    /mnt/storage/media    → s3://restic-backups (daily 3 AM)
+          - Redundancy: SnapRAID parity protection (daily 4 AM)
 
-          Storage Selection Guide:
-          - Use 'longhorn' for: Small volumes (<50GB), configs, databases
-          - Use 'nfs-media' for: Large media (>50GB), hardlinks, SSH access
-
-          Ready for application deployment with dual storage options!
+          Ready for application deployment with NFS storage!

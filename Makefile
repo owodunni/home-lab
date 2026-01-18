@@ -2,7 +2,7 @@
 # Fix macOS fork safety issue with Python 3.13 + Ansible multiprocessing
 ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
-.PHONY: help setup beelink-setup beelink-storage minio-storage nas-spindown backup-setup beelink-complete beelink-gpu-setup lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio minio-uninstall k3s k3s-check k3s-helm-setup k3s-teardown k3s-cluster k3s-cluster-check k3s-uninstall kubeconfig-update lint-apps app-deploy app-upgrade app-list app-status app-delete apps-deploy-all teardown teardown-check
+.PHONY: help setup beelink-setup beelink-storage minio-storage nas-spindown backup-setup beelink-complete beelink-gpu-setup lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio minio-uninstall k3s k3s-check k3s-helm-setup k3s-teardown kubeconfig-update verify-backups lint-apps app-deploy app-upgrade app-list app-status app-delete apps-deploy-all teardown teardown-check
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -163,7 +163,7 @@ kubeconfig-update: ## 🔑 Update local kubeconfig from control plane node
 	@echo "Testing connection..."
 	@kubectl cluster-info
 
-verify-backups: ## 🔍 Verify MinIO backups exist before disaster recovery
+verify-backups: ## 🔍 Verify restic backups exist in MinIO
 	@echo "Verifying MinIO backup availability..."
 	@echo ""
 	@echo "📦 Checking MinIO S3 service..."
@@ -171,24 +171,12 @@ verify-backups: ## 🔍 Verify MinIO backups exist before disaster recovery
 		(echo "❌ ERROR: MinIO not accessible at https://minio.jardoole.xyz" && exit 1)
 	@echo "✅ MinIO is accessible"
 	@echo ""
-	@echo "📋 Checking for Longhorn system backups..."
-	@uv run ansible pi-cm5-4 -a "sudo -u minio /usr/local/bin/mc ls myminio/longhorn-backups/backups/longhorn-system-backup/" 2>/dev/null | \
-		grep -E '\.zip$$' | tail -5 || \
-		(echo "❌ ERROR: No system backups found in MinIO!" && \
-		 echo "   Expected location: longhorn-backups/backups/longhorn-system-backup/" && \
-		 echo "   Cannot proceed with disaster recovery without backups." && exit 1)
+	@echo "📋 Checking for restic backups..."
+	@uv run ansible pi-cm5-4 -a "sudo -u minio /usr/local/bin/mc ls myminio/restic-backups/" 2>/dev/null || \
+		(echo "❌ ERROR: No restic backups found in MinIO!" && \
+		 echo "   Expected location: restic-backups/" && exit 1)
 	@echo ""
-	@echo "✅ System backups found (showing 5 most recent):"
-	@uv run ansible pi-cm5-4 -a "sudo -u minio /usr/local/bin/mc ls myminio/longhorn-backups/backups/longhorn-system-backup/" 2>/dev/null | \
-		grep -E '\.zip$$' | tail -5 | awk '{print "   " $$3, $$4, "-", $$6}'
-	@echo ""
-	@echo "✅ Backup verification complete - safe to proceed with recovery"
-
-recover-volumes: ## 🔄 Recover Released PVs after Longhorn System Restore
-	@echo "Recovering Released PersistentVolumes..."
-	@echo "This will rebind orphaned volumes after Longhorn System Restore"
-	@echo ""
-	$(ANSIBLE_PLAYBOOK) playbooks/k8s/recover-volumes.yml
+	@echo "✅ Backup verification complete"
 
 lint-apps: ## 📋 Lint and validate all app configurations
 	@echo "=== Linting YAML Files ==="

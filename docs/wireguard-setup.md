@@ -564,24 +564,24 @@ curl -I http://10.99.0.10:9000
 
 ### 6.2 Update Longhorn Settings
 
-1. Access Longhorn UI: `https://longhorn.jardoole.xyz`
+1. Access NFS storage: `https://beelink (SSH)`
 2. Navigate to **Settings → General**
 3. Find "Backup Target" setting
 4. Update value:
    ```
    # Before (local network):
-   s3://longhorn-backups@us-east-1/
+   s3://restic-backups@us-east-1/
    http://pi-cm5-4.local:9000
 
    # After (WireGuard):
-   s3://longhorn-backups@us-east-1/
+   s3://restic-backups@us-east-1/
    http://10.99.0.10:9000
    ```
 5. Click **Save**
 
 ### 6.3 Trigger Test Backup
 
-1. In Longhorn UI, select any volume (e.g., `prowlarr-config`)
+1. In NFS storage, select any volume (e.g., `prowlarr-config`)
 2. Click **Create Backup**
 3. Wait for backup to complete (5-10 minutes depending on size)
 4. Verify backup appears in MinIO:
@@ -590,7 +590,7 @@ curl -I http://10.99.0.10:9000
    ssh pi@10.99.0.10
 
    # List backups
-   mc ls minio/longhorn-backups/
+   mc ls minio/restic-backups/
    # Should show backup files
    ```
 

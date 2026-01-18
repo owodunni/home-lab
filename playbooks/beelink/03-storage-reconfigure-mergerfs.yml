@@ -249,11 +249,11 @@
       ansible.builtin.file:
         path: "{{ item }}"
         state: directory
-        mode: "0755"
+        mode: "0777"  # Permissive for K3s pods with different UIDs
         owner: root
         group: root
       loop:
-        - "{{ mergerfs_mount_point }}/longhorn"
+        - "{{ mergerfs_mount_point }}/k8s-apps"
         - "{{ mergerfs_mount_point }}/media"
 
     # ========================================================================

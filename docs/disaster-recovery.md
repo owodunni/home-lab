@@ -1,6 +1,6 @@
 # Disaster Recovery Guide
 
-This document covers disaster recovery procedures for the hybrid storage architecture (Longhorn + filesystem-based storage).
+This document covers disaster recovery procedures for NFS-based storage architecture.
 
 ## Table of Contents
 
@@ -11,29 +11,29 @@ This document covers disaster recovery procedures for the hybrid storage archite
   - [Scenario 2: Full Media Library Restore](#scenario-2-full-media-library-restore)
   - [Scenario 3: Beelink Disk Failure (SnapRAID)](#scenario-3-beelink-disk-failure-snapraid)
   - [Scenario 4: MinIO Disk Failure](#scenario-4-minio-disk-failure)
-  - [Scenario 5: Config Volume Restore (Longhorn)](#scenario-5-config-volume-restore-longhorn)
-  - [Scenario 6: Complete Cluster Rebuild](#scenario-6-complete-cluster-rebuild)
+  - [Scenario 5: Complete Cluster Rebuild](#scenario-5-complete-cluster-rebuild)
 - [Recovery Time Objectives](#recovery-time-objectives)
 - [Verification Procedures](#verification-procedures)
 
 ## Overview
 
-The home lab uses a **hybrid backup strategy**:
+The home lab uses a **unified backup strategy** with restic:
 
 | Storage Type | Backup Method | Target | Schedule | Retention |
 |--------------|---------------|--------|----------|-----------|
-| **NFS media volumes** (>50GB) | restic (incremental, deduplicated) | MinIO S3 (restic-backups) | Daily 3 AM | 7 daily, 4 weekly, 6 monthly |
+| **k8s-apps volumes** | restic (incremental, deduplicated) | MinIO S3 (restic-backups) | Daily 3 AM | 7 daily, 4 weekly, 6 monthly |
+| **NFS media volumes** | restic (incremental, deduplicated) | MinIO S3 (restic-backups) | Daily 3 AM | 7 daily, 4 weekly, 6 monthly |
 | **SnapRAID parity** (Beelink) | Parity sync | Local `/mnt/parity1` | Daily 4 AM | N/A (parity data) |
 | **SnapRAID parity** (MinIO) | Parity sync | Local `/mnt/minio-parity1` | Daily 5 AM | N/A (parity data) |
-| **Longhorn config volumes** (<10GB) | Longhorn backup | MinIO S3 (longhorn-backups) | Daily 2 AM, Weekly Sunday 3 AM | 7 daily, 4 weekly |
 
 ## Backup Architecture
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│ BEELINK (Media Storage)                                        │
+│ BEELINK (NFS Storage)                                          │
 │                                                                │
-│  /mnt/storage/media (4TB NFS)                                 │
+│  /mnt/storage/k8s-apps (app configs)                          │
+│  /mnt/storage/media (media files)                             │
 │       ↓                                                         │
 │  restic backup (3 AM)                                          │
 │       ↓                                                         │
@@ -42,16 +42,6 @@ The home lab uses a **hybrid backup strategy**:
 │  SnapRAID sync (4 AM)                                          │
 │       ↓                                                         │
 │  Local parity: /mnt/parity1                                    │
-└────────────────────────────────────────────────────────────────┘
-
-┌────────────────────────────────────────────────────────────────┐
-│ LONGHORN (Config Volumes)                                      │
-│                                                                │
-│  radarr-config, sonarr-config, jellyfin-config                │
-│       ↓                                                         │
-│  Longhorn backup (2 AM daily, 3 AM Sunday weekly)             │
-│       ↓                                                         │
-│  s3://minio/longhorn-backups/                                  │
 └────────────────────────────────────────────────────────────────┘
 
 ┌────────────────────────────────────────────────────────────────┐
@@ -249,60 +239,7 @@ snapraid sync
    curl -I https://minio.jardoole.xyz
    ```
 
-### Scenario 5: Config Volume Restore (Longhorn)
-
-**Use case**: Corrupted Radarr config, need to restore from Longhorn backup
-
-**Recovery time**: 10-15 minutes
-
-**Steps**:
-
-1. Scale down application:
-   ```bash
-   kubectl scale deployment -n media radarr --replicas=0
-   ```
-
-2. Delete PVC:
-   ```bash
-   kubectl delete pvc -n media radarr-config
-   ```
-
-3. Restore from Longhorn UI:
-   - Open https://longhorn.jardoole.xyz
-   - Navigate to "Backup" tab
-   - Find radarr-config backup
-   - Click "Restore" → Create new PV
-
-4. Create PVC bound to restored PV:
-   ```yaml
-   apiVersion: v1
-   kind: PersistentVolumeClaim
-   metadata:
-     name: radarr-config
-     namespace: media
-   spec:
-     storageClassName: longhorn
-     accessModes:
-       - ReadWriteOnce
-     resources:
-       requests:
-         storage: 1Gi
-     volumeName: pvc-radarr-config-restored  # From Longhorn UI
-   ```
-
-5. Scale up application:
-   ```bash
-   kubectl scale deployment -n media radarr --replicas=1
-   ```
-
-6. Verify application data:
-   ```bash
-   kubectl exec -n media deployment/radarr -- ls /config
-   ```
-
-**See also**: [Longhorn Disaster Recovery Guide](longhorn-disaster-recovery.md) for detailed Longhorn procedures.
-
-### Scenario 6: Complete Cluster Rebuild
+### Scenario 5: Complete Cluster Rebuild
 
 **Use case**: Total cluster failure, rebuild from scratch
 
@@ -333,27 +270,13 @@ snapraid sync
    make k3s
    ```
 
-#### Phase 2: Restore Config Volumes (30 minutes)
+#### Phase 2: Restore Data (2-3 hours)
 
-1. Access Longhorn UI: https://longhorn.jardoole.xyz
-
-2. Restore system backup:
-   - Navigate to "System Backup" tab
-   - Find most recent system backup
-   - Click "Restore" → Wait 1-2 minutes
-
-3. Verify volumes restored:
-   ```bash
-   kubectl get pv -n longhorn-system
-   ```
-
-#### Phase 3: Restore Media Data (2-3 hours)
-
-1. Restore media library from restic:
+1. Restore k8s-apps and media from restic:
    ```bash
    ssh beelink
    restic -r s3:https://minio.jardoole.xyz/restic-backups restore latest \
-     --target /mnt/storage/media
+     --target /mnt/storage
    ```
 
 2. Rebuild SnapRAID parity:
@@ -361,7 +284,7 @@ snapraid sync
    snapraid sync
    ```
 
-#### Phase 4: Redeploy Applications (30 minutes)
+#### Phase 3: Redeploy Applications (30 minutes)
 
 1. Deploy NFS provisioner:
    ```bash
@@ -379,7 +302,7 @@ snapraid sync
    kubectl get pvc -n media
    ```
 
-#### Phase 5: Validation
+#### Phase 4: Validation
 
 1. Test hardlinks:
    ```bash
@@ -408,13 +331,11 @@ snapraid sync
 | Full media restore | 2-6 hours | 24 hours | Minimal |
 | Beelink disk failure | 1-3 hours | None (parity recovery) | None if parity valid |
 | MinIO disk failure | 30 min - 1 hour | None (parity recovery) | None if parity valid |
-| Config volume restore | 10-15 minutes | 24 hours (daily backup) | Minimal |
-| Complete cluster rebuild | 3-4 hours | 24 hours | Minimal |
+| Complete cluster rebuild | 2-3 hours | 24 hours | Minimal |
 
 **Key assumptions**:
-- restic backups running daily at 3 AM
+- restic backups running daily at 3 AM (k8s-apps + media)
 - SnapRAID parity synced daily (4 AM Beelink, 5 AM MinIO)
-- Longhorn backups running daily at 2 AM
 - MinIO S3 storage accessible
 
 ## Verification Procedures
@@ -442,10 +363,6 @@ if [ $? -ne 0 ]; then
   echo "ERROR: SnapRAID status check failed"
   exit 1
 fi
-
-# Check Longhorn backups via API
-echo "=== Longhorn Backup Status ==="
-kubectl get volumebackups -n longhorn-system --sort-by=.metadata.creationTimestamp | tail -5
 
 echo "All backup checks passed!"
 ```
@@ -508,5 +425,4 @@ rm -rf /tmp/restore-test
 ## Related Documentation
 
 - [Storage Architecture Guide](storage-architecture.md) - Storage configuration details
-- [Longhorn Disaster Recovery Guide](longhorn-disaster-recovery.md) - Detailed Longhorn procedures
-- [Complete Disaster Recovery Guide](complete-disaster-recovery-guide.md) - Legacy guide for Longhorn-only setup
+- [App Deployment Guide](app-deployment-guide.md) - Application deployment with NFS storage

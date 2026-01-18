@@ -447,31 +447,31 @@ Internet (HTTPS:443)
 
 ### Phase 6: MinIO Migration (Week 9-10)
 
-**Goal**: Move MinIO offsite, update Longhorn backup target
+**Goal**: Move MinIO offsite, update restic backup target
 
 **Tasks**:
-1. Update Longhorn backup target to MinIO WireGuard IP:
+1. Update restic backup target to MinIO WireGuard IP:
    ```yaml
    # Before: http://pi-cm5-4.local:9000
    # After: http://10.99.0.10:9000
    ```
-2. Test Longhorn backup job (manual trigger)
+2. Test restic backup job (manual trigger)
 3. Verify backup appears in MinIO bucket
 4. Document MinIO WireGuard connection info for disaster recovery
 5. Physically move MinIO to offsite location
 6. Power on MinIO, verify WireGuard connection (`wg show`)
-7. Trigger full Longhorn backup suite
+7. Trigger full restic backup suite
 8. Monitor backup success
 
 **Success Criteria**:
-- Longhorn backups succeed via WireGuard VPN
+- restic backups succeed via WireGuard VPN
 - MinIO reachable from offsite location (WireGuard handshake active)
 - Backup data integrity verified (random restore test)
 - No public exposure of MinIO (port scan shows closed)
 
 **Rollback**:
 - Restore MinIO to local network
-- Revert Longhorn backup target to local IP
+- Revert restic backup target to local IP
 - Keep WireGuard configured for future retry
 
 ---
@@ -529,7 +529,7 @@ Internet (HTTPS:443)
 Each phase includes specific rollback procedures. General rollback principles:
 
 1. **Network changes**: Keep pfSense console access (physical keyboard/monitor)
-2. **Service changes**: Test Longhorn backups before AND after each phase
+2. **Service changes**: Test restic backups before AND after each phase
 3. **Configuration backup**: Export pfSense config before changes
 4. **Documentation**: Maintain "before" and "after" network diagrams
 
@@ -549,7 +549,7 @@ Each phase includes specific rollback procedures. General rollback principles:
    - Verify all peers show "latest handshake"
 
 3. **Backup Jobs** (Longhorn):
-   - Daily: Verify backup success (via Longhorn UI)
+   - Daily: Verify backup success (via NFS storage)
    - Weekly: Test restore of one PVC
    - Monthly: Full disaster recovery drill
 
@@ -693,7 +693,7 @@ wg show  # Verify MinIO handshake is recent (< 1 min)
 **Solutions**:
 - Verify MinIO WireGuard connection is up: check handshake on pfSense
 - Check pfSense WireGuard interface firewall rules (allow LAN → MinIO:9000,9001)
-- Verify Longhorn backup target URL updated to `http://10.99.0.10:9000`
+- Verify restic backup target URL updated to `http://10.99.0.10:9000`
 - Check MinIO credentials in Longhorn secret
 - Verify MinIO persistent keepalive (25s) is configured
 

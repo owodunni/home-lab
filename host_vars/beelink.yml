@@ -1,6 +1,6 @@
 ---
 # Beelink ME Mini N150 - K3s worker node configuration
-# Role: Dedicated storage worker for Longhorn distributed storage
+# Role: NFS storage server and media app host
 
 # K3s Configuration
 # =================
@@ -9,13 +9,12 @@ k3s_control_node: false
 
 # K3s Agent Labels
 # ================
-# Labels for workload scheduling and Longhorn storage provisioning
+# Labels for workload scheduling and storage affinity
 k3s_agent:
   node-label:
     - "node.kubernetes.io/instance-type=beelink-n150"
     - "topology.kubernetes.io/zone=homelab"
-    - "node.longhorn.io/create-default-disk=config"  # Longhorn auto-discovers /var/lib/longhorn
-    - "storage=longhorn"  # For storage-specific workload affinity
+    - "storage=nfs"  # NFS storage server
 
 # Unattended Upgrades
 # ===================

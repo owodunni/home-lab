@@ -10,96 +10,22 @@
 # RAM: 12-16GB LPDDR5-4800 (soldered)
 # Storage: 6x M.2 slots (2230/2242/2280) - up to 24TB capacity
 # Network: Dual 2.5G Ethernet + WiFi 6
-# Use case: Longhorn storage node for K3s cluster distributed storage
-
-# Longhorn Storage Configuration
-# ==============================
-# Uses persistent disk identifiers (WWN) to avoid device name changes
-# Defines the NVMe drives to be prepared for Longhorn storage
-# IMPORTANT: Fill in actual WWN identifiers after running:
-#   ssh beelink "ls -l /dev/disk/by-id/ | grep nvme"
-
-longhorn_storage_drives:
-  - device: /dev/disk/by-id/nvme-CT2000P310SSD8_24454C177944
-    label: LONGHORN1
-  - device: /dev/disk/by-id/nvme-CT2000P310SSD8_24454C37CB1B
-    label: LONGHORN2
-  - device: /dev/disk/by-id/nvme-CT2000P310SSD8_24454C40D38E
-    label: LONGHORN3
-
-# LUKS Encryption Configuration
-# =============================
-# Full disk encryption for data-at-rest security
-# Key file managed via ansible-vault for automatic unlock on boot
-
-# LUKS key file location (encrypted via ansible-vault)
-# The file group_vars/beelink_nas/luks.key is encrypted with ansible-vault
-# Ansible automatically decrypts it when copying to the server
-# inventory_dir points to the repository root where group_vars lives
-luks_key_file: "{{ inventory_dir }}/group_vars/beelink_nas/luks.key"
-
-# LVM Configuration
-# =================
-# Aggregate all encrypted drives into single volume group
-# Allows Longhorn to use all storage as one pool and enables future expansion
-
-# LVM volume group name
-lvm_volume_group: longhorn-vg
-
-# LVM logical volume name
-lvm_logical_volume: longhorn-lv
-
-# Use 100% of available space in volume group
-lvm_volume_size: 100%FREE
-
-# Filesystem Configuration
-# ========================
-# ext4 chosen over XFS for Longhorn compatibility and stability
-# - Longhorn officially recommends ext4
-# - Better stability under network issues (less corruption)
-# - Required for RWX volumes (longhorn-share-manager)
-# - Better small file performance (typical k8s workloads)
-
-longhorn_filesystem: ext4
-
-# Longhorn Configuration (MergerFS Architecture)
-# ================================================
-# Longhorn uses MergerFS pool at /mnt/storage/longhorn
-# Benefits:
-# - Part of MergerFS filesystem (SnapRAID parity protection)
-# - Easy SSH access if needed
-# - Separate backup path from media (no overlap with restic)
-#
-# Backup Strategy (No Double Backups):
-# - Longhorn: /mnt/storage/longhorn → s3://longhorn-backups (automatic daily)
-# - restic:   /mnt/storage/media    → s3://restic-backups (automatic daily)
-# - SnapRAID: Parity protection for both paths
-
-# Longhorn data path on Beelink (subdirectory of MergerFS pool)
-longhorn_data_path: /mnt/storage/longhorn
-
-# Storage reservation (leave some space for filesystem overhead)
-# Longhorn will use 90% of available space, leaving 10% as buffer
-longhorn_storage_reserved_percentage: 10
+# Use case: NFS storage server and media app host for K3s cluster
 
 # ============================================================================
-# MergerFS + SnapRAID Configuration (New Architecture)
+# MergerFS + SnapRAID Configuration
 # ============================================================================
-# This configuration replaces the Longhorn LVM setup with filesystem-based
-# storage using MergerFS for pooling and SnapRAID for parity protection.
+# Filesystem-based storage using MergerFS for pooling and SnapRAID for parity.
 #
 # Benefits:
 # - Direct SSH access to files (no need to exec into pods)
-# - Better backup reliability for large volumes (restic to MinIO S3)
+# - Reliable backups via restic to MinIO S3
 # - Easy expansion (add drives one at a time)
 # - Survive single disk failure (SnapRAID parity recovery)
-# - More efficient (4TB usable vs 2TB with Longhorn 3x replication)
+# - Efficient storage (4TB usable with 1 parity drive)
 
 # Storage Drives Configuration
 # ============================
-# Define individual drives for data and parity
-# IMPORTANT: Reuses existing LUKS-encrypted devices from Longhorn setup
-
 storage_drives:
   - device: /dev/disk/by-id/nvme-CT2000P310SSD8_24454C177944
     label: disk1
@@ -111,24 +37,11 @@ storage_drives:
     label: parity1
     mount_point: /mnt/parity1
 
-# LUKS Configuration (Updated for Individual Mounts)
-# ==================================================
-# Reuses existing LUKS keys, just changes device names for clarity
-#
-# NOTE: The old Longhorn setup used longhorn1_crypt, longhorn2_crypt, longhorn3_crypt
-# These will be recreated as disk1_crypt, disk2_crypt, parity1_crypt
-# This is handled by the reconfiguration playbook
+# LUKS Encryption Configuration
+# =============================
+# Full disk encryption for data-at-rest security
+luks_key_file: "{{ inventory_dir }}/group_vars/beelink_nas/luks.key"
 
-# Comment out old LUKS config (kept for reference)
-# luks_crypt_devices:
-#   - name: longhorn1_crypt
-#     device: "{{ longhorn_storage_drives[0].device }}"
-#   - name: longhorn2_crypt
-#     device: "{{ longhorn_storage_drives[1].device }}"
-#   - name: longhorn3_crypt
-#     device: "{{ longhorn_storage_drives[2].device }}"
-
-# New LUKS config for MergerFS + SnapRAID
 luks_crypt_devices:
   - name: disk1_crypt
     device: "{{ storage_drives[0].device }}"
@@ -139,7 +52,7 @@ luks_crypt_devices:
 
 # Filesystem Configuration
 # ========================
-storage_filesystem: ext4 # Consistent with Longhorn choice
+storage_filesystem: ext4
 storage_mount_options: "defaults,noatime"
 
 # MergerFS Configuration

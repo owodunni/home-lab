@@ -32,6 +32,18 @@ if [ ! -d "$BACKUP_SOURCE" ]; then
     exit 1
 fi
 
+# Backup k8s-apps directory (application configs)
+log "Backing up /mnt/storage/k8s-apps"
+restic -r "$RESTIC_REPO" backup /mnt/storage/k8s-apps \
+    --tag=k8s-apps \
+    --verbose 2>&1 | tee -a "$LOG_FILE"
+
+K8S_BACKUP_EXIT_CODE=${PIPESTATUS[0]}
+
+if [ $K8S_BACKUP_EXIT_CODE -ne 0 ]; then
+    log "WARNING: k8s-apps backup failed with exit code $K8S_BACKUP_EXIT_CODE"
+fi
+
 # Backup media directory
 log "Backing up $BACKUP_SOURCE to $RESTIC_REPO"
 restic -r "$RESTIC_REPO" backup "$BACKUP_SOURCE" \

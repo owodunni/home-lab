@@ -8,7 +8,7 @@ Prowlarr manages indexers and torrent trackers in one place, syncing them to Rad
 
 ## Dependencies
 
-- **Longhorn**: For persistent configuration storage
+- **hostPath storage (on beelink)
 - **cert-manager**: For TLS certificates
 - **Traefik**: For ingress routing
 - **Media stack shared storage**: `media-stack-data` PVC (created by prerequisites)
@@ -17,7 +17,7 @@ Prowlarr manages indexers and torrent trackers in one place, syncing them to Rad
 
 ### Storage
 
-- **Config volume**: 500Mi Longhorn PVC for Prowlarr settings and database
+- **Config volume**: 500Mi hostPath volume for Prowlarr settings and database
 
 ### Resources
 
