@@ -23,7 +23,6 @@ The included NetworkPolicy allows only:
 | Egress | 192.168.1.0/24 | 6443 | Kubernetes API (control plane) |
 | Egress | applications | 80, 443 | Service discovery |
 | Egress | monitoring | 80, 443, 9090 | Prometheus metrics |
-| Egress | longhorn-system | 9500 | Storage metrics |
 
 ## Features
 

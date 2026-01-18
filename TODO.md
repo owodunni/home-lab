@@ -29,7 +29,7 @@
 
 ### Access URLs
 - Jellyfin: https://jellyfin.jardoole.xyz
-- Longhorn: https://longhorn.jardoole.xyz
+- Homepage: https://home.jardoole.xyz
 - (All apps): https://{app}.jardoole.xyz
 
 ### Commands
@@ -51,9 +51,9 @@ wg show                            # WireGuard status
 
 **Must complete BEFORE network changes**
 
-- [ ] Test PVC restore (Longhorn → delete prowlarr-config → restore → verify)
+- [ ] Test restic restore (verify k8s-apps and media can be restored)
 - [ ] Document cluster state snapshot (save to vault_passwords/)
-- [ ] Verify Longhorn backup schedule active (daily 2am, weekly Sun 3am)
+- [ ] Verify restic backup schedule active (daily 3am)
 
 ---
 
@@ -245,13 +245,13 @@ wg show                            # WireGuard status
 
 📖 **Ref**: [docs/network-topology.md#phase-6](docs/network-topology.md#phase-6-minio-migration)
 
-- [ ] Update Longhorn backup target: `http://10.99.0.10:9000`
+- [ ] Update restic backup target to use WireGuard IP
 - [ ] Test backup via WireGuard (while MinIO still local)
 - [ ] Document MinIO WireGuard connection info (save to vault_passwords/)
 - [ ] Physically transport MinIO offsite
 - [ ] Verify WireGuard connection from offsite
 - [ ] Test MinIO S3 access: `curl http://10.99.0.10:9000`
-- [ ] Trigger full Longhorn backup suite
+- [ ] Trigger full restic backup
 - [ ] Port scan from internet (verify 9000/9001 closed)
 - [ ] Document offsite location details
 
@@ -284,7 +284,7 @@ wg show                            # WireGuard status
 ### Phase 14: Ongoing Monitoring
 
 **Daily**
-- [ ] Check Longhorn backup status
+- [ ] Check restic backup status
 - [ ] Review pfSense firewall logs
 
 **Weekly**
@@ -341,7 +341,7 @@ sudo wg-quick up homelab           # Connect VPN
 # K3s
 kubectl get nodes                  # Cluster health
 kubectl get pods -n media          # Media stack
-kubectl logs -n longhorn-system -l app=longhorn-backup-controller
+ssh beelink "restic snapshots"     # Check backup status
 
 # Verify split tunnel
 ip route | grep 192.168            # Should show VPN routes
@@ -357,8 +357,8 @@ curl ifconfig.me                   # Should show local IP (not home)
 ✅ Firewall rules enforced
 ✅ WireGuard VPN running
 ✅ MinIO offsite via WireGuard (persistent keepalive working)
-✅ Longhorn backups succeeding
-✅ PVC restore tested
+✅ restic backups succeeding
+✅ Restore tested (k8s-apps + media)
 ✅ Remote access working (laptop/phone)
 ✅ Documentation complete
 ✅ No service degradation

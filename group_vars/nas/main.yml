@@ -70,10 +70,6 @@ minio_server_env_extra: |
 
 # MinIO buckets for different use cases
 minio_buckets:
-  - name: longhorn-backups
-    policy: private
-    # Object locking for backup integrity
-    object_locking: true
   - name: restic-backups
     policy: private
     # Restic backup storage from Beelink
@@ -85,11 +81,6 @@ minio_buckets:
 
 # MinIO users for service accounts
 minio_users:
-  - name: longhorn-backup
-    password: "{{ vault_longhorn_backup_password }}"
-    buckets_acl:
-      - name: longhorn-backups
-        policy: read-write
   - name: restic-backup
     password: "{{ vault_restic_backup_password }}"
     buckets_acl:
@@ -103,10 +94,6 @@ minio_users:
 
 # MinIO service accounts (S3 API access keys)
 minio_service_accounts:
-  - user: longhorn-backup
-    access_key: "{{ vault_longhorn_s3_access_key }}"
-    secret_key: "{{ vault_longhorn_s3_secret_key }}"
-    description: "Longhorn backup S3 access"
   - user: restic-backup
     access_key: "{{ vault_restic_s3_access_key }}"
     secret_key: "{{ vault_restic_s3_secret_key }}"

@@ -37,7 +37,7 @@ User Request (Jellyseerr)
 **Critical Design**: All apps must mount `/data` from same PVC for hardlinks to work.
 
 ```
-/data/                      # Single 1TB Longhorn PVC (RWO)
+/data/                      # hostPath storage on Beelink (/mnt/storage/media)
 ├── torrents/              # Download directory
 │   ├── movies/           # qBittorrent category
 │   └── tv/               # qBittorrent category
@@ -692,8 +692,8 @@ After completing all steps, verify:
   # Backup all Helm releases
   helm list --all-namespaces > cluster-helm-releases.txt
 
-  # Document Longhorn S3 settings
-  # NFS storage → Setting → Backup Target → Note S3 URL and bucket
+  # Document restic backup settings
+  # ssh beelink "restic snapshots" to verify backup state
   ```
 
 - [ ] **Test Full Cluster Disaster Recovery** (OPTIONAL - high risk)
@@ -708,15 +708,13 @@ After completing all steps, verify:
 
   # Step 2: Restore infrastructure
   make cert-manager   # TLS certificate management
-  make longhorn       # Storage layer
+  make nfs-storage    # NFS provisioner
 
-  # Step 3: Configure same MinIO S3 backend in Longhorn
-  # NFS storage → Setting → Backup Target → Enter same S3 URL
-  # (Uses existing S3 bucket with all previous backups)
+  # Step 3: Restore app configs from restic
+  ssh beelink "restic restore latest --target /mnt/storage/k8s-apps"
 
-  # Step 4: Restore all config PVCs from S3
-  # NFS storage → Backup → Filter by namespace
-  # Restore each: jellyfin-config, radarr-config, sonarr-config, etc.
+  # Step 4: Restore media from restic (if needed)
+  ssh beelink "restic restore latest --target /mnt/storage/media"
 
   # Step 5: Redeploy all applications
   make app-deploy APP=jellyfin
@@ -884,10 +882,9 @@ kubectl rollout restart deployment/<app-name> -n media
 ### Expand Storage PVC
 
 ```bash
-# Edit PVC size
-kubectl edit pvc media-stack-data -n media
-# Change: storage: 1Ti → storage: 2Ti
-# Longhorn will auto-expand (online resize)
+# Storage is on Beelink MergerFS pool
+# To add more storage, add drives to MergerFS:
+ssh beelink "df -h /mnt/storage"
 ```
 
 ---
@@ -1038,9 +1035,9 @@ kubectl exec -n media deployment/radarr -- df -h /data
 2. **Short-term**: Expand PVC
 
    ```bash
-   kubectl edit pvc media-stack-data -n media
-   # Change: storage: 1Ti → storage: 2Ti
-   # Save and Longhorn will auto-expand
+   # Check available storage on Beelink
+   ssh beelink "df -h /mnt/storage"
+   # To add capacity, add drives to MergerFS pool
    ```
 
 3. **Long-term**: Configure aggressive seeding limits
@@ -1103,27 +1100,27 @@ kubectl exec -n media deployment/radarr -- df -h /data
 ### Storage Layout
 
 ```
-Beelink Node (6TB NVMe):
-└── Longhorn Volumes
-    ├── media-stack-data (1TB RWO) ← ALL APPS MOUNT THIS
-    │   ├── /data/torrents/movies/
-    │   ├── /data/torrents/tv/
-    │   ├── /data/media/movies/
-    │   └── /data/media/tv/
-    ├── radarr-config (1Gi) ← Backed up
-    ├── sonarr-config (1Gi) ← Backed up
-    ├── prowlarr-config (500Mi) ← Backed up
-    ├── qbittorrent-config (500Mi) ← Backed up
-    ├── jellyfin-config (2Gi) ← Backed up
-    ├── jellyfin-cache (5Gi) ← NOT backed up (transcoding cache)
-    └── jellyseerr-config (500Mi) ← Backed up
+Beelink Node (6TB NVMe via MergerFS):
+└── /mnt/storage (MergerFS pool)
+    ├── media/                    ← ALL APPS MOUNT THIS
+    │   ├── torrents/movies/
+    │   ├── torrents/tv/
+    │   ├── library/movies/
+    │   └── library/tv/
+    └── k8s-apps/                 ← App configs (backed up)
+        ├── radarr-config/
+        ├── sonarr-config/
+        ├── prowlarr-config/
+        ├── qbittorrent-config/
+        ├── jellyfin-config/
+        └── jellyseerr-config/
 ```
 
 **Backup Strategy**:
 
-- Config volumes: Backed up via Longhorn (daily/weekly)
-- Media volume: NOT backed up (too large 1TB+, replaceable)
-- Recovery: Restore configs, re-import or re-download media
+- App configs: Backed up via restic to MinIO S3 (daily 3 AM)
+- Media files: Backed up via restic to MinIO S3 (daily 3 AM)
+- Recovery: Restore from restic snapshots, redeploy apps
 
 ### Network Architecture
 
@@ -1167,7 +1164,7 @@ Pod-to-Internet (Egress):
 - [x] ✅ Jellyfin accessible: <https://jellyfin.jardoole.xyz>
 - [x] ✅ Jellyseerr accessible: <https://jellyseerr.jardoole.xyz>
 - [x] ✅ All API integrations working (Prowlarr ↔ Radarr/Sonarr ↔ qBittorrent)
-- [x] ✅ Backups configured: Longhorn daily/weekly for configs
+- [x] ✅ Backups configured: restic daily to MinIO S3
 - [ ] ⚠️ Backup restore testing pending (see Backup & Disaster Recovery Testing section)
 - [x] ✅ Documentation complete: README + runbooks
 - [x] ✅ Hardware transcoding enabled (Intel QuickSync QSV with oneVPL)
@@ -1177,7 +1174,7 @@ Pod-to-Internet (Egress):
 - **Request-to-Available**: < 30 minutes (typical movie)
 - **Playback Start**: < 5 seconds (direct play, no transcoding)
 - **Storage Efficiency**: ~50% savings via hardlinks (1 copy vs 2)
-- **Uptime**: 99%+ (no single point of failure with Longhorn replication)
+- **Uptime**: 99%+ (NFS storage with SnapRAID parity protection)
 
 ### Recovery Objectives
 
@@ -1193,7 +1190,7 @@ Pod-to-Internet (Egress):
 ✅ **Architecture**: 6-app stack, API-driven automation, hardlinks for efficiency
 ✅ **Storage**: Single RWO PVC (1TB) on Beelink, all pods node-affinitized
 ✅ **Integration**: Jellyseerr (front-end) → Arr apps (automation) → qBittorrent (downloads) → Jellyfin (streaming)
-✅ **Backup**: Longhorn daily/weekly for configs, media NOT backed up (replaceable)
+✅ **Backup**: restic daily for configs and media to MinIO S3
 ✅ **Access**: All apps public HTTPS with TLS. Future: Keycloak SSO for admin apps
 ✅ **Hardlinks**: Critical for efficiency - all apps MUST mount same `/data` PVC
 

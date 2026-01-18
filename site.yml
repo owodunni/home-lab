@@ -112,8 +112,7 @@
           - Beelink storage: ssh beelink "ls /mnt/storage"
 
           Storage Classes Available:
-          - nfs-media: Large volumes, RWX, direct filesystem access
-          - longhorn: Config volumes, snapshots, distributed storage
+          - nfs: Default storage class, RWX, NFS-backed persistent storage
 
           Next Steps:
           1. Test K3s cluster: kubectl get nodes

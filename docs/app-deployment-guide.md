@@ -474,7 +474,7 @@ Deployed applications:
 NAME            NAMESPACE       REVISION    UPDATED                             STATUS      CHART           APP VERSION
 test-app        applications    1           2025-11-03 18:30:45 +0100 CET       deployed    nginx-18.2.5    1.27.3
 cert-manager    cert-manager    1           2025-11-03 07:00:15 +0100 CET       deployed    cert-manager... v1.13.2
-longhorn        longhorn-system 1           2025-11-03 06:58:43 +0100 CET       deployed    longhorn-1.10.0 v1.10.0
+nfs-storage     nfs-storage     1           2025-11-03 06:58:43 +0100 CET       deployed    nfs-subdir...   4.0.18
 ```
 
 **When to use:** To see what apps are currently deployed and their versions.

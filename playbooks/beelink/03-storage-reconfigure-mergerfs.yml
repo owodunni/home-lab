@@ -3,13 +3,8 @@
 # DESTRUCTIVE: Converts LUKS+LVM setup to MergerFS + SnapRAID
 # Architecture: 3x NVMe drives → LUKS → individual ext4 → MergerFS pool + SnapRAID parity
 #
-# WARNING: This playbook will DESTROY all data in /var/lib/longhorn
-# Ensure you have a final backup before running this playbook!
-#
-# Prerequisites:
-# - Final Longhorn backup of media-stack-data completed
-# - Media stack scaled down (kubectl scale deployment -n media --all --replicas=0)
-# - Backup verified in MinIO
+# WARNING: This playbook will DESTROY existing storage data!
+# Ensure you have backups before running this playbook!
 
 - name: Reconfigure Beelink storage for MergerFS + SnapRAID
   hosts: beelink
@@ -25,19 +20,17 @@
           ║ This playbook will DESTROY all data on Beelink storage!     ║
           ║                                                              ║
           ║ Before proceeding, verify:                                  ║
-          ║  ✓ Final Longhorn backup completed                          ║
+          ║  ✓ All important data is backed up                          ║
           ║  ✓ Media stack scaled to 0 replicas                         ║
           ║  ✓ Backup accessible in MinIO S3                            ║
           ║                                                              ║
           ║ This operation:                                             ║
           ║  • Stops K3s agent on Beelink                               ║
-          ║  • Unmounts /var/lib/longhorn                               ║
-          ║  • Removes LVM volume group and logical volume              ║
           ║  • Creates individual ext4 filesystems (reuses LUKS)        ║
           ║  • Installs MergerFS and SnapRAID                           ║
           ║  • Configures NFS exports                                   ║
           ║                                                              ║
-          ║ Recovery: If you need to abort, restore from backup         ║
+          ║ Recovery: If you need to abort, restore from restic backup  ║
           ║           See docs/disaster-recovery.md                     ║
           ╚══════════════════════════════════════════════════════════════╝
 
@@ -45,7 +38,7 @@
 
   tasks:
     # ========================================================================
-    # Phase 1: Stop K3s and Remove Longhorn Setup
+    # Phase 1: Stop K3s and Prepare for Storage Reconfiguration
     # ========================================================================
 
     - name: Stop K3s agent service
@@ -53,34 +46,6 @@
         name: k3s-agent
         state: stopped
       failed_when: false  # Service might not exist yet
-
-    - name: Unmount Longhorn storage
-      ansible.posix.mount:
-        path: /var/lib/longhorn
-        state: unmounted
-      failed_when: false  # Mount might not exist
-
-    - name: Remove LVM logical volume
-      community.general.lvol:
-        vg: "{{ lvm_volume_group }}"
-        lv: "{{ lvm_logical_volume }}"
-        state: absent
-        force: true
-      when: lvm_volume_group is defined and lvm_logical_volume is defined
-      failed_when: false  # LV might not exist
-
-    - name: Remove LVM volume group
-      community.general.lvg:
-        vg: "{{ lvm_volume_group }}"
-        state: absent
-      when: lvm_volume_group is defined
-      failed_when: false  # VG might not exist
-
-    - name: Remove /var/lib/longhorn from fstab
-      ansible.posix.mount:
-        path: /var/lib/longhorn
-        state: absent
-      failed_when: false  # Entry might not exist
 
     # ========================================================================
     # Phase 2: Setup Individual Encrypted Filesystems

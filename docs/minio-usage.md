@@ -19,7 +19,7 @@ MinIO is deployed on pi-cm5-4 with 2TB XFS storage providing S3-compatible objec
 - **media-storage**: Read-write bucket for general file storage
 
 ### Service Accounts
-- **longhorn-backup**: Read-write access to restic-backups bucket
+- **restic-backup**: Read-write access to restic-backups bucket
 - **readonly-user**: Read-only access to media-storage bucket
 
 ## Web Console Access
@@ -132,18 +132,18 @@ for obj in response.get('Contents', []):
 
 ### Service Account Usage
 ```python
-# Use longhorn-backup service account
-longhorn_client = boto3.client(
+# Use restic-backup service account
+restic_client = boto3.client(
     's3',
     endpoint_url='http://pi-cm5-4.local:9000',
-    aws_access_key_id='longhorn-backup',
-    aws_secret_access_key='[longhorn_backup_password]',
+    aws_access_key_id='restic-backup',
+    aws_secret_access_key='[restic_backup_password]',
     config=Config(signature_version='s3v4'),
     region_name='us-east-1'
 )
 
 # Upload backup file (only works with restic-backups bucket)
-longhorn_client.upload_file('backup.tar.gz', 'restic-backups', 'backups/2025-01-01/backup.tar.gz')
+restic_client.upload_file('backup.tar.gz', 'restic-backups', 'backups/2025-01-01/backup.tar.gz')
 ```
 
 ## Monitoring and Maintenance
@@ -204,37 +204,16 @@ mc admin policy attach homelab readonly-policy --user newuser
 
 ## Integration Examples
 
-### Longhorn Backup Configuration
+### Restic Backup Configuration
 
-When setting up Longhorn in Phase 7, use this configuration:
+Restic backups are configured on the Beelink server to back up `/mnt/storage/k8s-apps` and `/mnt/storage/media` to MinIO S3. See `playbooks/beelink/04-restic-backup-setup.yml` for configuration details.
 
-```yaml
-apiVersion: longhorn.io/v1beta1
-kind: Setting
-metadata:
-  name: backup-target
-spec:
-  value: s3://restic-backups@us-east-1/
+```bash
+# Check backup status on Beelink
+ssh beelink "restic snapshots"
 
----
-apiVersion: longhorn.io/v1beta1
-kind: Setting
-metadata:
-  name: backup-target-credential-secret
-spec:
-  value: minio-credentials
-
----
-# Kubernetes secret for MinIO access
-apiVersion: v1
-kind: Secret
-metadata:
-  name: minio-credentials
-  namespace: longhorn-system
-data:
-  AWS_ACCESS_KEY_ID: [base64_encoded_longhorn_backup_user]
-  AWS_SECRET_ACCESS_KEY: [base64_encoded_longhorn_backup_password]
-  AWS_ENDPOINTS: aHR0cDovL3BpLWNtNS00LmxvY2FsOjkwMDA=  # http://pi-cm5-4.local:9000
+# Restore a specific snapshot
+ssh beelink "restic restore latest --target /mnt/storage/k8s-apps"
 ```
 
 ### Backup Scripts

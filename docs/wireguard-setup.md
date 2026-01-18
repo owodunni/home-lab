@@ -177,7 +177,7 @@ Allow WireGuard clients to access home network:
    - **Description**: `Allow admin clients full access`
 4. Click **Save**
 
-#### Rule 2: Allow LAN VLAN to MinIO (Longhorn Backups)
+#### Rule 2: Allow LAN VLAN to MinIO (Restic Backups)
 
 1. Click **Add**
 2. Settings:
@@ -546,15 +546,15 @@ qrencode -t ansiutf8 < ~/wireguard-keys/phone.conf
 
 ---
 
-## Part 6: Update Longhorn Backup Target
+## Part 6: Update Restic Backup Target
 
-Now that MinIO is accessible via WireGuard, update Longhorn to use WireGuard IP.
+Now that MinIO is accessible via WireGuard, update restic on Beelink to use WireGuard IP.
 
-### 6.1 Test MinIO Connectivity from K3s
+### 6.1 Test MinIO Connectivity from Beelink
 
 ```bash
-# SSH to any K3s node
-ssh pi@192.168.92.11
+# SSH to Beelink
+ssh beelink
 
 # Test MinIO S3 API access via WireGuard
 curl -I http://10.99.0.10:9000
@@ -562,39 +562,40 @@ curl -I http://10.99.0.10:9000
 # Expected: HTTP 403 or 400 (connection works, S3 auth error expected)
 ```
 
-### 6.2 Update Longhorn Settings
+### 6.2 Update Restic Configuration
 
-1. Access NFS storage: `https://beelink (SSH)`
-2. Navigate to **Settings → General**
-3. Find "Backup Target" setting
-4. Update value:
+1. SSH to Beelink: `ssh beelink`
+2. Edit the restic environment file:
+   ```bash
+   sudo nano /etc/restic/restic.env
+   ```
+3. Update the S3 endpoint:
    ```
    # Before (local network):
-   s3://restic-backups@us-east-1/
-   http://pi-cm5-4.local:9000
+   AWS_S3_ENDPOINT=http://pi-cm5-4.local:9000
 
    # After (WireGuard):
-   s3://restic-backups@us-east-1/
-   http://10.99.0.10:9000
+   AWS_S3_ENDPOINT=http://10.99.0.10:9000
    ```
-5. Click **Save**
+4. Save and exit
 
 ### 6.3 Trigger Test Backup
 
-1. In NFS storage, select any volume (e.g., `prowlarr-config`)
-2. Click **Create Backup**
-3. Wait for backup to complete (5-10 minutes depending on size)
-4. Verify backup appears in MinIO:
-   ```bash
-   # SSH to MinIO
-   ssh pi@10.99.0.10
+```bash
+# SSH to Beelink
+ssh beelink
 
-   # List backups
-   mc ls minio/restic-backups/
-   # Should show backup files
-   ```
+# Run manual backup
+sudo systemctl start restic-backup.service
 
-**Success**: Longhorn now backs up to MinIO via WireGuard!
+# Check status
+sudo systemctl status restic-backup.service
+
+# Verify backup in MinIO
+restic snapshots
+```
+
+**Success**: Restic now backs up to MinIO via WireGuard!
 
 ---
 
@@ -934,7 +935,7 @@ For restrictive networks that block UDP 51820:
 
 - [Network Topology](network-topology.md) - Overall network design with WireGuard
 - [VLAN Configuration](vlan-configuration.md) - pfSense and Ubiquiti VLAN setup
-- [Longhorn Disaster Recovery](longhorn-disaster-recovery.md) - Backup restore procedures
+- [Disaster Recovery](disaster-recovery.md) - Backup restore procedures
 - [pfSense Integration Architecture](pfsense-integration-architecture.md) - Port forwarding and SSL setup
 
 **Official WireGuard Docs**:

@@ -11,8 +11,8 @@
 - name: Phase 1 - Initial Setup (passwordless sudo)
   import_playbook: 01-initial-setup.yml
 
-- name: Phase 2 - Storage Configuration (LUKS encrypted LVM)
-  import_playbook: 02-storage-config.yml
+- name: Phase 2 - Storage Configuration (MergerFS + SnapRAID)
+  import_playbook: 03-storage-reconfigure-mergerfs.yml
 
 - name: Phase 3 - GPU Drivers Setup (Intel QuickSync)
   import_playbook: 03-gpu-drivers-setup.yml

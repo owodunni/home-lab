@@ -154,8 +154,7 @@ This allows drives to remain spun down for up to 6 hours between scanner cycles,
 ### Backup Schedules
 
 The NAS drives are accessed during:
-- **restic backups**: As configured in Longhorn System settings
-- **Restic backups from Beelink**: Daily at 3 AM
+- **Restic backups from Beelink**: Daily at 3 AM (k8s-apps and media)
 - **SnapRAID sync**: Daily at 5 AM (MinIO NAS)
 
 Between these scheduled operations, drives will automatically spin down after 30 minutes of inactivity.

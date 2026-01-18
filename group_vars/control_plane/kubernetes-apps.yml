@@ -55,7 +55,6 @@ internal_services_subdomain: "internal"
 # Future service configurations (commented out for initial deployment)
 # grafana_certificate_name: "grafana-internal-tls"
 # prometheus_certificate_name: "prometheus-internal-tls"
-# longhorn_certificate_name: "longhorn-internal-tls"
 
 # Kubernetes cluster resource limits for home lab
 k8s_default_resources:

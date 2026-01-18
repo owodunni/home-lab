@@ -4,11 +4,10 @@
 # Architecture: 2x HDDs → XFS → MergerFS pool (1 data) + SnapRAID parity
 #
 # WARNING: This playbook will require MinIO downtime
-# Ensure Longhorn backups are accessible before running
 #
 # Prerequisites:
 # - MinIO is currently running and accessible
-# - Backup data verified (Longhorn backups accessible)
+# - Backup data verified
 
 - name: Reconfigure MinIO storage for MergerFS + SnapRAID
   hosts: nas

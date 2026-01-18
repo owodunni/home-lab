@@ -127,7 +127,7 @@ graph TB
     WG -.->|VPN Access| CM5-2
     WG -.->|VPN Access| CM5-3
     WG -.->|VPN Access| Beelink
-    WG -.->|Longhorn Backups<br/>S3 API| MinIO
+    WG -.->|Restic Backups<br/>S3 API| MinIO
 
     style PF fill:#f9f,stroke:#333,stroke-width:4px
     style Switch fill:#bbf,stroke:#333,stroke-width:2px
@@ -548,9 +548,9 @@ Each phase includes specific rollback procedures. General rollback principles:
    - Monitor MinIO keepalive (should be < 1 min ago)
    - Verify all peers show "latest handshake"
 
-3. **Backup Jobs** (Longhorn):
-   - Daily: Verify backup success (via NFS storage)
-   - Weekly: Test restore of one PVC
+3. **Backup Jobs** (restic):
+   - Daily: Verify backup success (`ssh beelink "restic snapshots"`)
+   - Weekly: Test restore of one directory
    - Monthly: Full disaster recovery drill
 
 4. **Network Performance**:
@@ -675,16 +675,16 @@ ip route | grep 192.168  # Verify routes installed
 - Check pfSense WireGuard interface firewall rules (allow laptop IP → LANs)
 - Verify pfSense routes traffic between WireGuard interface and VLANs
 
-#### 4. Longhorn Backup Fails After MinIO Migration
+#### 4. Restic Backup Fails After MinIO Migration
 
 **Symptoms**: Backup job shows error, cannot connect to MinIO
 
 **Diagnosis**:
 ```bash
-# From K3s node
+# From Beelink
 curl http://10.99.0.10:9000  # Test MinIO connectivity via WireGuard
 ping 10.99.0.10  # Test WireGuard connectivity to MinIO
-kubectl logs -n longhorn-system <backup-pod>
+ssh beelink "systemctl status restic-backup.timer"
 
 # From pfSense
 wg show  # Verify MinIO handshake is recent (< 1 min)
@@ -693,8 +693,8 @@ wg show  # Verify MinIO handshake is recent (< 1 min)
 **Solutions**:
 - Verify MinIO WireGuard connection is up: check handshake on pfSense
 - Check pfSense WireGuard interface firewall rules (allow LAN → MinIO:9000,9001)
-- Verify restic backup target URL updated to `http://10.99.0.10:9000`
-- Check MinIO credentials in Longhorn secret
+- Verify restic S3 endpoint updated to `http://10.99.0.10:9000`
+- Check restic environment variables for S3 credentials
 - Verify MinIO persistent keepalive (25s) is configured
 
 ---
@@ -705,7 +705,7 @@ wg show  # Verify MinIO handshake is recent (< 1 min)
 - [WireGuard Setup Guide](wireguard-setup.md) - Detailed WireGuard VPN configuration
 - [VLAN Configuration Guide](vlan-configuration.md) - pfSense and Ubiquiti VLAN setup
 - [UniFi Controller Deployment](unifi-controller-deployment.md) - Deploy controller on K3s
-- [Longhorn Disaster Recovery](longhorn-disaster-recovery.md) - Backup and restore procedures
+- [Disaster Recovery](disaster-recovery.md) - Backup and restore procedures
 - [Project Structure](project-structure.md) - Overall project architecture
 
 ---
