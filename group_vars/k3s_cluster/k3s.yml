@@ -8,8 +8,9 @@ k3s_become: true
 
 # HA Configuration - Control node setting now handled per-host in inventory
 # Custom manifests deployed to K3s server nodes
+# Path is relative to playbook directory (playbooks/k3s/)
 k3s_server_manifests_templates:
-  - traefik-config.yml.j2
+  - ../../manifests/templates/traefik-config.yml.j2
 
 # HA etcd configuration - handled per-node in host_vars
 
