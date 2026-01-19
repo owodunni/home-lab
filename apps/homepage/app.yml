@@ -1,19 +1,40 @@
 ---
+# Homepage Dashboard deployment playbook
+# Uses raw Kubernetes manifests instead of Helm
 - name: Deploy Homepage Dashboard
-  hosts: localhost
+  hosts: control_plane
+  become: true
   gather_facts: false
+  run_once: true
+
   tasks:
     - name: Apply Homepage manifests
-      ansible.builtin.command:
-        cmd: kubectl apply -f {{ playbook_dir }}/manifests.yml
-      changed_when: true
+      kubernetes.core.k8s:
+        definition: "{{ item }}"
+        state: present
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      loop: "{{ lookup('file', inventory_dir + '/apps/homepage/manifests.yml') | from_yaml_all | select | list }}"
+      loop_control:
+        label: "{{ item.kind }}/{{ item.metadata.name }}"
 
     - name: Restart deployment to pick up ConfigMap changes
-      ansible.builtin.command:
-        cmd: kubectl rollout restart deployment/homepage -n homepage
-      changed_when: true
+      kubernetes.core.k8s:
+        state: absent
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        api_version: v1
+        kind: Pod
+        namespace: homepage
+        label_selectors:
+          - app.kubernetes.io/name=homepage
 
     - name: Wait for Homepage deployment to be ready
-      ansible.builtin.command:
-        cmd: kubectl rollout status deployment/homepage -n homepage --timeout=120s
-      changed_when: false
+      kubernetes.core.k8s_info:
+        kind: Deployment
+        name: homepage
+        namespace: homepage
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        wait: true
+        wait_timeout: 120
+        wait_condition:
+          type: Available
+          status: "True"
