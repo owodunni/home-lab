@@ -1,0 +1,224 @@
+---
+# Backrest - Web UI for restic backup management
+# Provides browse/restore capabilities for existing restic repository
+# Repository: s3:https://minio.jardoole.xyz:9000/restic-backups
+---
+# Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: backrest
+  labels:
+    name: backrest
+---
+# NetworkPolicy - Allow Traefik ingress and MinIO egress
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backrest-network-policy
+  namespace: backrest
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow Traefik ingress controller from kube-system
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 9898
+          protocol: TCP
+  egress:
+    # DNS resolution via CoreDNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: TCP
+        - port: 53
+          protocol: UDP
+    # MinIO S3 API (minio.jardoole.xyz:9000)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - port: 9000
+          protocol: TCP
+        - port: 443
+          protocol: TCP
+---
+# PersistentVolumeClaim for Backrest data (state/logs)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backrest-data
+  namespace: backrest
+  labels:
+    app.kubernetes.io/name: backrest
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: nfs
+  resources:
+    requests:
+      storage: 1Gi
+---
+# PersistentVolumeClaim for restic cache
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backrest-cache
+  namespace: backrest
+  labels:
+    app.kubernetes.io/name: backrest
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: nfs
+  resources:
+    requests:
+      storage: 5Gi
+---
+# Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backrest
+  namespace: backrest
+  labels:
+    app.kubernetes.io/name: backrest
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: backrest
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: backrest
+    spec:
+      # CRITICAL: Disable service links to prevent BACKREST_PORT conflict
+      # See: https://github.com/garethgeorge/backrest/issues/885
+      enableServiceLinks: false
+      containers:
+        - name: backrest
+          image: garethgeorge/backrest:v1.6.2
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: BACKREST_DATA
+              value: /data
+            - name: BACKREST_CONFIG
+              value: /data/config.json
+            - name: XDG_CACHE_HOME
+              value: /cache
+            - name: TZ
+              value: Europe/Amsterdam
+          envFrom:
+            - secretRef:
+                name: backrest-restic-credentials
+          ports:
+            - name: http
+              containerPort: 9898
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: cache
+              mountPath: /cache
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: backrest-data
+        - name: cache
+          persistentVolumeClaim:
+            claimName: backrest-cache
+      nodeSelector:
+        kubernetes.io/os: linux
+---
+# Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: backrest
+  namespace: backrest
+  labels:
+    app.kubernetes.io/name: backrest
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: backrest
+---
+# Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: backrest
+  namespace: backrest
+  labels:
+    app.kubernetes.io/name: backrest
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # Homepage auto-discovery
+    gethomepage.dev/enabled: "true"
+    gethomepage.dev/name: "Backrest"
+    gethomepage.dev/description: "Restic Backup Manager"
+    gethomepage.dev/group: "Admin"
+    gethomepage.dev/icon: "mdi-backup-restore"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: backrest.jardoole.xyz
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: backrest
+                port:
+                  name: http
+  tls:
+    - secretName: backrest-tls
+      hosts:
+        - backrest.jardoole.xyz

@@ -1,0 +1,54 @@
+---
+# Backrest Deployment Playbook
+# Uses raw Kubernetes manifests instead of Helm
+# Provides web UI for browsing/restoring restic backups
+- name: Deploy Backrest
+  hosts: control_plane
+  become: true
+  gather_facts: false
+  run_once: true
+
+  tasks:
+    - name: Run prerequisites (create namespace and secrets)
+      ansible.builtin.include_tasks: "{{ inventory_dir }}/apps/backrest/prerequisites.yml"
+
+    - name: Apply Backrest manifests
+      kubernetes.core.k8s:
+        definition: "{{ item }}"
+        state: present
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      loop: "{{ lookup('file', inventory_dir + '/apps/backrest/manifests.yml') | from_yaml_all | select | list }}"
+      loop_control:
+        label: "{{ item.kind }}/{{ item.metadata.name }}"
+
+    - name: Wait for Backrest deployment to be ready
+      kubernetes.core.k8s_info:
+        kind: Deployment
+        name: backrest
+        namespace: backrest
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        wait: true
+        wait_timeout: 120
+        wait_condition:
+          type: Available
+          status: "True"
+
+    - name: Display access information
+      ansible.builtin.debug:
+        msg: |
+          Backrest deployed successfully!
+
+          Access URL: https://backrest.jardoole.xyz
+
+          First-time setup:
+          1. Open the web UI at the URL above
+          2. The existing restic repository credentials are pre-configured
+          3. Add a new repository in Backrest with these settings:
+             - Type: S3
+             - Endpoint: minio.jardoole.xyz:9000
+             - Bucket: restic-backups
+             - Credentials: (loaded from environment)
+
+          Verify deployment:
+            kubectl get pods -n backrest
+            kubectl logs -n backrest -l app.kubernetes.io/name=backrest

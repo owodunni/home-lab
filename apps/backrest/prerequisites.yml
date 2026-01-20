@@ -1,0 +1,39 @@
+---
+# Backrest Prerequisites
+# Creates namespace and secrets for Backrest deployment
+
+- name: Create backrest namespace
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: backrest
+        labels:
+          name: backrest
+          managed-by: ansible
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Create Backrest Restic Credentials Secret
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: backrest-restic-credentials
+        namespace: backrest
+        labels:
+          app.kubernetes.io/name: backrest
+          managed-by: ansible
+      type: Opaque
+      stringData:
+        # Restic repository URL (MinIO S3)
+        RESTIC_REPOSITORY: "s3:https://{{ minio_internal_domain }}:9000/restic-backups"
+        # MinIO S3 credentials
+        AWS_ACCESS_KEY_ID: "{{ vault_restic_s3_access_key }}"
+        AWS_SECRET_ACCESS_KEY: "{{ vault_restic_s3_secret_key }}"
+        # Restic repository password
+        RESTIC_PASSWORD: "{{ vault_restic_password }}"
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
