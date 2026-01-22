@@ -16,7 +16,7 @@ storageClass:
   accessModes: ReadWriteMany  # NFS supports RWX
   reclaimPolicy: Retain  # Keep data when PVC is deleted
   archiveOnDelete: false  # Don't move to archive directory on PVC delete
-  pathPattern: "${.PVC.namespace}-${.PVC.name}"  # Organize by namespace and PVC name
+  pathPattern: "k8s-apps/${.PVC.namespace}-${.PVC.name}"  # All PVCs under k8s-apps for backup consistency
 
 # Resource limits for provisioner
 resources:
