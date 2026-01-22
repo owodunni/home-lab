@@ -1,6 +1,5 @@
 ---
 # Backrest - Web UI for restic backup management
-# Provides browse/restore capabilities for existing restic repository
 # Repository: s3:https://minio.jardoole.xyz:9000/restic-backups
 ---
 # Namespace
@@ -107,7 +106,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: backrest
-          image: garethgeorge/backrest:v1.6.2
+          image: garethgeorge/backrest:v1.11.1
           imagePullPolicy: IfNotPresent
           env:
             - name: BACKREST_DATA
@@ -146,6 +145,10 @@ spec:
               mountPath: /data
             - name: cache
               mountPath: /cache
+            - name: nfs-k8s-apps
+              mountPath: /backup-sources/k8s-apps
+            - name: nfs-media
+              mountPath: /backup-sources/media
           livenessProbe:
             httpGet:
               path: /
@@ -167,6 +170,14 @@ spec:
         - name: cache
           persistentVolumeClaim:
             claimName: backrest-cache
+        - name: nfs-k8s-apps
+          nfs:
+            server: beelink
+            path: /mnt/storage/k8s-apps
+        - name: nfs-media
+          nfs:
+            server: beelink
+            path: /mnt/storage/media
       nodeSelector:
         kubernetes.io/os: linux
 ---
