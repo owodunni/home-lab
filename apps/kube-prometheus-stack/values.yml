@@ -14,13 +14,14 @@ prometheus:
             requests:
               storage: 20Gi
     # Resource limits for Pi CM5 nodes
+    # Memory increased to handle WAL replay on NFS storage
     resources:
       requests:
         cpu: 200m
-        memory: 512Mi
+        memory: 1Gi
       limits:
         cpu: 500m
-        memory: 1Gi
+        memory: 2Gi
     # Init container resource limits
     initContainers:
       - name: init-config-reloader
