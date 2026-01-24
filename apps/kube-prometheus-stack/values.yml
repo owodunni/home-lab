@@ -201,27 +201,28 @@ alertmanager:
     nodeSelector:
       kubernetes.io/os: linux
 
-    # Ingress for AlertManager UI
-    ingress:
-      enabled: true
-      ingressClassName: traefik
-      annotations:
-        traefik.ingress.kubernetes.io/router.entrypoints: websecure
-        cert-manager.io/cluster-issuer: letsencrypt-prod
-        # Homepage auto-discovery
-        gethomepage.dev/enabled: "true"
-        gethomepage.dev/name: "AlertManager"
-        gethomepage.dev/description: "Alert Management"
-        gethomepage.dev/group: "Monitoring"
-        gethomepage.dev/icon: "alertmanager.png"
-      hosts:
-        - alert-manager.jardoole.xyz
-      path: /
-      pathType: Prefix
-      tls:
-        - secretName: alert-manager-tls-secret
-          hosts:
-            - alert-manager.jardoole.xyz
+  # Ingress for AlertManager UI
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      # Homepage auto-discovery
+      gethomepage.dev/enabled: "true"
+      gethomepage.dev/name: "AlertManager"
+      gethomepage.dev/description: "Alert Management"
+      gethomepage.dev/group: "Monitoring"
+      gethomepage.dev/icon: "alertmanager.png"
+    hosts:
+      - alert-manager.jardoole.xyz
+    paths:
+      - /
+    pathType: Prefix
+    tls:
+      - secretName: alert-manager-tls-secret
+        hosts:
+          - alert-manager.jardoole.xyz
 
 prometheusOperator:
   # Resource limits for operator
