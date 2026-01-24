@@ -7,24 +7,30 @@ This document covers disaster recovery procedures for NFS-based storage architec
 - [Overview](#overview)
 - [Backup Architecture](#backup-architecture)
 - [Recovery Scenarios](#recovery-scenarios)
-  - [Scenario 1: Single File Restore (restic)](#scenario-1-single-file-restore-restic)
+  - [Scenario 1: Single File Restore (Backrest)](#scenario-1-single-file-restore-backrest)
   - [Scenario 2: Full Media Library Restore](#scenario-2-full-media-library-restore)
   - [Scenario 3: Beelink Disk Failure (SnapRAID)](#scenario-3-beelink-disk-failure-snapraid)
   - [Scenario 4: MinIO Disk Failure](#scenario-4-minio-disk-failure)
   - [Scenario 5: Complete Cluster Rebuild](#scenario-5-complete-cluster-rebuild)
+  - [Scenario 6: PostgreSQL Database Restore](#scenario-6-postgresql-database-restore)
 - [Recovery Time Objectives](#recovery-time-objectives)
 - [Verification Procedures](#verification-procedures)
 
 ## Overview
 
-The home lab uses a **unified backup strategy** with restic:
+The home lab uses a **two-tier backup strategy**:
 
 | Storage Type | Backup Method | Target | Schedule | Retention |
 |--------------|---------------|--------|----------|-----------|
-| **k8s-apps volumes** | restic (incremental, deduplicated) | MinIO S3 (restic-backups) | Daily 3 AM | 7 daily, 4 weekly, 6 monthly |
-| **NFS media volumes** | restic (incremental, deduplicated) | MinIO S3 (restic-backups) | Daily 3 AM | 7 daily, 4 weekly, 6 monthly |
+| **k8s-apps volumes** | Backrest (restic) | MinIO S3 (restic-backups) | Daily 3 AM | 7 daily, 4 weekly, 6 monthly |
+| **NFS media volumes** | Backrest (restic) | MinIO S3 (restic-backups) | Daily 3 AM | 7 daily, 4 weekly, 6 monthly |
+| **PostgreSQL databases** | CNPG native (barman) | MinIO S3 (postgres-backups) | Continuous WAL + daily base | 7 days |
 | **SnapRAID parity** (Beelink) | Parity sync | Local `/mnt/parity1` | Daily 4 AM | N/A (parity data) |
 | **SnapRAID parity** (MinIO) | Parity sync | Local `/mnt/minio-parity1` | Daily 5 AM | N/A (parity data) |
+
+**Why two backup methods?**
+- **Backrest**: File-level backups for configs, media, and application data
+- **CNPG native**: Database-aware backups with point-in-time recovery (PITR) for PostgreSQL
 
 ## Backup Architecture
 
@@ -35,13 +41,23 @@ The home lab uses a **unified backup strategy** with restic:
 │  /mnt/storage/k8s-apps (app configs)                          │
 │  /mnt/storage/media (media files)                             │
 │       ↓                                                         │
-│  restic backup (3 AM)                                          │
+│  Backrest backup (3 AM)                                        │
 │       ↓                                                         │
 │  s3://minio/restic-backups/                                    │
 │       ↓                                                         │
 │  SnapRAID sync (4 AM)                                          │
 │       ↓                                                         │
 │  Local parity: /mnt/parity1                                    │
+└────────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────────┐
+│ K3S CLUSTER (PostgreSQL Databases)                            │
+│                                                                │
+│  CloudNative-PG Clusters                                       │
+│       ↓                                                         │
+│  CNPG barman (continuous WAL archiving)                       │
+│       ↓                                                         │
+│  s3://minio/postgres-backups/                                  │
 └────────────────────────────────────────────────────────────────┘
 
 ┌────────────────────────────────────────────────────────────────┐
@@ -57,7 +73,7 @@ The home lab uses a **unified backup strategy** with restic:
 
 ## Recovery Scenarios
 
-### Scenario 1: Single File Restore (restic)
+### Scenario 1: Single File Restore (Backrest)
 
 **Use case**: Accidentally deleted movie, need to restore from backup
 
@@ -65,33 +81,36 @@ The home lab uses a **unified backup strategy** with restic:
 
 **Steps**:
 
-1. List available snapshots:
-   ```bash
-   ssh beelink
-   export RESTIC_PASSWORD_FILE=/root/.restic-password
-   export AWS_ACCESS_KEY_ID={{ vault_restic_s3_access_key }}
-   export AWS_SECRET_ACCESS_KEY={{ vault_restic_s3_secret_key }}
+1. Open Backrest UI: https://backrest.jardoole.xyz
 
-   restic -r s3:https://minio.jardoole.xyz/restic-backups snapshots
-   ```
+2. Navigate to the backup plan (e.g., `k8s-apps-daily` or `media-daily`)
 
-2. Find the file in a snapshot:
-   ```bash
-   restic -r s3:https://minio.jardoole.xyz/restic-backups ls latest \
-     | grep "MovieName.mkv"
-   ```
+3. Browse snapshots and locate the file to restore
 
-3. Restore specific file:
-   ```bash
-   restic -r s3:https://minio.jardoole.xyz/restic-backups restore latest \
-     --target /mnt/storage/media \
-     --include /media/library/movies/MovieName.mkv
-   ```
+4. Use Backrest's restore functionality to restore specific files
 
-4. Verify restoration:
-   ```bash
-   ls -lh /mnt/storage/media/library/movies/MovieName.mkv
-   ```
+**Alternative: Manual restic restore**
+
+If Backrest UI is unavailable, use restic CLI directly:
+
+```bash
+ssh beelink
+export RESTIC_PASSWORD_FILE=/root/.restic-password
+export AWS_ACCESS_KEY_ID={{ vault_restic_s3_access_key }}
+export AWS_SECRET_ACCESS_KEY={{ vault_restic_s3_secret_key }}
+
+# List snapshots
+restic -r s3:https://minio.jardoole.xyz/restic-backups snapshots
+
+# Find the file
+restic -r s3:https://minio.jardoole.xyz/restic-backups ls latest \
+  | grep "MovieName.mkv"
+
+# Restore specific file
+restic -r s3:https://minio.jardoole.xyz/restic-backups restore latest \
+  --target /mnt/storage/media \
+  --include /media/library/movies/MovieName.mkv
+```
 
 ### Scenario 2: Full Media Library Restore
 
@@ -317,11 +336,68 @@ snapraid sync
    ssh beelink "ls /mnt/storage/media/library/movies"
    ```
 
-3. Test backups:
+3. Verify Backrest is running:
    ```bash
-   ssh beelink "/usr/local/bin/backup-media.sh"
-   restic -r s3:https://minio.jardoole.xyz/restic-backups snapshots
+   kubectl get pods -n backrest
+   # Access UI at https://backrest.jardoole.xyz
    ```
+
+### Scenario 6: PostgreSQL Database Restore
+
+**Use case**: Database corruption or need to restore to specific point in time
+
+**Recovery time**: 10-30 minutes
+
+**Steps**:
+
+1. List available backups:
+   ```bash
+   kubectl get backup -n <app-namespace>
+   ```
+
+2. Create a new cluster from backup:
+   ```yaml
+   apiVersion: postgresql.cnpg.io/v1
+   kind: Cluster
+   metadata:
+     name: myapp-db-restored
+     namespace: myapp
+   spec:
+     instances: 1
+     storage:
+       size: 5Gi
+       storageClass: nfs
+     bootstrap:
+       recovery:
+         source: myapp-db-backup
+     externalClusters:
+       - name: myapp-db-backup
+         barmanObjectStore:
+           destinationPath: s3://postgres-backups/myapp
+           endpointURL: https://minio.jardoole.xyz:9000
+           s3Credentials:
+             accessKeyId:
+               name: cnpg-s3-credentials
+               key: ACCESS_KEY_ID
+             secretAccessKey:
+               name: cnpg-s3-credentials
+               key: ACCESS_SECRET_KEY
+   ```
+
+3. For point-in-time recovery, add target time:
+   ```yaml
+   bootstrap:
+     recovery:
+       source: myapp-db-backup
+       recoveryTarget:
+         targetTime: "2024-01-15T10:30:00Z"
+   ```
+
+4. Update application to use restored cluster:
+   - Update secret references from `myapp-db-app` to `myapp-db-restored-app`
+   - Or rename the restored cluster after verifying data
+
+See [PostgreSQL Guide](postgresql-guide.md) for detailed CNPG operations.
 
 ## Recovery Time Objectives
 
@@ -332,9 +408,11 @@ snapraid sync
 | Beelink disk failure | 1-3 hours | None (parity recovery) | None if parity valid |
 | MinIO disk failure | 30 min - 1 hour | None (parity recovery) | None if parity valid |
 | Complete cluster rebuild | 2-3 hours | 24 hours | Minimal |
+| PostgreSQL restore | 10-30 minutes | Minutes (continuous WAL) | Minimal (PITR capable) |
 
 **Key assumptions**:
-- restic backups running daily at 3 AM (k8s-apps + media)
+- Backrest running daily backups (k8s-apps + media)
+- CNPG continuous WAL archiving for PostgreSQL
 - SnapRAID parity synced daily (4 AM Beelink, 5 AM MinIO)
 - MinIO S3 storage accessible
 
@@ -342,34 +420,20 @@ snapraid sync
 
 ### Daily Backup Verification
 
-**Automated checks** (add to cron or monitoring):
+**Backrest UI**: https://backrest.jardoole.xyz
+- Check backup plan status (green = healthy)
+- View recent snapshots and their sizes
+- Monitor for failed backups
 
+**SnapRAID status** (on Beelink):
 ```bash
-#!/bin/bash
-# /usr/local/bin/verify-backups.sh
-
-# Check restic backup status
-echo "=== restic Backup Status ==="
-restic -r s3:https://minio.jardoole.xyz/restic-backups snapshots --last
-if [ $? -ne 0 ]; then
-  echo "ERROR: restic backup check failed"
-  exit 1
-fi
-
-# Check SnapRAID status
-echo "=== SnapRAID Status ==="
+ssh beelink
 snapraid status
-if [ $? -ne 0 ]; then
-  echo "ERROR: SnapRAID status check failed"
-  exit 1
-fi
-
-echo "All backup checks passed!"
 ```
 
 ### Monthly Integrity Checks
 
-**restic repository check**:
+**restic repository check** (via Backrest or CLI):
 ```bash
 # Full repository check (reads all data)
 restic -r s3:https://minio.jardoole.xyz/restic-backups check --read-data
@@ -387,30 +451,35 @@ snapraid scrub -p 10
 snapraid scrub
 ```
 
+**PostgreSQL backup verification**:
+```bash
+# Check recent backups
+kubectl get backup -A
+
+# Check cluster backup status
+kubectl describe cluster <cluster-name> -n <namespace> | grep -A5 "Backup"
+```
+
 ### Restore Testing
 
-**Test restore to temporary location** (quarterly):
-```bash
-# Restore sample files
-restic -r s3:https://minio.jardoole.xyz/restic-backups restore latest \
-  --target /tmp/restore-test \
-  --include /media/library/movies/ \
-  --path-filter "*.mkv" | head -10
-
-# Verify restoration
-ls -lh /tmp/restore-test/media/library/movies/
-rm -rf /tmp/restore-test
-```
+**Test restore via Backrest UI** (quarterly):
+1. Select a backup plan
+2. Browse to a test file
+3. Restore to temporary location
+4. Verify file integrity
+5. Clean up test files
 
 ## Best Practices
 
 1. **Monitor backup jobs**:
-   - Check systemd timer status: `systemctl list-timers`
-   - Review backup logs: `journalctl -u backup-media.service`
+   - Check Backrest UI daily for backup status
+   - Set up alerts for failed backups (future enhancement)
+   - Review PostgreSQL cluster status: `kubectl get cluster -A`
 
 2. **Test restores regularly**:
-   - Monthly: Restore single file
+   - Monthly: Restore single file via Backrest
    - Quarterly: Restore full directory to test location
+   - Quarterly: Test PostgreSQL point-in-time recovery
    - Annually: Full disaster recovery drill
 
 3. **Document changes**:
@@ -426,3 +495,5 @@ rm -rf /tmp/restore-test
 
 - [Storage Architecture Guide](storage-architecture.md) - Storage configuration details
 - [App Deployment Guide](app-deployment-guide.md) - Application deployment with NFS storage
+- [PostgreSQL Guide](postgresql-guide.md) - Database backup and restore procedures
+- [Backrest README](../apps/backrest/README.md) - Backrest configuration

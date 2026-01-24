@@ -91,6 +91,21 @@ Home lab automation using Ansible to provision Raspberry Pi CM5 cluster and Beel
 - Use `vault_` prefix for all encrypted variables
 - See [docs/ansible-vault.md](docs/ansible-vault.md) for complete guide
 
+## Backup Strategy
+
+Two backup methods are used depending on data type:
+
+| Data Type | Method | Target Bucket |
+|-----------|--------|---------------|
+| Files (configs, media) | Backrest (restic) | `restic-backups` |
+| PostgreSQL databases | CNPG native (barman) | `postgres-backups` |
+
+**Why separate methods?**
+- Backrest: File-level incremental backups with deduplication
+- CNPG: Database-aware backups with point-in-time recovery (PITR)
+
+See [docs/disaster-recovery.md](docs/disaster-recovery.md) for recovery procedures.
+
 ## CRITICAL: Ansible Execution Restrictions
 
 **NEVER run playbooks or make tasks except `make precommit`** - they consume tokens rapidly.
