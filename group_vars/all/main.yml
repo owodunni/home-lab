@@ -6,3 +6,14 @@
 # ================
 # Domain for MinIO S3 service (used by all hosts for backups and storage)
 minio_internal_domain: "minio.jardoole.xyz"
+
+# SMTP Configuration (Gmail Relay)
+# =================================
+# Cluster-wide email settings for alerts and notifications.
+# Uses Gmail SMTP with a custom "From" address (alert@jardoole.xyz).
+# See docs/email-configuration.md for setup instructions.
+smtp_host: "smtp.gmail.com"
+smtp_port: 587
+smtp_use_tls: true
+smtp_use_ssl: false
+smtp_from: "alert@jardoole.xyz"

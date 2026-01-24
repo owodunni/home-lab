@@ -206,14 +206,14 @@ mc admin policy attach homelab readonly-policy --user newuser
 
 ### Restic Backup Configuration
 
-Restic backups are configured on the Beelink server to back up `/mnt/storage/k8s-apps` and `/mnt/storage/media` to MinIO S3. See `playbooks/beelink/04-restic-backup-setup.yml` for configuration details.
+Restic backups are managed by **Backrest** (K8s app) which backs up `/mnt/storage/k8s-apps` and `/mnt/storage/media` to MinIO S3. See `apps/backrest/` and `docs/disaster-recovery.md` for details.
 
 ```bash
-# Check backup status on Beelink
-ssh beelink "restic snapshots"
+# Access Backrest UI
+# https://backrest.jardoole.xyz
 
-# Restore a specific snapshot
-ssh beelink "restic restore latest --target /mnt/storage/k8s-apps"
+# Or use restic CLI directly
+restic -r s3:https://minio.jardoole.xyz:9000/restic-backups snapshots
 ```
 
 ### Backup Scripts

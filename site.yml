@@ -59,13 +59,13 @@
   import_playbook: playbooks/minio-complete.yml
 
 # Phase 7: Backup Automation Setup
-- name: Phase 7a - Beelink Restic Backup Setup
-  import_playbook: playbooks/beelink/04-restic-backup-setup.yml
+# Note: Restic backups are now handled by Backrest (K8s app), not Ansible
+# See apps/backrest/ and docs/disaster-recovery.md
 
-- name: Phase 7b - Beelink SnapRAID Automation
+- name: Phase 7a - Beelink SnapRAID Automation
   import_playbook: playbooks/beelink/05-snapraid-sync-setup.yml
 
-- name: Phase 7c - MinIO SnapRAID Automation
+- name: Phase 7b - MinIO SnapRAID Automation
   import_playbook: playbooks/nas/minio-snapraid-sync-setup.yml
 
 # Phase 8: K3s Cluster Installation
