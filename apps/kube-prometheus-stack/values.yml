@@ -91,6 +91,9 @@ grafana:
       enabled: true
     datasources:
       enabled: true
+      # Trigger reload on initial sync to fix race condition where
+      # datasource config is written after Grafana finishes provisioning
+      skipReload: false
     resources:
       requests:
         cpu: 50m

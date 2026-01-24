@@ -185,6 +185,33 @@ kubectl logs -n monitoring -l app.kubernetes.io/name=prometheus -c prometheus
 View scrape targets in Prometheus UI:
 https://prometheus.jardoole.xyz/targets
 
+### Grafana Datasources Not Loading (Fresh Install)
+
+After a fresh install or PVC wipe, Grafana dashboards may show "No data" errors because
+the Prometheus datasource isn't loaded. This is a race condition: the sidecar writes the
+datasource config after Grafana has already finished provisioning, and `REQ_SKIP_INIT=true`
+prevents the initial reload.
+
+**Symptoms:**
+- Dashboards show "No data" or datasource errors
+- `/api/datasources` returns empty array `[]`
+
+**Quick fix** - trigger manual reload:
+```bash
+# Get admin password
+PASS=$(kubectl get secret -n monitoring prometheus-grafana -o jsonpath='{.data.admin-password}' | base64 -d)
+
+# Trigger datasource reload
+kubectl exec -n monitoring deploy/prometheus-grafana -c grafana -- \
+  wget -q -O- --header="Authorization: Basic $(echo -n admin:$PASS | base64)" \
+  --post-data="" "http://localhost:3000/api/admin/provisioning/datasources/reload"
+```
+
+**Why this happens:**
+- Datasources are persisted in Grafana's SQLite database after first load
+- Wiping the PVC deletes this database, requiring re-provisioning
+- The sidecar's `REQ_SKIP_INIT=true` prevents reload on initial sync
+
 ### Grafana Not Loading Dashboards
 Check sidecar logs:
 ```bash
