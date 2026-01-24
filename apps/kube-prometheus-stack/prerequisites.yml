@@ -1,6 +1,61 @@
 ---
 # Prerequisites for kube-prometheus-stack
-# Creates NetworkPolicy to allow Prometheus to scrape targets
+# Creates Alertmanager config secret and NetworkPolicies
+
+- name: Create Alertmanager config secret
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: alertmanager-config
+        namespace: monitoring
+        labels:
+          app.kubernetes.io/name: alertmanager
+          managed-by: ansible
+      type: Opaque
+      stringData:
+        alertmanager.yaml: |
+          global:
+            resolve_timeout: 5m
+            smtp_smarthost: "{{ smtp_host }}:{{ smtp_port }}"
+            smtp_from: "{{ smtp_from }}"
+            smtp_auth_username: "{{ vault_smtp_username }}"
+            smtp_auth_password: "{{ vault_smtp_password }}"
+            smtp_require_tls: true
+          route:
+            receiver: "email-notifications"
+            group_by: ["alertname", "namespace"]
+            group_wait: 30s
+            group_interval: 5m
+            repeat_interval: 4h
+            routes:
+              - receiver: "null"
+                matchers:
+                  - alertname="Watchdog"
+          receivers:
+            - name: "null"
+            - name: "email-notifications"
+              email_configs:
+                - to: "{{ vault_smtp_username }}"
+                  send_resolved: true
+          inhibit_rules:
+            - source_matchers:
+                - severity="critical"
+              target_matchers:
+                - severity=~"warning|info"
+              equal:
+                - namespace
+                - alertname
+            - source_matchers:
+                - severity="warning"
+              target_matchers:
+                - severity="info"
+              equal:
+                - namespace
+                - alertname
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
 
 - name: Create NetworkPolicy for Prometheus scraping
   kubernetes.core.k8s:
@@ -97,5 +152,39 @@
               - port: 9090
                 protocol: TCP
               - port: 9093
+                protocol: TCP
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Create NetworkPolicy for Alertmanager SMTP egress
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      metadata:
+        name: allow-alertmanager-smtp
+        namespace: monitoring
+      spec:
+        podSelector:
+          matchLabels:
+            app.kubernetes.io/name: alertmanager
+        policyTypes:
+          - Egress
+        egress:
+          # DNS resolution
+          - to:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: kube-system
+            ports:
+              - port: 53
+                protocol: TCP
+              - port: 53
+                protocol: UDP
+          # SMTP to Gmail (port 587 for STARTTLS)
+          - to:
+              - ipBlock:
+                  cidr: 0.0.0.0/0
+            ports:
+              - port: 587
                 protocol: TCP
     kubeconfig: /etc/rancher/k3s/k3s.yaml
