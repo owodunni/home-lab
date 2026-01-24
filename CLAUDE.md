@@ -136,6 +136,15 @@ make app-status APP=<app-name>    # Status
 - HTTPS ingress with cert-manager
 - Use `storageClass: nfs` for persistent storage
 
+**Adding new Helm repositories:**
+
+When an app requires a new Helm repository not yet in the cluster:
+
+1. Add the repo to `playbooks/k3s/02-helm-setup.yml`
+2. User runs `make k3s-helm-setup` to install the repo
+3. Then deploy the app with `make app-deploy APP=<app-name>`
+
+See [docs/helm-standards.md](docs/helm-standards.md) for repository details.
 See [docs/app-deployment-guide.md](docs/app-deployment-guide.md) for complete workflow.
 
 ## Progress Tracking

@@ -1,0 +1,19 @@
+---
+# CloudNative-PG Operator Helm Values
+# Operator is lightweight - only orchestrates PostgreSQL clusters
+
+# Operator resource limits (does not run databases, just manages them)
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
+  limits:
+    cpu: 100m
+    memory: 256Mi
+
+nodeSelector:
+  kubernetes.io/os: linux
+
+# Install CRDs via Helm (simplifies upgrades, matches cert-manager pattern)
+crds:
+  create: true

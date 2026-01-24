@@ -78,6 +78,10 @@ minio_buckets:
     policy: private
   - name: media-storage
     policy: read-write
+  - name: postgres-backups
+    policy: private
+    # CloudNative-PG database backups
+    object_locking: false
 
 # MinIO users for service accounts
 minio_users:
@@ -91,6 +95,11 @@ minio_users:
     buckets_acl:
       - name: media-storage
         policy: read-only
+  - name: cnpg-backup
+    password: "{{ vault_cnpg_backup_password }}"
+    buckets_acl:
+      - name: postgres-backups
+        policy: read-write
 
 # MinIO service accounts (S3 API access keys)
 minio_service_accounts:
@@ -98,6 +107,10 @@ minio_service_accounts:
     access_key: "{{ vault_restic_s3_access_key }}"
     secret_key: "{{ vault_restic_s3_secret_key }}"
     description: "Restic incremental backups from Beelink"
+  - user: cnpg-backup
+    access_key: "{{ vault_cnpg_s3_access_key }}"
+    secret_key: "{{ vault_cnpg_s3_secret_key }}"
+    description: "CloudNative-PG PostgreSQL backups"
 
 # Disable cgroups for NAS
 pi_cm5_config_cgroup_enabled: false

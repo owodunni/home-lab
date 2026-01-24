@@ -23,6 +23,53 @@ apps/<app-name>/
 - **Prerequisites**: `prerequisites.yml`
 - Use `.yml` extension (not `.yaml`) for consistency
 
+## Helm Repositories
+
+Helm repositories must be added to `playbooks/k3s/02-helm-setup.yml` before apps can be deployed.
+
+### Adding a New Repository
+
+When creating an app that uses a new Helm repository:
+
+1. **Add the repository** to `playbooks/k3s/02-helm-setup.yml`:
+   ```yaml
+   - name: Add <repo-name> repository (<description>)
+     kubernetes.core.helm_repository:
+       name: <repo-name>
+       repo_url: https://example.com/charts
+       kubeconfig: /etc/rancher/k3s/k3s.yaml
+     register: helm_repo_<repo_name>
+     failed_when: false
+   ```
+
+2. **Run the helm setup playbook** (user action):
+   ```bash
+   make k3s-helm-setup
+   ```
+
+3. **Then deploy the app**:
+   ```bash
+   make app-deploy APP=<app-name>
+   ```
+
+### Available Repositories
+
+Current repositories configured in the cluster:
+
+| Name | URL | Purpose |
+|------|-----|---------|
+| `stable` | charts.helm.sh/stable | Legacy stable charts |
+| `bitnami` | charts.bitnami.com/bitnami | Common applications |
+| `jetstack` | charts.jetstack.io | cert-manager |
+| `prometheus-community` | prometheus-community.github.io/helm-charts | Monitoring |
+| `jellyfin` | jellyfin.github.io/jellyfin-helm | Media server |
+| `bjw-s` | bjw-s-labs.github.io/helm-charts | App template charts |
+| `nfd` | kubernetes-sigs.github.io/node-feature-discovery/charts | Node features |
+| `intel` | intel.github.io/helm-charts | Intel device plugins |
+| `nfs-subdir-external-provisioner` | kubernetes-sigs.github.io/nfs-subdir-external-provisioner | NFS storage |
+| `headlamp` | kubernetes-sigs.github.io/headlamp | K8s dashboard |
+| `cnpg` | cloudnative-pg.github.io/charts | PostgreSQL operator |
+
 ## Chart.yml Format
 
 Chart metadata defines the Helm chart to deploy:
@@ -30,7 +77,7 @@ Chart metadata defines the Helm chart to deploy:
 ```yaml
 ---
 # Required fields
-chart_repository: prometheus-community  # Helm repo name
+chart_repository: prometheus-community  # Helm repo name (must exist in cluster)
 chart_name: kube-prometheus-stack       # Chart name
 chart_version: 67.4.0                   # Exact version (no ranges)
 release_name: prometheus                # Helm release name

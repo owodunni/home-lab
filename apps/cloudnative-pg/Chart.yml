@@ -1,0 +1,11 @@
+---
+# CloudNative PostgreSQL Operator
+# Provides PostgreSQL database clusters for Kubernetes applications
+chart_repository: cnpg
+chart_name: cloudnative-pg
+chart_version: 0.27.0
+release_name: cloudnative-pg
+namespace: cnpg-system
+description: "CloudNative PostgreSQL Operator for Kubernetes"
+create_namespace: true
+wait_for_ready: true

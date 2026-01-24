@@ -319,6 +319,55 @@ persistence:
 - [Project Structure](./project-structure.md#storage-architecture-strategy) - Storage overview
 - [Media Stack Guide](./media-stack-complete-guide.md) - NFS storage example
 
+### Database Requirements (PostgreSQL)
+
+For apps requiring PostgreSQL (Authentik, Nextcloud, etc.), use CloudNative-PG operator.
+
+#### Setup
+
+1. **Deploy operator once** (cluster-wide):
+   ```bash
+   make app-deploy APP=cloudnative-pg
+   ```
+
+2. **Create Cluster CR per app**:
+   ```yaml
+   apiVersion: postgresql.cnpg.io/v1
+   kind: Cluster
+   metadata:
+     name: myapp-db
+     namespace: myapp
+   spec:
+     instances: 1
+     imageName: ghcr.io/cloudnative-pg/postgresql:16.4
+     storage:
+       size: 5Gi
+       storageClass: nfs
+     bootstrap:
+       initdb:
+         database: myapp
+         owner: myapp
+         secret:
+           name: myapp-db-credentials
+   ```
+
+3. **Reference credentials** in your app:
+   ```yaml
+   env:
+     DATABASE_URL:
+       valueFrom:
+         secretKeyRef:
+           name: myapp-db-app  # Auto-created by operator
+           key: uri
+   ```
+
+The operator creates `<cluster-name>-app` secret containing `host`, `port`, `dbname`, `user`, `password`, and `uri`.
+
+#### Related Documentation
+
+- [PostgreSQL Guide](./postgresql-guide.md) - Complete CNPG usage guide
+- [CloudNative-PG README](../apps/cloudnative-pg/README.md) - Operator details
+
 ## Troubleshooting
 
 ### App Won't Deploy

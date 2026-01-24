@@ -25,6 +25,7 @@ Central reference for all home-lab documentation.
 | [disaster-recovery.md](disaster-recovery.md) | Backup & recovery procedures |
 | [storage-setup-quickstart.md](storage-setup-quickstart.md) | Storage quick setup |
 | [media-stack-complete-guide.md](media-stack-complete-guide.md) | Jellyfin, Radarr, Sonarr |
+| [postgresql-guide.md](postgresql-guide.md) | CloudNative PostgreSQL for apps |
 
 ## Reference
 

@@ -1,0 +1,7 @@
+---
+# CloudNative-PG deployment playbook
+- name: Deploy cloudnative-pg
+  import_playbook: ../../playbooks/deploy-helm-app.yml
+  vars:
+    app_chart_file: "{{ inventory_dir }}/apps/cloudnative-pg/Chart.yml"
+    app_values_file: "{{ inventory_dir }}/apps/cloudnative-pg/values.yml"

@@ -189,6 +189,14 @@
       register: helm_repo_headlamp
       failed_when: false
 
+    - name: Add CloudNative-PG repository (PostgreSQL operator)
+      kubernetes.core.helm_repository:
+        name: cnpg
+        repo_url: https://cloudnative-pg.github.io/charts
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: helm_repo_cnpg
+      failed_when: false
+
     - name: Update all Helm repositories
       ansible.builtin.command:
         cmd: helm repo update
