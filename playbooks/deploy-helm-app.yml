@@ -45,12 +45,6 @@
           ║ Description: {{ chart_metadata.description | default('N/A') }}
           ╚═══════════════════════════════════════════════════════════╝
 
-    - name: Run prerequisites playbook
-      ansible.builtin.include_tasks: "{{ prerequisites_playbook }}"
-      when:
-        - prerequisites_playbook is defined
-        - prerequisites_playbook | length > 0
-
     - name: Create or update namespace
       kubernetes.core.k8s:
         definition:
@@ -65,6 +59,12 @@
         state: present
         kubeconfig: /etc/rancher/k3s/k3s.yaml
       when: chart_metadata.create_namespace | default(true)
+
+    - name: Run prerequisites playbook
+      ansible.builtin.include_tasks: "{{ prerequisites_playbook }}"
+      when:
+        - prerequisites_playbook is defined
+        - prerequisites_playbook | length > 0
 
     - name: Load Helm values
       ansible.builtin.include_vars:

@@ -3,6 +3,7 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Important
+
 - ALL instructions within this document MUST BE FOLLOWED, these are not optional unless explicitly stated.
 - DO NOT edit more code than you have to.
 - DO NOT WASTE TOKENS, be succinct and concise.
@@ -23,14 +24,16 @@ We build production code together. I handle implementation details while you gui
 
 ## Repository Overview
 
-This is a home lab automation repository using Ansible to provision and manage a cluster of Raspberry Pi CM5 (Compute Module 5) devices. The infrastructure consists of:
+This is a home lab automation repository using Ansible to provision and manage a cluster of Raspberry Pi CM5 (Compute Module 5) devices and Beelink Me Mini. The infrastructure consists of:
 
 - **Control plane nodes**: pi-cm5-1, pi-cm5-2, pi-cm5-3 (defined in hosts.ini under [control_plane])
+- **Workers**: beelink (defined in hosts.ini under [workers])
 - **NAS node**: pi-cm5-4 (defined in hosts.ini under [nas])
 
 ## Code Organization
 
 **Keep functions small and focused:**
+
 - If you need comments to explain sections, split into functions
 - Group related functionality into clear packages
 - Prefer many small files over few large ones
@@ -38,16 +41,19 @@ This is a home lab automation repository using Ansible to provision and manage a
 ## Architecture Principles
 
 **⚠️ MANDATORY**: Before making any structural or architectural changes, you MUST:
+
 1. **Read** `docs/project-structure.md` to understand current architecture
 2. **Update** `docs/project-structure.md` after implementing changes
 3. **Verify** changes align with established patterns and variable hierarchy
 
 **⚠️ MANDATORY**: Before editing or creating any playbooks or group_vars, you MUST:
+
 1. **Read** `docs/playbook-guidelines.md` to understand documentation standards
 2. **Follow** the established documentation patterns from `upgrade.yml`
 3. **Document** WHY decisions were made, not just WHAT was implemented
 
 **Prefer explicit over implicit:**
+
 - Clear function names over clever abstractions
 - Obvious data flow over hidden magic
 - Direct dependencies over service locators
@@ -94,6 +100,7 @@ Your redirects prevent over-engineering. When uncertain about implementation, st
 ### When to Use Ansible Vault
 
 Encrypt these types of data:
+
 - **Passwords**: Database, service accounts, user passwords
 - **API tokens**: Cloud providers, third-party services
 - **Encryption keys**: LUKS keys, TLS private keys
@@ -102,6 +109,7 @@ Encrypt these types of data:
 ### Variable Naming Convention
 
 All vault-encrypted variables MUST use the `vault_` prefix:
+
 ```yaml
 # Good examples
 vault_minio_root_password: "secret123"
@@ -109,13 +117,14 @@ vault_cloudflare_api_token: "abc123xyz"
 vault_beelink_luks_key_path: "/path/to/key"
 
 # Bad examples (missing vault_ prefix)
-minio_password: "secret123"  # WRONG
-api_token: "abc123xyz"       # WRONG
+minio_password: "secret123" # WRONG
+api_token: "abc123xyz" # WRONG
 ```
 
 ### Vault Password Location
 
 The master vault password is stored in `vault_passwords/all.txt` (gitignored).
+
 - **DO NOT** read or expose this file
 - **DO NOT** commit this file to the repository
 - Ansible automatically uses this password via `ansible.cfg`
@@ -144,6 +153,7 @@ uv run ansible-vault view group_vars/groupname/vault.yml
 **Location pattern:** `group_vars/<group_name>/vault.yml`
 
 **Example structure** (see `example_vault.yml`):
+
 ```yaml
 # MinIO credentials
 vault_minio_root_password: "***"
@@ -158,6 +168,7 @@ vault_cloudflare_api_token: "***"
 ### Using Vault Variables in Playbooks
 
 Reference vault variables in non-encrypted files:
+
 ```yaml
 # group_vars/nas/main.yml (not encrypted)
 minio_root_password: "{{ vault_minio_root_password }}"
@@ -167,6 +178,7 @@ cloudflare_api_token: "{{ vault_cloudflare_api_token }}"
 ### Encrypting Binary Files
 
 For binary secrets (encryption keys, certificates):
+
 ```bash
 # Generate key
 dd if=/dev/urandom of=files/luks-key.bin bs=4096 count=1
@@ -193,10 +205,12 @@ Ansible automatically decrypts vault-encrypted files during playbook execution.
 **NEVER run playbooks or make tasks except `make precommit`** - they consume tokens rapidly and can burn through your budget in minutes.
 
 **Approved commands only:**
+
 - `make precommit` - Static analysis and linting
 - `uv run ansible [host] -a "[command]"` - Single host checks (like `systemctl status`, `ls`, etc.)
 
 **FORBIDDEN commands (token burning):**
+
 - `make site`, `make minio`, `make k3s-cluster` - Full infrastructure deployment
 - `make teardown` - Infrastructure removal
 - Any `ansible-playbook` execution
@@ -232,12 +246,14 @@ make app-status APP=<app-name>
 ### Creating a New App
 
 1. **Create app directory:**
+
    ```bash
    mkdir -p apps/my-app
    cd apps/my-app
    ```
 
 2. **Create Chart.yml** (chart metadata):
+
    ```yaml
    ---
    chart_repository: bitnami
@@ -249,6 +265,7 @@ make app-status APP=<app-name>
    ```
 
 3. **Create values.yml** (Helm values):
+
    ```yaml
    ---
    # Use common resource limits
@@ -273,6 +290,7 @@ make app-status APP=<app-name>
    ```
 
 4. **Create app.yml** (deployment playbook):
+
    ```yaml
    ---
    - name: Deploy My App
@@ -283,20 +301,24 @@ make app-status APP=<app-name>
    ```
 
 5. **Create README.md:**
+
    ```markdown
    # My App
 
    Brief description.
 
    ## Dependencies
+
    - NFS storage (persistent storage)
    - cert-manager (TLS)
 
    ## Access
+
    - URL: https://my-app.jardoole.xyz
    ```
 
 6. **Deploy:**
+
    ```bash
    make helm-lint                # Validate values
    make app-deploy APP=my-app    # Deploy
