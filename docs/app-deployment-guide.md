@@ -224,17 +224,57 @@ vars:
   prerequisites_playbook: "{{ inventory_dir }}/apps/my-app/prerequisites.yml"
 ```
 
-### Using Vault Secrets
+### Using Vault Secrets and Ansible Variables
 
-Reference encrypted secrets in values:
+Ansible variables (including vault secrets) **cannot** be used directly in `values.yml` because the deployment playbook uses `include_vars` which doesn't evaluate Jinja2 templates.
 
+**Wrong** - Variables passed as literal strings:
 ```yaml
-# In values.yml
-adminPassword: "{{ vault_app_admin_password }}"
-apiToken: "{{ vault_app_api_token }}"
+# In values.yml - THIS DOES NOT WORK!
+adminPassword: "{{ vault_app_password }}"  # Passed as literal "{{ vault_app_password }}"
 ```
 
-Secrets must be defined in `group_vars/all/vault.yml` with `vault_` prefix.
+**Correct** - Create Kubernetes secrets in `prerequisites.yml`:
+```yaml
+# In prerequisites.yml
+- name: Create app credentials secret
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: my-app-credentials
+        namespace: my-app
+      type: Opaque
+      stringData:
+        # Ansible evaluates these variables here
+        admin-password: "{{ vault_app_admin_password }}"
+        api-token: "{{ vault_app_api_token }}"
+        smtp-host: "{{ smtp_host }}"
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+```
+
+Then reference the secret in `values.yml`:
+```yaml
+# In values.yml - Reference the pre-created secret
+existingSecret: my-app-credentials
+# Or for apps that need env vars:
+envFrom:
+  - secretRef:
+      name: my-app-credentials
+```
+
+**Pattern summary:**
+1. Define secrets in `group_vars/all/vault.yml` with `vault_` prefix
+2. Define non-secret variables in `group_vars/all/main.yml`
+3. Create K8s Secret in `prerequisites.yml` (Ansible templates variables here)
+4. Reference the secret by name in `values.yml`
+
+**Examples:**
+- `apps/backrest/prerequisites.yml` - Restic credentials
+- `apps/kube-prometheus-stack/prerequisites.yml` - Alertmanager SMTP config
+- `apps/qbittorrent/` (via `apps/media-stack/_common/prerequisites.yml`) - VPN credentials
 
 ### Ingress with TLS
 

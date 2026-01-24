@@ -92,7 +92,7 @@ vault_smtp_password: "xxxx-xxxx-xxxx-xxxx"
 
 ### Alertmanager
 
-Configured in `apps/kube-prometheus-stack/values.yml`. Sends alert notifications to the Gmail address.
+The Alertmanager config is created as a Kubernetes Secret in `apps/kube-prometheus-stack/prerequisites.yml`. This allows Ansible to template the vault variables before deployment (see [App Deployment Guide](app-deployment-guide.md#using-vault-secrets-and-ansible-variables) for why this pattern is needed).
 
 Deploy after adding vault secrets:
 
@@ -102,17 +102,30 @@ make app-deploy APP=kube-prometheus-stack
 
 ### Other Apps
 
-Use the same variables when configuring email for other apps (e.g., Authentik):
+For other apps requiring email (e.g., Authentik), create a secret in `prerequisites.yml`:
 
 ```yaml
-email:
-  host: "{{ smtp_host }}"
-  port: "{{ smtp_port }}"
-  username: "{{ vault_smtp_username }}"
-  password: "{{ vault_smtp_password }}"
-  use_tls: "{{ smtp_use_tls }}"
-  from: "{{ smtp_from }}"
+# In prerequisites.yml - Ansible templates these variables
+- name: Create SMTP credentials secret
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: app-smtp-credentials
+        namespace: app-namespace
+      type: Opaque
+      stringData:
+        host: "{{ smtp_host }}"
+        port: "{{ smtp_port }}"
+        username: "{{ vault_smtp_username }}"
+        password: "{{ vault_smtp_password }}"
+        from: "{{ smtp_from }}"
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
 ```
+
+Then reference the secret in `values.yml` or configure the app to use it.
 
 ## Verification
 
