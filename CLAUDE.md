@@ -8,6 +8,7 @@ Guidance for Claude Code when working with this repository.
 - DO NOT edit more code than necessary
 - DO NOT WASTE TOKENS, be succinct and concise
 - Respect all .claudeignore entries without exception
+- **NEVER read secrets** from Ansible Vault or Kubernetes Secrets. If asked to retrieve or debug secrets, provide the command for the user to run instead (e.g., `uv run ansible-vault view`, `kubectl get secret -o jsonpath`)
 
 ## Development Partnership
 
