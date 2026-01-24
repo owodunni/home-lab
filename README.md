@@ -1,44 +1,79 @@
-# Home Lab Ansible Automation
+# Home Lab Automation
 
-## Requirements
+Ansible-based automation for a Raspberry Pi CM5 cluster running K3s Kubernetes.
 
-- **UV Package Manager**: [Install UV](https://docs.astral.sh/uv/getting-started/installation/) for fast Python dependency management
+## What This Does
+
+- Provisions Pi CM5 control plane nodes (K3s cluster)
+- Manages Beelink worker with NFS storage backend
+- Deploys applications via Helm (monitoring, media stack, backups)
+- Handles secrets with Ansible Vault
+- Automates disaster recovery with restic backups to MinIO
+
+## Infrastructure
+
+| Node | Role | Description |
+|------|------|-------------|
+| pi-cm5-1, pi-cm5-2, pi-cm5-3 | Control Plane | K3s masters |
+| beelink | Worker | Compute node |
+| pi-cm5-4 | NAS | MergerFS + SnapRAID storage |
+
+## Prerequisites
+
+- **UV Package Manager**: [Install UV](https://docs.astral.sh/uv/getting-started/installation/)
+- **SSH access** to all nodes
 
 ## Quick Start
 
 1. **Install dependencies:**
+
    ```bash
-   make install
+   make setup
    ```
 
-2. **Run linting:**
+2. **Copy SSH keys to nodes:**
+
    ```bash
-   make lint
+   for host in pi-cm5-1 pi-cm5-2 pi-cm5-3 pi-cm5-4 beelink; do
+     ssh-copy-id -i ~/.ssh/your_key.pub alexanderp@$host
+   done
    ```
 
-3. **View all available commands:**
+3. **Verify connectivity:**
+
+   ```bash
+   make ping
+   ```
+
+4. **View available commands:**
+
    ```bash
    make help
    ```
 
-## Development Workflow
+## Documentation
 
-1. **Install dependencies** with `make install` (uses UV)
-2. **Write/modify playbooks** following Ansible best practices
-3. **Run linting** with `make lint` (yamllint + ansible-lint)
-4. **Pre-commit hooks** automatically run on git commits
+- [Documentation Index](docs/INDEX.md) - All docs organized by topic
+- [CLAUDE.md](CLAUDE.md) - AI assistant guidelines
 
-## Adding New Hosts
+### Key Guides
 
-To provision a new host for the cluster:
+- [Project Structure](docs/project-structure.md) - Architecture overview
+- [App Deployment](docs/app-deployment-guide.md) - Deploy apps to K3s
+- [Ansible Vault](docs/ansible-vault.md) - Secrets management
+- [Disaster Recovery](docs/disaster-recovery.md) - Backup & restore
 
-1. Install OS
-2. Copy your SSH public key to the host:
-   ```bash
-   ssh-copy-id -i ~/.ssh/your_key.pub alexanderp@hostname
-   ```
-   Or copy to all hosts at once:
-   ```bash
-   for host in pi-cm5-1 pi-cm5-2 pi-cm5-3 pi-cm5-4; do ssh-copy-id -i ~/.ssh/your_key.pub alexanderp@$host; done
-   ```
-3. Add hosts to the [hosts.ini](./hosts.ini) file
+## Common Commands
+
+```bash
+make help       # List all commands
+make precommit  # Run linters (yamllint, ansible-lint)
+make ping       # Test node connectivity
+```
+
+## Development
+
+1. Install dependencies with `make setup`
+2. Write/modify playbooks following [playbook guidelines](docs/playbook-guidelines.md)
+3. Run `make precommit` before committing
+4. Follow [commit guidelines](docs/git-commit-guidelines.md)
