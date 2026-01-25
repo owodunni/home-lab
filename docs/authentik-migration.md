@@ -58,27 +58,25 @@ If no embedded outpost exists:
 4. Integration: Leave empty (uses embedded)
 5. Click **Create**
 
+### 3. Understanding Secret Generation
+
+**For OIDC apps (Grafana, Jellyseerr, etc.):**
+- Authentik auto-generates `Client ID` and `Client Secret` when creating an OAuth2 Provider
+- Copy these values from Authentik UI → store in Ansible Vault
+- The app uses these credentials to authenticate with Authentik
+
+**For Forward Auth apps (Prometheus, Sonarr, etc.):**
+- No secrets needed in your vault
+- Authentication is handled entirely by Authentik via the Traefik middleware
+- Users authenticate through Authentik's login page
+
 ---
 
 ## Phase 1: Grafana (OIDC Native)
 
 Grafana uses native OIDC integration - the most secure method.
 
-### Step 1: Add Vault Secrets
-
-Add these secrets to your vault (run locally, not in Claude):
-
-```bash
-uv run ansible-vault edit group_vars/all/vault.yml
-```
-
-Add:
-```yaml
-vault_authentik_grafana_client_id: "<will be generated>"
-vault_authentik_grafana_client_secret: "<will be generated>"
-```
-
-### Step 2: Create Authentik Provider
+### Step 1: Create Authentik Provider (generates secrets)
 
 1. Go to **Admin Interface** → **Applications** → **Providers**
 2. Click **Create**
@@ -88,12 +86,27 @@ vault_authentik_grafana_client_secret: "<will be generated>"
    - **Authentication flow**: default-authentication-flow
    - **Authorization flow**: default-provider-authorization-implicit-consent
    - **Client type**: Confidential
-   - **Client ID**: Copy this value → `vault_authentik_grafana_client_id`
-   - **Client Secret**: Copy this value → `vault_authentik_grafana_client_secret`
    - **Redirect URIs**: `https://grafana.jardoole.xyz/login/generic_oauth`
-   - **Signing Key**: Select any available key
-   - **Scopes**: Select `openid`, `profile`, `email`
+   - **Signing Key**: Select any available key (e.g., `authentik Self-signed Certificate`)
+   - **Scopes**: Hold Ctrl and select `openid`, `profile`, `email`
 5. Click **Finish**
+
+6. **Copy the generated credentials:**
+   - Click on the newly created `grafana` provider
+   - Copy **Client ID** (e.g., `a1b2c3d4e5f6...`)
+   - Copy **Client Secret** (click the eye icon to reveal, e.g., `x9y8z7w6v5u4...`)
+
+### Step 2: Add Secrets to Vault
+
+```bash
+uv run ansible-vault edit group_vars/all/vault.yml
+```
+
+Add the copied values:
+```yaml
+vault_authentik_grafana_client_id: "paste-client-id-here"
+vault_authentik_grafana_client_secret: "paste-client-secret-here"
+```
 
 ### Step 3: Create Authentik Application
 
@@ -102,7 +115,7 @@ vault_authentik_grafana_client_secret: "<will be generated>"
 3. Configure:
    - **Name**: `Grafana`
    - **Slug**: `grafana`
-   - **Provider**: Select `grafana` (created above)
+   - **Provider**: Select `grafana` (created in Step 1)
    - **Launch URL**: `https://grafana.jardoole.xyz`
 4. Click **Create**
 
@@ -120,10 +133,9 @@ Role mapping (configured in values.yml):
 - Users in `Grafana Editors` → Editor role
 - All other authenticated users → Viewer role
 
-### Step 5: Update Vault and Deploy
+### Step 5: Deploy
 
-1. Update vault with the Client ID and Secret from Step 2
-2. Deploy the monitoring stack:
+Deploy the monitoring stack (this applies the vault secrets):
 
 ```bash
 make app-deploy APP=kube-prometheus-stack
