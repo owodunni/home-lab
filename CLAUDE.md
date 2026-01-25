@@ -65,6 +65,8 @@ Home lab automation using Ansible to provision Raspberry Pi CM5 cluster and Beel
 4. Stage fixes: `git add .`
 5. Commit with proper message format
 
+**IMPORTANT:** Always commit after completing changes. Do not leave work uncommitted at the end of a task.
+
 ## Maximize Efficiency
 
 - **Parallel operations:** Run multiple searches, reads, greps in single messages
