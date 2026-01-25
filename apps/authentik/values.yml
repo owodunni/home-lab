@@ -10,7 +10,7 @@ redis:
   enabled: false
 
 authentik:
-  secret_key: ""  # Loaded from env via authentik-secrets
+  secret_key: "" # Loaded from env via authentik-secrets
 
   postgresql:
     host: authentik-db-rw
