@@ -93,6 +93,27 @@ If no embedded outpost exists:
 - Authentication is handled entirely by Authentik via the Traefik middleware
 - Users authenticate through Authentik's login page
 
+### 4. Granting Application Access (Required for All Apps)
+
+**Important:** Creating an application in Authentik does not automatically grant access to users.
+You must explicitly bind groups (or users) to each application.
+
+After creating any application:
+
+1. Go to **Admin Interface** → **Applications** → **Applications**
+2. Click on the application (e.g., Grafana)
+3. Go to the **Policy / Group / User Bindings** tab
+4. Click **Bind existing group**
+5. Select `Admins` → Click **Create**
+6. Click **Bind existing group** again
+7. Select `Users` → Click **Create**
+
+This grants access to both groups. The **Policy engine mode** should be set to **any**
+(user needs to match ANY binding to access).
+
+**Note:** For Forward Auth apps, you must also add the application to the embedded outpost
+(see app-specific instructions).
+
 ---
 
 ## Phase 1: Grafana (OIDC Native)
@@ -145,21 +166,21 @@ vault_authentik_grafana_client_secret: "paste-client-secret-here"
    - **Launch URL**: `https://grafana.jardoole.xyz`
 4. Click **Create**
 
-### Step 4: Create Authentik Groups
+### Step 4: Grant Application Access
 
-For role mapping to work, create the tiered groups (if not already created):
+Bind groups to the application (see [Prerequisites: Granting Application Access](#4-granting-application-access-required-for-all-apps)):
 
+1. Click on the Grafana application → **Policy / Group / User Bindings**
+2. Bind both `Admins` and `Users` groups
+
+**One-time setup:** If groups don't exist yet, create them first:
 1. Go to **Directory** → **Groups**
-2. Create group: `Admins` (full admin access across all apps)
-3. Create group: `Users` (standard authenticated users)
-4. Add users to appropriate groups
+2. Create `Admins` and `Users` groups
+3. Add users to appropriate groups
 
 Role mapping (configured in values.yml):
 - Users in `Admins` → Grafana Admin role
 - All other authenticated users → Grafana Viewer role
-
-**Note:** The simplified tiered system means `Admins` group members get admin access
-across all OIDC-integrated apps, not just Grafana.
 
 ### Step 5: Deploy
 
