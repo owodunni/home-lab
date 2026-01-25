@@ -210,6 +210,8 @@ metadata:
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     cert-manager.io/cluster-issuer: letsencrypt-prod
+    # Authentik forward auth protection
+    traefik.ingress.kubernetes.io/router.middlewares: kube-system-authentik-forward-auth@kubernetescrd
     # Homepage auto-discovery
     gethomepage.dev/enabled: "true"
     gethomepage.dev/name: "Backrest"

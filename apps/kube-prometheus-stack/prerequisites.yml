@@ -1,6 +1,26 @@
 ---
 # Prerequisites for kube-prometheus-stack
-# Creates Alertmanager config secret and NetworkPolicies
+# Creates Alertmanager config secret, Grafana OIDC secret, and NetworkPolicies
+
+# Grafana Authentik OIDC Secret
+# Contains OAuth2 credentials for Authentik integration
+- name: Create Grafana Authentik OIDC secret
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: grafana-authentik-oidc
+        namespace: monitoring
+        labels:
+          app.kubernetes.io/name: grafana
+          managed-by: ansible
+      type: Opaque
+      stringData:
+        GF_AUTH_GENERIC_OAUTH_CLIENT_ID: "{{ vault_authentik_grafana_client_id }}"
+        GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: "{{ vault_authentik_grafana_client_secret }}"
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
 
 - name: Create Alertmanager config secret
   kubernetes.core.k8s:
@@ -186,5 +206,31 @@
                   cidr: 0.0.0.0/0
             ports:
               - port: 587
+                protocol: TCP
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+# Network policy for Grafana OIDC authentication with Authentik
+- name: Create NetworkPolicy for Grafana Authentik OIDC
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      metadata:
+        name: allow-grafana-authentik
+        namespace: monitoring
+      spec:
+        podSelector:
+          matchLabels:
+            app.kubernetes.io/name: grafana
+        policyTypes:
+          - Egress
+        egress:
+          # Authentik namespace for OIDC authentication
+          - to:
+              - namespaceSelector:
+                  matchLabels:
+                    name: authentik
+            ports:
+              - port: 9000
                 protocol: TCP
     kubeconfig: /etc/rancher/k3s/k3s.yaml

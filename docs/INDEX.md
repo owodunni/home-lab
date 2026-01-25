@@ -22,6 +22,7 @@ Central reference for all home-lab documentation.
 |----------|---------|
 | [app-deployment-guide.md](app-deployment-guide.md) | Deploy apps to K3s |
 | [ansible-vault.md](ansible-vault.md) | Secrets management |
+| [authentik-migration.md](authentik-migration.md) | SSO migration guide |
 | [email-configuration.md](email-configuration.md) | SMTP & email alerts |
 | [disaster-recovery.md](disaster-recovery.md) | Backup & recovery procedures |
 | [storage-setup-quickstart.md](storage-setup-quickstart.md) | Storage quick setup |

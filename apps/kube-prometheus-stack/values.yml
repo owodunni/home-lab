@@ -52,6 +52,8 @@ prometheus:
     annotations:
       traefik.ingress.kubernetes.io/router.entrypoints: websecure
       cert-manager.io/cluster-issuer: letsencrypt-prod
+      # Authentik forward auth protection
+      traefik.ingress.kubernetes.io/router.middlewares: kube-system-authentik-forward-auth@kubernetescrd
       # Homepage auto-discovery
       gethomepage.dev/enabled: "true"
       gethomepage.dev/name: "Prometheus"
@@ -75,6 +77,32 @@ grafana:
     enabled: true
     storageClassName: nfs
     size: 5Gi
+
+  # Authentik OIDC credentials from secret
+  envFromSecrets:
+    - name: grafana-authentik-oidc
+      optional: false
+
+  # Grafana OIDC configuration for Authentik
+  # Client ID/Secret provided via environment variables from secret
+  grafana.ini:
+    server:
+      root_url: https://grafana.jardoole.xyz
+    auth.generic_oauth:
+      enabled: true
+      name: Authentik
+      allow_sign_up: true
+      scopes: openid profile email groups
+      auth_url: https://authentik.jardoole.xyz/application/o/authorize/
+      token_url: https://authentik.jardoole.xyz/application/o/token/
+      api_url: https://authentik.jardoole.xyz/application/o/userinfo/
+      # Role mapping: Grafana Admins → Admin, Grafana Editors → Editor, else Viewer
+      role_attribute_path: >-
+        contains(groups[*], 'Grafana Admins') && 'Admin' ||
+        contains(groups[*], 'Grafana Editors') && 'Editor' ||
+        'Viewer'
+      # Allow OIDC users to be assigned as Org Admin
+      allow_assign_grafana_admin: true
 
   # Resource limits
   resources:
@@ -192,6 +220,8 @@ alertmanager:
     annotations:
       traefik.ingress.kubernetes.io/router.entrypoints: websecure
       cert-manager.io/cluster-issuer: letsencrypt-prod
+      # Authentik forward auth protection
+      traefik.ingress.kubernetes.io/router.middlewares: kube-system-authentik-forward-auth@kubernetescrd
       # Homepage auto-discovery
       gethomepage.dev/enabled: "true"
       gethomepage.dev/name: "AlertManager"

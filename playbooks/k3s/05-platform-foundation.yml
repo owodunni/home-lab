@@ -212,6 +212,36 @@
                 Referrer-Policy: "strict-origin-when-cross-origin"
         kubeconfig: /etc/rancher/k3s/k3s.yaml
 
+    # Authentik Forward Auth Middleware
+    # Used by apps without native OIDC support (Prometheus, Alertmanager, etc.)
+    # Requires: Embedded Outpost created in Authentik UI
+    - name: Create Traefik middleware for Authentik forward auth
+      kubernetes.core.k8s:
+        definition:
+          apiVersion: traefik.io/v1alpha1
+          kind: Middleware
+          metadata:
+            name: authentik-forward-auth
+            namespace: kube-system
+          spec:
+            forwardAuth:
+              # Authentik embedded outpost endpoint
+              address: http://authentik-server.authentik.svc.cluster.local/outpost.goauthentik.io/auth/traefik
+              trustForwardHeader: true
+              authResponseHeaders:
+                - X-authentik-username
+                - X-authentik-groups
+                - X-authentik-email
+                - X-authentik-name
+                - X-authentik-uid
+                - X-authentik-jwt
+                - X-authentik-meta-jwks
+                - X-authentik-meta-outpost
+                - X-authentik-meta-provider
+                - X-authentik-meta-app
+                - X-authentik-meta-version
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+
     - name: Get namespace status
       kubernetes.core.k8s_info:
         api_version: v1
@@ -245,7 +275,7 @@
           ✓ Namespaces created: {{ created_namespaces.resources | length }}
           ✓ Resource quotas: {{ resource_quotas.resources | length }} configured
           ✓ Network policies: {{ application_namespaces | length }} applied
-          ✓ Traefik middlewares: 3 configured
+          ✓ Traefik middlewares: 4 configured (including Authentik forward auth)
           ✓ Traefik service: {{ 'Ready' if traefik_service.resources else 'Not found' }}
 
           Created namespaces:
