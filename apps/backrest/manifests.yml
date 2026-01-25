@@ -117,6 +117,9 @@ spec:
               value: /cache
             - name: TZ
               value: Europe/Amsterdam
+            # Disable built-in auth - Authentik handles authentication via forward auth
+            - name: BACKREST_DISABLE_AUTHENTICATION
+              value: "true"
           envFrom:
             - secretRef:
                 name: backrest-restic-credentials
