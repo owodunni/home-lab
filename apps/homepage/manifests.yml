@@ -108,6 +108,8 @@ spec:
             matchLabels:
               name: authentik
       ports:
+        - port: 80
+          protocol: TCP
         - port: 9000
           protocol: TCP
     # NFS access to beelink
