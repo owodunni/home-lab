@@ -33,8 +33,8 @@ This avoids network policy issues where pods can't reach external IPs.
 
 | Service | Auth Method | Status |
 |---------|-------------|--------|
-| Grafana | OIDC Native | Needs Authentik setup |
-| Prometheus | Forward Auth | Needs Authentik setup |
+| Grafana | OIDC Native | ✅ Complete |
+| Prometheus | Forward Auth | ✅ Complete |
 | Alertmanager | Forward Auth | Needs Authentik setup |
 | Backrest | Forward Auth | Needs Authentik setup |
 | Sonarr | Forward Auth + API Bypass | Needs Authentik setup |
@@ -447,6 +447,35 @@ api_url: http://authentik-server.authentik.svc.cluster.local/application/o/useri
 ```
 
 The pod can't reach the external IP, but can reach the internal service.
+
+### Forward Auth "Bad Gateway" After Login
+
+If authentication succeeds but you get "Bad Gateway" when redirected back:
+
+**Cause:** Network policy blocks Traefik from reaching the backend service.
+
+**Solution:** Add an ingress network policy to allow traffic from `kube-system` (Traefik):
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-<app>-traefik-ingress
+  namespace: <app-namespace>
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: <app>
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: <app-port>
+          protocol: TCP
+```
 
 ### API Bypass Not Working
 
