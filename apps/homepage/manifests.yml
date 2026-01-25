@@ -102,6 +102,14 @@ spec:
           protocol: TCP
         - port: 9093
           protocol: TCP
+    # Authentik namespace (identity provider)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: authentik
+      ports:
+        - port: 9000
+          protocol: TCP
     # NFS access to beelink
     - to:
         - ipBlock:

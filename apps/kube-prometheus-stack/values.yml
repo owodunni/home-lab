@@ -230,6 +230,7 @@ alertmanager:
       gethomepage.dev/description: "Alert Management"
       gethomepage.dev/group: "Monitoring"
       gethomepage.dev/icon: "alertmanager.png"
+      gethomepage.dev/pod-selector: "app.kubernetes.io/name=alertmanager"
     hosts:
       - alert-manager.jardoole.xyz
     paths:

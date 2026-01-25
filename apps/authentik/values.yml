@@ -72,6 +72,7 @@ server:
       gethomepage.dev/description: "Identity Provider & SSO"
       gethomepage.dev/group: "Admin"
       gethomepage.dev/icon: "authentik.png"
+      gethomepage.dev/pod-selector: "app.kubernetes.io/name=authentik"
     hosts:
       - authentik.jardoole.xyz
     paths:
