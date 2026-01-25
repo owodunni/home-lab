@@ -89,6 +89,7 @@ Grafana uses native OIDC integration - the most secure method.
    - **Authorization flow**: default-provider-authorization-implicit-consent
    - **Client type**: Confidential
    - **Redirect URIs**: `https://grafana.jardoole.xyz/login/generic_oauth`
+   - **Post Logout Redirect URIs**: `https://grafana.jardoole.xyz/login/generic_oauth`
    - **Signing Key**: Select any available key (e.g., `authentik Self-signed Certificate`)
    - **Scopes**: Hold Ctrl and select `openid`, `profile`, `email`
 5. Click **Finish**
