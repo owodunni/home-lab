@@ -6,6 +6,29 @@ Step-by-step guide to enable Authentik authentication for home lab services.
 
 This guide covers migrating services to use Authentik for centralized authentication.
 
+### Groups Strategy (Simplified Tiered System)
+
+Instead of creating app-specific groups (Grafana Admins, Sonarr Admins, etc.),
+use a tiered system:
+
+| Authentik Group | Purpose | App Mappings |
+|-----------------|---------|--------------|
+| `Admins` | Full admin access everywhere | Grafana Admin, full API access |
+| `Users` | Standard authenticated users | Grafana Viewer, basic app access |
+
+**Benefits:**
+- 2 groups instead of 2 per app
+- Add user to `Admins` once = admin everywhere
+- Simpler role_attribute_path expressions
+
+### Network Architecture Note
+
+**Important:** For OIDC apps, use internal cluster URLs for server-side calls:
+- **Browser redirects** (auth_url, signout_redirect_url): External URL (`https://authentik.jardoole.xyz/...`)
+- **Server-side calls** (token_url, api_url): Internal URL (`http://authentik-server.authentik.svc.cluster.local/...`)
+
+This avoids network policy issues where pods can't reach external IPs.
+
 ### Services Configured (Code Changes Complete)
 
 | Service | Auth Method | Status |
@@ -91,7 +114,7 @@ Grafana uses native OIDC integration - the most secure method.
    - **Redirect URIs**: `https://grafana.jardoole.xyz/login/generic_oauth`
    - **Post Logout Redirect URIs**: `https://grafana.jardoole.xyz/login/generic_oauth`
    - **Signing Key**: Select any available key (e.g., `authentik Self-signed Certificate`)
-   - **Scopes**: Hold Ctrl and select `openid`, `profile`, `email`
+   - **Scopes**: Hold Ctrl and select `openid`, `profile`, `email`, `groups` (groups needed for role mapping)
 5. Click **Finish**
 
 6. **Copy the generated credentials:**
@@ -122,19 +145,21 @@ vault_authentik_grafana_client_secret: "paste-client-secret-here"
    - **Launch URL**: `https://grafana.jardoole.xyz`
 4. Click **Create**
 
-### Step 4: Create Authentik Groups (Optional but Recommended)
+### Step 4: Create Authentik Groups
 
-For role mapping to work:
+For role mapping to work, create the tiered groups (if not already created):
 
 1. Go to **Directory** → **Groups**
-2. Create group: `Grafana Admins`
-3. Create group: `Grafana Editors`
+2. Create group: `Admins` (full admin access across all apps)
+3. Create group: `Users` (standard authenticated users)
 4. Add users to appropriate groups
 
 Role mapping (configured in values.yml):
-- Users in `Grafana Admins` → Admin role
-- Users in `Grafana Editors` → Editor role
-- All other authenticated users → Viewer role
+- Users in `Admins` → Grafana Admin role
+- All other authenticated users → Grafana Viewer role
+
+**Note:** The simplified tiered system means `Admins` group members get admin access
+across all OIDC-integrated apps, not just Grafana.
 
 ### Step 5: Deploy
 
@@ -386,6 +411,21 @@ make app-deploy APP=prowlarr
    ```bash
    kubectl get secret -n monitoring grafana-authentik-oidc -o yaml
    ```
+
+### OIDC "Failed to get token from provider"
+
+This usually means the app can't reach Authentik for server-side OAuth calls.
+
+**Solution:** Use internal cluster URLs for `token_url` and `api_url`:
+```yaml
+# Browser redirect - external URL (user's browser navigates here)
+auth_url: https://authentik.jardoole.xyz/application/o/authorize/
+# Server-side calls - internal cluster URLs (avoids network policy issues)
+token_url: http://authentik-server.authentik.svc.cluster.local/application/o/token/
+api_url: http://authentik-server.authentik.svc.cluster.local/application/o/userinfo/
+```
+
+The pod can't reach the external IP, but can reach the internal service.
 
 ### API Bypass Not Working
 
