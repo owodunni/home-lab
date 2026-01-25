@@ -47,7 +47,7 @@ This avoids network policy issues where pods can't reach external IPs.
 |---------|-------------|--------|
 | Grafana | OIDC Native | ✅ Complete |
 | Prometheus | Forward Auth | ✅ Complete |
-| Alertmanager | Forward Auth | Needs Authentik setup |
+| Alertmanager | Forward Auth | ✅ Complete |
 | Backrest | Forward Auth | Needs Authentik setup |
 | Sonarr | Forward Auth + API Bypass | Needs Authentik setup |
 | Radarr | Forward Auth + API Bypass | Needs Authentik setup |
