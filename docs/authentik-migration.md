@@ -76,6 +76,8 @@ If no embedded outpost exists:
 
 Grafana uses native OIDC integration - the most secure method.
 
+**Important:** The application slug must be `grafana` (configured in Step 3) because the logout URL in `values.yml` references it: `https://authentik.jardoole.xyz/application/o/grafana/end-session/`
+
 ### Step 1: Create Authentik Provider (generates secrets)
 
 1. Go to **Admin Interface** → **Applications** → **Providers**
