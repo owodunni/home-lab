@@ -2,7 +2,7 @@
 # Fix macOS fork safety issue with Python 3.13 + Ansible multiprocessing
 ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
-.PHONY: help setup beelink-setup beelink-nfs beelink-storage minio-storage nas-spindown backup-setup beelink-complete beelink-gpu-setup lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio minio-uninstall k3s k3s-check k3s-helm-setup k3s-teardown kubeconfig-update verify-backups lint-apps app-deploy app-upgrade app-list app-status app-delete apps-deploy-all teardown teardown-check
+.PHONY: help setup beelink-setup beelink-nfs beelink-storage minio-storage nas-spindown backup-setup beelink-complete beelink-gpu-setup lint precommit upgrade unattended-upgrades pi-base-config pi-storage-config site-check site minio minio-uninstall k3s k3s-check k3s-helm-setup k3s-platform-foundation k3s-teardown kubeconfig-update verify-backups lint-apps app-deploy app-upgrade app-list app-status app-delete apps-deploy-all teardown teardown-check
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -162,6 +162,10 @@ k3s-check: ## 🔍 Check complete K3s deployment (dry-run)
 k3s-helm-setup: ## 📦 Configure Helm repositories on control plane
 	@echo "Configuring Helm repositories..."
 	$(ANSIBLE_PLAYBOOK) playbooks/k3s/02-helm-setup.yml --diff
+
+k3s-platform-foundation: ## 🏗️ Deploy platform foundation (namespaces, middlewares)
+	@echo "Deploying platform foundation..."
+	$(ANSIBLE_PLAYBOOK) playbooks/k3s/05-platform-foundation.yml --diff
 
 k3s-teardown: ## 🧹 Completely uninstall K3s from all control plane nodes
 	@echo "Uninstalling K3s from all control plane nodes..."
