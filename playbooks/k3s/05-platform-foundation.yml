@@ -9,9 +9,9 @@
   run_once: true
 
   vars:
+    # Note: monitoring namespace is excluded - it has custom network policies
+    # managed by kube-prometheus-stack prerequisites
     application_namespaces:
-      - name: monitoring
-        description: "Monitoring and observability stack"
       - name: dashboard
         description: "Cluster management and dashboard applications"
       - name: applications
