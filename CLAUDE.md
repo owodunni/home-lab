@@ -139,22 +139,31 @@ See [docs/disaster-recovery.md](docs/disaster-recovery.md) for recovery procedur
 
 ## CRITICAL: Kubernetes Deployment Restrictions
 
-**NEVER apply resources directly with `kubectl apply`** - all changes must go through deployment scripts.
+**NEVER modify cluster state directly** - all changes must go through deployment scripts.
 
-**Forbidden:**
+**Forbidden (even when debugging or fixing issues):**
 
 - `kubectl apply -f` for creating/updating resources
 - `kubectl patch` for modifying resources
+- `kubectl delete` for removing resources (except pods for restart)
 - `kubectl edit` for live editing
 - Any direct resource modification
 
+**This applies even when:**
+
+- Troubleshooting a broken service
+- Fixing an urgent issue
+- Testing a quick fix
+- The fix seems trivial
+
 **Required approach:**
 
-1. Edit the source files (prerequisites.yml, values.yml, etc.)
-2. Provide the user with the deployment command (`make app-deploy APP=<name>`)
-3. Let the user run the deployment
+1. Edit the source files (prerequisites.yml, values.yml, manifests.yml, etc.)
+2. Commit the changes
+3. Provide the user with the deployment command (`make app-deploy APP=<name>`)
+4. Let the user run the deployment
 
-**Why:** Direct kubectl changes create drift between code and cluster state. All changes must be reflected in version-controlled files.
+**Why:** Direct kubectl changes create drift between code and cluster state. The cluster must always match the committed code. Hot-patching makes debugging harder and changes get lost on next deployment.
 
 ## Core Documentation
 
