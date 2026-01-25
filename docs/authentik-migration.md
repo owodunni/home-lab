@@ -13,12 +13,24 @@ use a tiered system:
 
 | Authentik Group | Purpose | App Mappings |
 |-----------------|---------|--------------|
-| `Admins` | Full admin access everywhere | Grafana Admin, full API access |
-| `Users` | Standard authenticated users | Grafana Viewer, basic app access |
+| `Admins` | Full admin access everywhere | Grafana Admin, infrastructure access |
+| `Users` | Standard authenticated users | Grafana Viewer, media apps only |
+
+**App Access by Group:**
+
+| App | Admins | Users | Reason |
+|-----|--------|-------|--------|
+| Grafana | ✅ Admin role | ✅ Viewer role | Dashboards useful for all |
+| Prometheus | ✅ | ❌ | Infrastructure monitoring |
+| Alertmanager | ✅ | ❌ | Alert management |
+| Backrest | ✅ | ❌ | Backup management |
+| Sonarr/Radarr/Prowlarr | ✅ | ✅ | Media management |
+| Jellyfin/Jellyseerr | ✅ | ✅ | Media consumption |
 
 **Benefits:**
 - 2 groups instead of 2 per app
 - Add user to `Admins` once = admin everywhere
+- Infrastructure apps restricted to admins
 - Simpler role_attribute_path expressions
 
 ### Network Architecture Note
