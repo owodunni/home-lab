@@ -1,0 +1,21 @@
+---
+# CloudNative-PG Post-install: Barman Cloud Plugin
+# Installs the Barman Cloud backup plugin for S3-compatible storage
+
+- name: Install Barman Cloud Plugin manifest
+  kubernetes.core.k8s:
+    state: present
+    src: "https://github.com/cloudnative-pg/plugin-barman-cloud/releases/download/v0.10.0/manifest.yaml"
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Wait for Barman Cloud Plugin deployment
+  kubernetes.core.k8s_info:
+    kind: Deployment
+    name: barman-cloud
+    namespace: cnpg-system
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    wait: true
+    wait_timeout: 120
+    wait_condition:
+      type: Available
+      status: "True"

@@ -197,6 +197,14 @@
       register: helm_repo_cnpg
       failed_when: false
 
+    - name: Add Authentik repository (Identity Provider)
+      kubernetes.core.helm_repository:
+        name: authentik
+        repo_url: https://charts.goauthentik.io
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: helm_repo_authentik
+      failed_when: false
+
     - name: Update all Helm repositories
       ansible.builtin.command:
         cmd: helm repo update

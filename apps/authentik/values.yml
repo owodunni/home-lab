@@ -1,0 +1,85 @@
+---
+# Authentik Identity Provider
+
+# Disable bundled PostgreSQL - using CNPG
+postgresql:
+  enabled: false
+
+# Disable bundled Redis - not needed in 2025.10+
+redis:
+  enabled: false
+
+authentik:
+  secret_key: ""  # Loaded from env via authentik-secrets
+
+  postgresql:
+    host: authentik-db-rw
+    name: authentik
+    user: authentik
+    port: 5432
+
+server:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  env:
+    - name: AUTHENTIK_POSTGRESQL__PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: authentik-db-credentials
+          key: password
+
+  envFrom:
+    - secretRef:
+        name: authentik-secrets
+
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      # Required for WebSocket support
+      traefik.ingress.kubernetes.io/service.sticky.cookie: "true"
+      traefik.ingress.kubernetes.io/service.sticky.cookie.name: "authentik_session"
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      gethomepage.dev/enabled: "true"
+      gethomepage.dev/name: "Authentik"
+      gethomepage.dev/description: "Identity Provider & SSO"
+      gethomepage.dev/group: "Admin"
+      gethomepage.dev/icon: "authentik.png"
+    hosts:
+      - authentik.jardoole.xyz
+    paths:
+      - /
+    pathType: Prefix
+    tls:
+      - secretName: authentik-tls
+        hosts:
+          - authentik.jardoole.xyz
+
+worker:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  env:
+    - name: AUTHENTIK_POSTGRESQL__PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: authentik-db-credentials
+          key: password
+
+  envFrom:
+    - secretRef:
+        name: authentik-secrets

@@ -1,0 +1,7 @@
+---
+- name: Deploy Authentik
+  import_playbook: ../../playbooks/deploy-helm-app.yml
+  vars:
+    app_chart_file: "{{ inventory_dir }}/apps/authentik/Chart.yml"
+    app_values_file: "{{ inventory_dir }}/apps/authentik/values.yml"
+    prerequisites_playbook: "{{ inventory_dir }}/apps/authentik/prerequisites.yml"

@@ -125,6 +125,25 @@ See [docs/disaster-recovery.md](docs/disaster-recovery.md) for recovery procedur
 
 **Why:** Playbooks can consume 10k+ tokens per run. Always ask user to run manually.
 
+## CRITICAL: Kubernetes Deployment Restrictions
+
+**NEVER apply resources directly with `kubectl apply`** - all changes must go through deployment scripts.
+
+**Forbidden:**
+
+- `kubectl apply -f` for creating/updating resources
+- `kubectl patch` for modifying resources
+- `kubectl edit` for live editing
+- Any direct resource modification
+
+**Required approach:**
+
+1. Edit the source files (prerequisites.yml, values.yml, etc.)
+2. Provide the user with the deployment command (`make app-deploy APP=<name>`)
+3. Let the user run the deployment
+
+**Why:** Direct kubectl changes create drift between code and cluster state. All changes must be reflected in version-controlled files.
+
 ## Core Documentation
 
 - [docs/INDEX.md](docs/INDEX.md) - **Full documentation index**

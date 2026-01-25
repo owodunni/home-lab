@@ -1,0 +1,208 @@
+---
+# Authentik Prerequisites
+# Creates secrets, ObjectStore, and CNPG PostgreSQL cluster
+
+- name: Create database credentials secret
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: authentik-db-credentials
+        namespace: authentik
+        labels:
+          app.kubernetes.io/name: authentik
+          managed-by: ansible
+      type: kubernetes.io/basic-auth
+      stringData:
+        username: authentik
+        password: "{{ vault_authentik_db_password }}"
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Create CNPG S3 credentials for backups
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: cnpg-s3-credentials
+        namespace: authentik
+        labels:
+          app.kubernetes.io/name: authentik
+          managed-by: ansible
+      type: Opaque
+      stringData:
+        ACCESS_KEY_ID: "{{ vault_cnpg_s3_access_key }}"
+        ACCESS_SECRET_KEY: "{{ vault_cnpg_s3_secret_key }}"
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Create Authentik application secrets
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: authentik-secrets
+        namespace: authentik
+        labels:
+          app.kubernetes.io/name: authentik
+          managed-by: ansible
+      type: Opaque
+      stringData:
+        AUTHENTIK_SECRET_KEY: "{{ vault_authentik_secret_key }}"
+        AUTHENTIK_EMAIL__HOST: "{{ smtp_host }}"
+        AUTHENTIK_EMAIL__PORT: "{{ smtp_port | string }}"
+        AUTHENTIK_EMAIL__USERNAME: "{{ vault_smtp_username }}"
+        AUTHENTIK_EMAIL__PASSWORD: "{{ vault_smtp_password }}"
+        AUTHENTIK_EMAIL__USE_TLS: "{{ smtp_use_tls | string | lower }}"
+        AUTHENTIK_EMAIL__USE_SSL: "{{ smtp_use_ssl | string | lower }}"
+        AUTHENTIK_EMAIL__FROM: "{{ smtp_from }}"
+        AUTHENTIK_EMAIL__TIMEOUT: "30"
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Create ObjectStore for PostgreSQL backups (Barman Cloud Plugin)
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: barmancloud.cnpg.io/v1
+      kind: ObjectStore
+      metadata:
+        name: authentik-db-backup
+        namespace: authentik
+        labels:
+          app.kubernetes.io/name: authentik
+          managed-by: ansible
+      spec:
+        configuration:
+          destinationPath: s3://postgres-backups/authentik
+          endpointURL: "https://{{ minio_internal_domain }}:9000"
+          s3Credentials:
+            accessKeyId:
+              name: cnpg-s3-credentials
+              key: ACCESS_KEY_ID
+            secretAccessKey:
+              name: cnpg-s3-credentials
+              key: ACCESS_SECRET_KEY
+          wal:
+            compression: gzip
+        retentionPolicy: "7d"
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Create PostgreSQL Cluster with Barman Cloud Plugin
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      metadata:
+        name: authentik-db
+        namespace: authentik
+        labels:
+          app.kubernetes.io/name: authentik
+          managed-by: ansible
+      spec:
+        instances: 2
+        imageName: ghcr.io/cloudnative-pg/postgresql:16.4
+
+        # Run on Pi nodes only (ARM64), spread across different nodes
+        affinity:
+          nodeSelector:
+            kubernetes.io/arch: arm64
+          podAntiAffinityType: required
+
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        storage:
+          size: 1Gi
+          storageClass: local-path
+        bootstrap:
+          initdb:
+            database: authentik
+            owner: authentik
+            secret:
+              name: authentik-db-credentials
+        plugins:
+          - name: barman-cloud.cloudnative-pg.io
+            isWALArchiver: true
+            parameters:
+              barmanObjectName: authentik-db-backup
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Wait for PostgreSQL Cluster to be ready
+  kubernetes.core.k8s_info:
+    kind: Cluster
+    api_version: postgresql.cnpg.io/v1
+    namespace: authentik
+    name: authentik-db
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+  register: pg_cluster
+  until:
+    - pg_cluster.resources | length > 0
+    - pg_cluster.resources[0].status.phase | default('') == 'Cluster in healthy state'
+  retries: 30
+  delay: 10
+
+- name: Create NetworkPolicy for Authentik egress
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      metadata:
+        name: allow-authentik-egress
+        namespace: authentik
+        labels:
+          app.kubernetes.io/name: authentik
+          managed-by: ansible
+      spec:
+        podSelector:
+          matchLabels:
+            app.kubernetes.io/name: authentik
+        policyTypes:
+          - Egress
+        egress:
+          # DNS
+          - to:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: kube-system
+            ports:
+              - port: 53
+                protocol: TCP
+              - port: 53
+                protocol: UDP
+          # PostgreSQL (within namespace)
+          - to:
+              - podSelector:
+                  matchLabels:
+                    cnpg.io/cluster: authentik-db
+            ports:
+              - port: 5432
+                protocol: TCP
+          # Internal namespace communication (server <-> worker)
+          - to:
+              - podSelector: {}
+            ports:
+              - port: 9000
+                protocol: TCP
+              - port: 9300
+                protocol: TCP
+          # External HTTPS (OAuth providers, OIDC discovery, etc.)
+          - to:
+              - ipBlock:
+                  cidr: 0.0.0.0/0
+            ports:
+              - port: 443
+                protocol: TCP
+              - port: 80
+                protocol: TCP
+              - port: 587
+                protocol: TCP
+    kubeconfig: /etc/rancher/k3s/k3s.yaml

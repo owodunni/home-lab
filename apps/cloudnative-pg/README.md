@@ -5,8 +5,14 @@ PostgreSQL operator for Kubernetes that manages PostgreSQL clusters with automat
 ## Dependencies
 
 - K3s cluster with Helm installed
+- cert-manager (required for Barman Cloud Plugin)
 - NFS storage class (for persistent volumes)
 - MinIO (optional, for S3 backups)
+
+## What Gets Installed
+
+1. **CloudNative-PG Operator** - Manages PostgreSQL clusters
+2. **Barman Cloud Plugin** - Handles S3 backups (installed automatically as post-install)
 
 ## Deployment
 
@@ -20,8 +26,11 @@ make app-deploy APP=cloudnative-pg
 # Check operator is running
 kubectl get pods -n cnpg-system
 
+# Check Barman Cloud Plugin is running
+kubectl get pods -n cnpg-system -l app.kubernetes.io/name=barman-cloud
+
 # Check CRDs are installed
-kubectl get crd | grep cnpg
+kubectl get crd | grep -E "(cnpg|barman)"
 ```
 
 ## Creating PostgreSQL Clusters
@@ -60,7 +69,33 @@ spec:
         name: myapp-db-credentials
 ```
 
-### Cluster with MinIO Backup
+### Cluster with S3 Backup (Barman Cloud Plugin)
+
+First, create the ObjectStore resource:
+
+```yaml
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: myapp-db-backup
+  namespace: myapp
+spec:
+  configuration:
+    destinationPath: s3://postgres-backups/myapp
+    endpointURL: https://minio.jardoole.xyz:9000
+    s3Credentials:
+      accessKeyId:
+        name: cnpg-s3-credentials
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: cnpg-s3-credentials
+        key: ACCESS_SECRET_KEY
+    wal:
+      compression: gzip
+  retentionPolicy: "7d"
+```
+
+Then reference it in the Cluster:
 
 ```yaml
 apiVersion: postgresql.cnpg.io/v1
@@ -91,18 +126,11 @@ spec:
       secret:
         name: myapp-db-credentials
 
-  backup:
-    barmanObjectStore:
-      destinationPath: s3://postgres-backups/myapp
-      endpointURL: https://minio.jardoole.xyz:9000
-      s3Credentials:
-        accessKeyId:
-          name: cnpg-s3-credentials
-          key: ACCESS_KEY_ID
-        secretAccessKey:
-          name: cnpg-s3-credentials
-          key: ACCESS_SECRET_KEY
-    retentionPolicy: "7d"
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: myapp-db-backup
 ```
 
 ## Required Secrets
@@ -141,53 +169,17 @@ stringData:
 
 ## Using Credentials in Applications
 
-The operator automatically creates secrets for connecting to the database:
+When using `bootstrap.initdb.secret`, CNPG uses that same secret for application connections. The password key in that secret contains the database password.
 
-| Secret Name | Contents |
-|-------------|----------|
-| `<cluster>-app` | `host`, `port`, `dbname`, `user`, `password`, `uri` |
-| `<cluster>-superuser` | Superuser credentials (admin only) |
-
-### Example: Authentik Configuration
+### Example: Using Bootstrap Secret
 
 ```yaml
 env:
-  AUTHENTIK_POSTGRESQL__HOST:
+  - name: DATABASE_PASSWORD
     valueFrom:
       secretKeyRef:
-        name: authentik-db-app
-        key: host
-  AUTHENTIK_POSTGRESQL__PORT:
-    valueFrom:
-      secretKeyRef:
-        name: authentik-db-app
-        key: port
-  AUTHENTIK_POSTGRESQL__NAME:
-    valueFrom:
-      secretKeyRef:
-        name: authentik-db-app
-        key: dbname
-  AUTHENTIK_POSTGRESQL__USER:
-    valueFrom:
-      secretKeyRef:
-        name: authentik-db-app
-        key: user
-  AUTHENTIK_POSTGRESQL__PASSWORD:
-    valueFrom:
-      secretKeyRef:
-        name: authentik-db-app
+        name: myapp-db-credentials  # Same as bootstrap secret
         key: password
-```
-
-Or use the connection URI directly:
-
-```yaml
-env:
-  DATABASE_URL:
-    valueFrom:
-      secretKeyRef:
-        name: authentik-db-app
-        key: uri
 ```
 
 ## Resource Sizing for Pi CM5
@@ -202,11 +194,12 @@ Recommended resource limits for single-instance clusters on ARM64:
 
 ## Backup Strategy
 
-### Why CNPG Native Backups?
+### Why Barman Cloud Plugin?
 
 - **Database-consistent**: Uses `pg_basebackup` for consistent snapshots
 - **Point-in-time recovery**: WAL archiving enables PITR
-- **Integrated lifecycle**: Backup tied to cluster lifecycle
+- **Plugin architecture**: Future-proof, replacing deprecated in-tree backup
+- **Separate lifecycle**: ObjectStore can be managed independently
 
 ### Backrest Exclusions
 
@@ -225,11 +218,21 @@ kubectl get cluster -n <namespace>
 kubectl describe cluster <cluster-name> -n <namespace>
 ```
 
+### View ObjectStore Status
+
+```bash
+kubectl get objectstore -n <namespace>
+kubectl describe objectstore <store-name> -n <namespace>
+```
+
 ### View Logs
 
 ```bash
 # Operator logs
 kubectl logs -n cnpg-system -l app.kubernetes.io/name=cloudnative-pg
+
+# Barman Cloud Plugin logs
+kubectl logs -n cnpg-system -l app.kubernetes.io/name=barman-cloud
 
 # Database logs
 kubectl logs -n <namespace> <cluster-name>-1
@@ -247,6 +250,10 @@ metadata:
 spec:
   cluster:
     name: myapp-db
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+    parameters:
+      barmanObjectName: myapp-db-backup
 EOF
 ```
 
@@ -261,6 +268,12 @@ See [postgresql-guide.md](../../docs/postgresql-guide.md) for restore procedures
 1. Check operator logs: `kubectl logs -n cnpg-system -l app.kubernetes.io/name=cloudnative-pg`
 2. Check cluster events: `kubectl describe cluster <name> -n <namespace>`
 3. Verify storage class exists: `kubectl get sc nfs`
+
+### Backup Not Working
+
+1. Check Barman Cloud Plugin: `kubectl get pods -n cnpg-system -l app.kubernetes.io/name=barman-cloud`
+2. Check ObjectStore status: `kubectl describe objectstore <name> -n <namespace>`
+3. Verify S3 credentials: `kubectl get secret cnpg-s3-credentials -n <namespace>`
 
 ### Connection Refused
 
