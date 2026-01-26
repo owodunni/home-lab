@@ -126,7 +126,7 @@ See [docs/disaster-recovery.md](docs/disaster-recovery.md) for recovery procedur
 **Approved commands only:**
 
 - `make precommit` - Static analysis and linting
-- `uv run ansible [host] -a "[command]"` - Single host checks
+- `uv run ansible [host] -a "[read-only command]"` - Single host **read-only** checks (e.g., `ls`, `stat`, `cat`, `df`)
 
 **FORBIDDEN commands:**
 
@@ -134,12 +134,13 @@ See [docs/disaster-recovery.md](docs/disaster-recovery.md) for recovery procedur
 - `make teardown` - Infrastructure removal
 - Any `ansible-playbook` execution
 - Any make target that runs playbooks
+- `uv run ansible [host] -a` with state-changing commands (`mkdir`, `chmod`, `chown`, `rm`, `systemctl`, etc.)
 
-**Why:** Playbooks can consume 10k+ tokens per run. Always ask user to run manually.
+**Why:** Playbooks can consume 10k+ tokens per run. State changes via ad-hoc commands bypass version control and create drift. Always ask user to run manually or fix via deployment code (e.g., initContainers, prerequisites.yml).
 
 ## CRITICAL: Kubernetes Deployment Restrictions
 
-**NEVER modify cluster state directly** - all changes must go through deployment scripts.
+**NEVER modify cluster or host state directly** - all changes must go through deployment scripts.
 
 **Forbidden (even when debugging or fixing issues):**
 
@@ -147,7 +148,8 @@ See [docs/disaster-recovery.md](docs/disaster-recovery.md) for recovery procedur
 - `kubectl patch` for modifying resources
 - `kubectl delete` for removing resources (except pods for restart)
 - `kubectl edit` for live editing
-- Any direct resource modification
+- `uv run ansible [host] -a` with state-changing commands (mkdir, chmod, chown, rm, etc.)
+- Any direct resource or host modification
 
 **This applies even when:**
 

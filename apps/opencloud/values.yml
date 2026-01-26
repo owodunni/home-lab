@@ -4,6 +4,18 @@
 
 controllers:
   main:
+    initContainers:
+      fix-permissions:
+        image:
+          repository: busybox
+          tag: 1.37.0
+        command:
+          - sh
+          - -c
+          - "chown -R 1000:1000 /etc/opencloud /var/lib/opencloud"
+        securityContext:
+          runAsUser: 0
+
     containers:
       app:
         image:
