@@ -3,6 +3,16 @@
 # Uses bjw-s app-template with single binary deployment (all services included)
 # Runs on ARM nodes, accesses storage via NFS from beelink
 
+# Route external hostnames to Traefik ClusterIP to avoid K3s ServiceLB
+# hairpin NAT issue (pods can't reach node IPs via ServiceLB PREROUTING rules)
+# Traefik ClusterIP: kubectl get svc -n kube-system traefik -o jsonpath='{.spec.clusterIP}'
+defaultPodOptions:
+  hostAliases:
+    - ip: "10.43.254.236"
+      hostnames:
+        - "authentik.jardoole.xyz"
+        - "docs.jardoole.xyz"
+
 controllers:
   main:
     containers:
