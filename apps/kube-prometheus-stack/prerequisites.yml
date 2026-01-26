@@ -129,6 +129,10 @@
           - to:
               - namespaceSelector: {}
             ports:
+              - port: 443
+                protocol: TCP
+              - port: 3000
+                protocol: TCP
               - port: 8080
                 protocol: TCP
               - port: 8443

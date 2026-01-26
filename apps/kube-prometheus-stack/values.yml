@@ -20,7 +20,7 @@ prometheus:
         cpu: 200m
         memory: 1Gi
       limits:
-        cpu: 500m
+        cpu: 1000m
         memory: 2Gi
     # Init container resource limits
     initContainers:
@@ -242,6 +242,17 @@ alertmanager:
         hosts:
           - alert-manager.jardoole.xyz
 
+# Disable K3s-incompatible component monitoring
+# K3s runs these components embedded in the k3s server binary, not as separate pods
+kubeControllerManager:
+  enabled: false
+
+kubeScheduler:
+  enabled: false
+
+kubeProxy:
+  enabled: false
+
 prometheusOperator:
   # Resource limits for operator
   resources:
@@ -276,8 +287,8 @@ prometheus-node-exporter:
   # Resource limits for node exporter (runs on all nodes)
   resources:
     requests:
-      cpu: 50m
+      cpu: 100m
       memory: 64Mi
     limits:
-      cpu: 100m
+      cpu: 200m
       memory: 128Mi
