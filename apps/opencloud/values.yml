@@ -1,21 +1,10 @@
 ---
 # Helm values for OpenCloud
 # Uses bjw-s app-template with single binary deployment (all services included)
+# Runs on ARM nodes, accesses storage via NFS from beelink
 
 controllers:
   main:
-    initContainers:
-      fix-permissions:
-        image:
-          repository: busybox
-          tag: 1.37.0
-        command:
-          - sh
-          - -c
-          - "chown -R 1000:1000 /etc/opencloud /var/lib/opencloud"
-        securityContext:
-          runAsUser: 0
-
     containers:
       app:
         image:
@@ -23,6 +12,7 @@ controllers:
           tag: 4.0.1
           pullPolicy: IfNotPresent
 
+        # Image default is "opencloud server" — init generates JWT secrets
         command:
           - /bin/sh
           - -c
@@ -148,15 +138,21 @@ ingress:
 persistence:
   data:
     enabled: true
-    type: hostPath
-    hostPath: /mnt/storage/opencloud
+    type: custom
+    volumeSpec:
+      nfs:
+        server: beelink
+        path: /mnt/storage/opencloud
     globalMounts:
       - path: /var/lib/opencloud
 
   config:
     enabled: true
-    type: hostPath
-    hostPath: /mnt/storage/k8s-apps/opencloud
+    type: custom
+    volumeSpec:
+      nfs:
+        server: beelink
+        path: /mnt/storage/k8s-apps/opencloud
     globalMounts:
       - path: /etc/opencloud
 
@@ -177,15 +173,3 @@ persistence:
       - path: /etc/opencloud/proxy.yaml
         subPath: proxy.yaml
         readOnly: true
-
-# Pin to beelink node (where NFS storage is located)
-defaultPodOptions:
-  affinity:
-    nodeAffinity:
-      requiredDuringSchedulingIgnoredDuringExecution:
-        nodeSelectorTerms:
-          - matchExpressions:
-              - key: kubernetes.io/hostname
-                operator: In
-                values:
-                  - beelink
