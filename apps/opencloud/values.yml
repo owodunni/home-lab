@@ -92,6 +92,7 @@ controllers:
               httpGet:
                 path: /healthz
                 port: 9200
+                scheme: HTTPS
               initialDelaySeconds: 60
               periodSeconds: 30
               timeoutSeconds: 5
@@ -102,6 +103,7 @@ controllers:
               httpGet:
                 path: /healthz
                 port: 9200
+                scheme: HTTPS
               initialDelaySeconds: 30
               periodSeconds: 10
               timeoutSeconds: 5
@@ -119,6 +121,7 @@ ingress:
     className: traefik
     annotations:
       traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      traefik.ingress.kubernetes.io/service.serversscheme: https
       cert-manager.io/cluster-issuer: letsencrypt-prod
       # No forward auth middleware - OpenCloud handles OIDC natively
       # Homepage auto-discovery
