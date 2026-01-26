@@ -29,6 +29,11 @@ controllers:
           - name: TZ
             value: "Europe/Amsterdam"
 
+          # Storage driver: decomposedfs stores metadata in companion files
+          # instead of xattr (posixfs default), required for NFS compatibility
+          - name: STORAGE_USERS_DRIVER
+            value: "ocis"
+
           # Disable internal IDP (using Authentik)
           - name: OC_EXCLUDE_RUN_SERVICES
             value: "idp"
