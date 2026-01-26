@@ -11,6 +11,11 @@ controllers:
           tag: 4.0.1
           pullPolicy: IfNotPresent
 
+        command:
+          - /bin/sh
+          - -c
+          - "opencloud init || true; opencloud server"
+
         env:
           # Core settings
           - name: OC_URL
@@ -30,7 +35,7 @@ controllers:
           - name: OC_OIDC_ISSUER
             value: "https://authentik.jardoole.xyz/application/o/opencloud/"
           - name: WEB_OIDC_CLIENT_ID
-            value: "web"
+            value: "Ug5hiFcNgI12Hda0gOW3um8hWFNeNuiAVdAj7EtV"
           - name: WEB_OIDC_SCOPE
             value: "openid profile email groups offline_access"
 
