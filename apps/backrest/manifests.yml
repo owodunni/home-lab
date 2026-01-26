@@ -152,6 +152,8 @@ spec:
               mountPath: /backup-sources/k8s-apps
             - name: nfs-media
               mountPath: /backup-sources/media
+            - name: nfs-opencloud
+              mountPath: /backup-sources/opencloud
           livenessProbe:
             httpGet:
               path: /
@@ -181,6 +183,10 @@ spec:
           nfs:
             server: beelink
             path: /mnt/storage/media
+        - name: nfs-opencloud
+          nfs:
+            server: beelink
+            path: /mnt/storage/opencloud
       nodeSelector:
         kubernetes.io/os: linux
 ---

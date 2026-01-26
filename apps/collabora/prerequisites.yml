@@ -1,0 +1,48 @@
+---
+# Collabora Online Prerequisites
+# Creates NetworkPolicy for Collabora
+
+- name: Create NetworkPolicy for Collabora
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      metadata:
+        name: collabora-network-policy
+        namespace: collabora
+        labels:
+          app.kubernetes.io/name: collabora
+          managed-by: ansible
+      spec:
+        podSelector: {}
+        policyTypes:
+          - Ingress
+          - Egress
+        ingress:
+          # Allow Traefik ingress controller from kube-system
+          - from:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: kube-system
+            ports:
+              - port: 9980
+                protocol: TCP
+        egress:
+          # DNS resolution via CoreDNS
+          - to:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: kube-system
+            ports:
+              - port: 53
+                protocol: TCP
+              - port: 53
+                protocol: UDP
+          # External HTTPS (OpenCloud WOPI callbacks)
+          - to:
+              - ipBlock:
+                  cidr: 0.0.0.0/0
+            ports:
+              - port: 443
+                protocol: TCP
+    kubeconfig: /etc/rancher/k3s/k3s.yaml

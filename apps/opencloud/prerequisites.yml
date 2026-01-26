@@ -1,0 +1,122 @@
+---
+# OpenCloud Prerequisites
+# Creates ConfigMaps for CSP and proxy role mapping, plus NetworkPolicy
+
+- name: Create CSP configuration ConfigMap
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: opencloud-csp-config
+        namespace: opencloud
+        labels:
+          app.kubernetes.io/name: opencloud
+          managed-by: ansible
+      data:
+        csp.yaml: |
+          directives:
+            child-src:
+              - "'self'"
+            connect-src:
+              - "'self'"
+              - "https://authentik.jardoole.xyz"
+              - "https://docs.jardoole.xyz"
+            default-src:
+              - "'none'"
+            font-src:
+              - "'self'"
+            frame-ancestors:
+              - "'self'"
+              - "https://docs.jardoole.xyz"
+            frame-src:
+              - "'self'"
+              - "https://authentik.jardoole.xyz"
+              - "https://docs.jardoole.xyz"
+            img-src:
+              - "'self'"
+              - "data:"
+              - "blob:"
+            manifest-src:
+              - "'self'"
+            media-src:
+              - "'self'"
+            object-src:
+              - "'self'"
+              - "blob:"
+            script-src:
+              - "'self'"
+              - "'unsafe-inline'"
+            style-src:
+              - "'self'"
+              - "'unsafe-inline'"
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Create proxy role assignment ConfigMap
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: opencloud-proxy-config
+        namespace: opencloud
+        labels:
+          app.kubernetes.io/name: opencloud
+          managed-by: ansible
+      data:
+        proxy.yaml: |
+          role_mapping:
+            - role_name: admin
+              claim_value: Admins
+            - role_name: spaceadmin
+              claim_value: Admins
+            - role_name: user
+              claim_value: Users
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Create NetworkPolicy for OpenCloud
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      metadata:
+        name: opencloud-network-policy
+        namespace: opencloud
+        labels:
+          app.kubernetes.io/name: opencloud
+          managed-by: ansible
+      spec:
+        podSelector: {}
+        policyTypes:
+          - Ingress
+          - Egress
+        ingress:
+          # Allow Traefik ingress controller from kube-system
+          - from:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: kube-system
+            ports:
+              - port: 9200
+                protocol: TCP
+        egress:
+          # DNS resolution via CoreDNS
+          - to:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: kube-system
+            ports:
+              - port: 53
+                protocol: TCP
+              - port: 53
+                protocol: UDP
+          # External HTTPS (Authentik OIDC, Collabora WOPI)
+          - to:
+              - ipBlock:
+                  cidr: 0.0.0.0/0
+            ports:
+              - port: 443
+                protocol: TCP
+    kubeconfig: /etc/rancher/k3s/k3s.yaml

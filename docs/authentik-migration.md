@@ -26,6 +26,8 @@ use a tiered system:
 | Backrest | ✅ | ❌ | Backup management |
 | Sonarr/Radarr/Prowlarr | ✅ | ✅ | Media management |
 | Jellyfin/Jellyseerr | ✅ | ✅ | Media consumption |
+| OpenCloud | ✅ Admin | ✅ User | File sync & share |
+| Collabora | (via OpenCloud) | (via OpenCloud) | Document editing |
 
 **Benefits:**
 - 2 groups instead of 2 per app
@@ -52,6 +54,7 @@ This avoids network policy issues where pods can't reach external IPs.
 | Sonarr | Forward Auth + API Bypass | Needs Authentik setup |
 | Radarr | Forward Auth + API Bypass | Needs Authentik setup |
 | Prowlarr | Forward Auth + API Bypass | Needs Authentik setup |
+| OpenCloud | OIDC Native | Needs Authentik setup |
 
 ### Services Pending (Future Work)
 
@@ -412,6 +415,81 @@ make app-deploy APP=prowlarr
    ```bash
    curl -H "X-Api-Key: YOUR_API_KEY" https://sonarr.jardoole.xyz/api/v3/system/status
    ```
+
+---
+
+## Phase 8: OpenCloud (OIDC Native)
+
+OpenCloud uses native OIDC integration - it redirects to Authentik directly (no forward auth middleware needed).
+
+**Important:** OpenCloud expects a public OIDC client with Client ID `web` using PKCE. No client secret is needed.
+
+### Step 1: Create Authentik Provider
+
+1. Go to **Admin Interface** → **Applications** → **Providers**
+2. Click **Create**
+3. Select **OAuth2/OpenID Provider**
+4. Configure:
+   - **Name**: `opencloud`
+   - **Authentication flow**: default-authentication-flow
+   - **Authorization flow**: default-provider-authorization-implicit-consent
+   - **Client type**: Public
+   - **Client ID**: `web` (required by OpenCloud)
+   - **Redirect URIs**:
+     ```
+     https://files.jardoole.xyz/
+     https://files.jardoole.xyz/oidc-callback.html
+     https://files.jardoole.xyz/oidc-silent-redirect.html
+     ```
+   - **Post Logout Redirect URIs**: `https://files.jardoole.xyz/`
+   - **Signing Key**: Select any available key (e.g., `authentik Self-signed Certificate`)
+   - **Scopes**: Hold Ctrl and select `openid`, `profile`, `email`, `groups`, `offline_access`
+   - **Subject mode**: Based on the User's username
+5. Click **Finish**
+
+### Step 2: Create Authentik Application
+
+1. Go to **Admin Interface** → **Applications** → **Applications**
+2. Click **Create**
+3. Configure:
+   - **Name**: `OpenCloud`
+   - **Slug**: `opencloud`
+   - **Provider**: Select `opencloud` (created in Step 1)
+   - **Launch URL**: `https://files.jardoole.xyz`
+4. Click **Create**
+
+### Step 3: Grant Application Access
+
+Bind groups to the application (see [Prerequisites: Granting Application Access](#4-granting-application-access-required-for-all-apps)):
+
+1. Click on the OpenCloud application → **Policy / Group / User Bindings**
+2. Bind both `Admins` and `Users` groups
+
+Role mapping (configured via proxy.yaml ConfigMap):
+- Users in `Admins` → `admin` + `spaceadmin` roles
+- Users in `Users` → `user` role
+
+### Step 4: Deploy
+
+```bash
+make app-deploy APP=opencloud
+make app-deploy APP=collabora
+```
+
+### Step 5: Verify
+
+1. Open https://files.jardoole.xyz
+2. Should redirect to Authentik login
+3. After authentication, verify OpenCloud dashboard loads
+4. Open a document to verify Collabora editing works
+
+### Optional: Desktop/Mobile Sync Clients
+
+For desktop and mobile sync apps, create additional OIDC clients:
+
+1. **OpenCloud Desktop**: Redirect URIs `http://127.0.0.1`, `http://localhost`
+2. **OpenCloud Android**: Redirect URI `oc://android.opencloud.eu`
+3. **OpenCloud iOS**: Redirect URI `oc://ios.opencloud.eu`
 
 ---
 

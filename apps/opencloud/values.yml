@@ -1,0 +1,174 @@
+---
+# Helm values for OpenCloud
+# Uses bjw-s app-template with single binary deployment (all services included)
+
+controllers:
+  main:
+    containers:
+      app:
+        image:
+          repository: opencloudeu/opencloud
+          tag: 4.0.1
+          pullPolicy: IfNotPresent
+
+        env:
+          # Core settings
+          - name: OC_URL
+            value: "https://files.jardoole.xyz"
+          - name: OC_INSECURE
+            value: "false"
+          - name: PROXY_HTTP_ADDR
+            value: "0.0.0.0:9200"
+          - name: TZ
+            value: "Europe/Amsterdam"
+
+          # Disable internal IDP (using Authentik)
+          - name: OC_EXCLUDE_RUN_SERVICES
+            value: "idp"
+
+          # OIDC configuration (Authentik)
+          - name: OC_OIDC_ISSUER
+            value: "https://authentik.jardoole.xyz/application/o/opencloud/"
+          - name: WEB_OIDC_CLIENT_ID
+            value: "web"
+          - name: WEB_OIDC_SCOPE
+            value: "openid profile email groups offline_access"
+
+          # Proxy settings for external OIDC
+          - name: PROXY_AUTOPROVISION_ACCOUNTS
+            value: "true"
+          - name: PROXY_ROLE_ASSIGNMENT_DRIVER
+            value: "oidc"
+          - name: PROXY_OIDC_REWRITE_WELLKNOWN
+            value: "true"
+          - name: PROXY_USER_OIDC_CLAIM
+            value: "preferred_username"
+          - name: PROXY_USER_CS3_CLAIM
+            value: "username"
+          - name: PROXY_OIDC_ACCESS_TOKEN_VERIFY_METHOD
+            value: "none"
+          - name: PROXY_ROLE_ASSIGNMENT_OIDC_CLAIM
+            value: "groups"
+          - name: GRAPH_ASSIGN_DEFAULT_USER_ROLE
+            value: "false"
+          - name: GRAPH_USERNAME_MATCH
+            value: "none"
+
+          # CSP config for external OIDC + Collabora
+          - name: PROXY_CSP_CONFIG_FILE_LOCATION
+            value: "/etc/opencloud/csp.yaml"
+
+          # Collabora WOPI integration
+          - name: COLLABORATION_APP_PRODUCT
+            value: "Collabora"
+          - name: COLLABORATION_APP_ADDR
+            value: "https://docs.jardoole.xyz"
+
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+
+        probes:
+          liveness:
+            enabled: true
+            custom: true
+            spec:
+              httpGet:
+                path: /healthz
+                port: 9200
+              initialDelaySeconds: 60
+              periodSeconds: 30
+              timeoutSeconds: 5
+          readiness:
+            enabled: true
+            custom: true
+            spec:
+              httpGet:
+                path: /healthz
+                port: 9200
+              initialDelaySeconds: 30
+              periodSeconds: 10
+              timeoutSeconds: 5
+
+service:
+  app:
+    controller: main
+    ports:
+      http:
+        port: 9200
+
+ingress:
+  app:
+    enabled: true
+    className: traefik
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      # No forward auth middleware - OpenCloud handles OIDC natively
+      # Homepage auto-discovery
+      gethomepage.dev/enabled: "true"
+      gethomepage.dev/name: "OpenCloud"
+      gethomepage.dev/description: "File Sync & Share"
+      gethomepage.dev/group: "Apps"
+      gethomepage.dev/icon: "opencloud.png"
+    hosts:
+      - host: files.jardoole.xyz
+        paths:
+          - path: /
+            pathType: Prefix
+            service:
+              identifier: app
+              port: http
+    tls:
+      - secretName: opencloud-tls
+        hosts:
+          - files.jardoole.xyz
+
+persistence:
+  data:
+    enabled: true
+    type: hostPath
+    hostPath: /mnt/storage/opencloud
+    globalMounts:
+      - path: /var/lib/opencloud
+
+  config:
+    enabled: true
+    type: hostPath
+    hostPath: /mnt/storage/k8s-apps/opencloud
+    globalMounts:
+      - path: /etc/opencloud
+
+  csp-config:
+    enabled: true
+    type: configMap
+    name: opencloud-csp-config
+    globalMounts:
+      - path: /etc/opencloud/csp.yaml
+        subPath: csp.yaml
+        readOnly: true
+
+  proxy-config:
+    enabled: true
+    type: configMap
+    name: opencloud-proxy-config
+    globalMounts:
+      - path: /etc/opencloud/proxy.yaml
+        subPath: proxy.yaml
+        readOnly: true
+
+# Pin to beelink node (where NFS storage is located)
+defaultPodOptions:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values:
+                  - beelink

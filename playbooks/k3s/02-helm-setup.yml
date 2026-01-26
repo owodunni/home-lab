@@ -205,6 +205,14 @@
       register: helm_repo_authentik
       failed_when: false
 
+    - name: Add Collabora Online repository (Document editing)
+      kubernetes.core.helm_repository:
+        name: collabora-online
+        repo_url: https://collaboraonline.github.io/online/
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: helm_repo_collabora
+      failed_when: false
+
     - name: Update all Helm repositories
       ansible.builtin.command:
         cmd: helm repo update

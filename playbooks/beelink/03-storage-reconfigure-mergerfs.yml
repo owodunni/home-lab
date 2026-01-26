@@ -222,6 +222,7 @@
       loop:
         - "{{ mergerfs_mount_point }}/k8s-apps"
         - "{{ mergerfs_mount_point }}/media"
+        - "{{ mergerfs_mount_point }}/opencloud"
 
     # ========================================================================
     # Phase 4: Install and Configure SnapRAID

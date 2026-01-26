@@ -1,0 +1,10 @@
+---
+# Chart metadata for Collabora Online
+chart_repository: collabora-online
+chart_name: collabora-online
+chart_version: 1.1.54
+release_name: collabora
+namespace: collabora
+description: "Collabora Online - Document editing for OpenCloud"
+create_namespace: true
+wait_for_ready: true

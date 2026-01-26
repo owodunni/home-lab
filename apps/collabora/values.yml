@@ -1,0 +1,35 @@
+---
+# Helm values for Collabora Online
+# Uses official collabora-online chart
+
+collabora:
+  aliasgroups:
+    - host: "https://files\\.jardoole\\.xyz"
+  server_name: docs.jardoole.xyz
+  extra_params: "--o:ssl.enable=false --o:ssl.termination=true"
+
+replicaCount: 1
+
+autoscaling:
+  enabled: false
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: docs.jardoole.xyz
+  tls:
+    - secretName: collabora-tls
+      hosts:
+        - docs.jardoole.xyz

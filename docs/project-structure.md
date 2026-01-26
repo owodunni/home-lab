@@ -386,14 +386,14 @@ The infrastructure uses **NFS-based storage** backed by Beelink's MergerFS pool 
 │  │                    Backed by Beelink MergerFS             │ │
 │  └──────────────────────────────────────────────────────────┘ │
 │                              │                                 │
-│         ┌────────────────────┴────────────────────┐           │
-│         │                                          │           │
-│    ┌────▼─────────────┐              ┌────────────▼────────┐  │
-│    │ /mnt/storage/    │              │ /mnt/storage/       │  │
-│    │ k8s-apps/        │              │ media/              │  │
-│    │ - app configs    │              │ - movies/tv         │  │
-│    │ - databases      │              │ - photos            │  │
-│    └──────────────────┘              └─────────────────────┘  │
+│         ┌────────────────────┼────────────────────┐           │
+│         │                    │                    │           │
+│    ┌────▼─────────────┐ ┌───▼──────────────┐ ┌──▼────────┐  │
+│    │ /mnt/storage/    │ │ /mnt/storage/    │ │ /mnt/     │  │
+│    │ k8s-apps/        │ │ media/           │ │ storage/  │  │
+│    │ - app configs    │ │ - movies/tv      │ │ opencloud/│  │
+│    │ - databases      │ │ - photos         │ │ - files   │  │
+│    └──────────────────┘ └──────────────────┘ └───────────┘  │
 │                                                                │
 │  Backed up via restic to MinIO S3 (daily 3 AM)                │
 │  SnapRAID parity protection (daily 4 AM)                      │
