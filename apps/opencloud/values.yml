@@ -3,9 +3,8 @@
 # Uses bjw-s app-template with single binary deployment (all services included)
 # Runs on ARM nodes, accesses storage via NFS from beelink
 
-# Route external hostnames to Traefik ClusterIP to avoid K3s ServiceLB
-# hairpin NAT issue (pods can't reach node IPs via ServiceLB PREROUTING rules)
-# Traefik ClusterIP: kubectl get svc -n kube-system traefik -o jsonpath='{.spec.clusterIP}'
+# Route external hostnames to Traefik ClusterIP to bypass K3s ServiceLB
+# hairpin NAT limitation (pods can't reach services via node IPs)
 defaultPodOptions:
   hostAliases:
     - ip: "10.43.254.236"

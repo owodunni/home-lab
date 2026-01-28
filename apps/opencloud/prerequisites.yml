@@ -112,7 +112,7 @@
                 protocol: TCP
               - port: 53
                 protocol: UDP
-          # External HTTPS (Authentik OIDC, Collabora WOPI)
+          # HTTPS egress (Authentik OIDC via Traefik ClusterIP, Collabora WOPI)
           - to:
               - ipBlock:
                   cidr: 0.0.0.0/0
