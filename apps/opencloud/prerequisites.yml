@@ -113,10 +113,14 @@
               - port: 53
                 protocol: UDP
           # HTTPS egress (Authentik OIDC via Traefik ClusterIP, Collabora WOPI)
+          # Port 8443 needed because NetworkPolicy evaluates after kube-proxy DNAT
+          # (ClusterIP:443 becomes PodIP:8443)
           - to:
               - ipBlock:
                   cidr: 0.0.0.0/0
             ports:
               - port: 443
+                protocol: TCP
+              - port: 8443
                 protocol: TCP
     kubeconfig: /etc/rancher/k3s/k3s.yaml
