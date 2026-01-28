@@ -2,25 +2,27 @@
 # Nextcloud Prerequisites
 # Creates secrets, ObjectStore, and CNPG PostgreSQL cluster
 
-- name: Create Nextcloud admin credentials secret
+- name: Create Nextcloud credentials secret (admin + SMTP)
   kubernetes.core.k8s:
     definition:
       apiVersion: v1
       kind: Secret
       metadata:
-        name: nextcloud-admin-credentials
+        name: nextcloud-credentials
         namespace: nextcloud
         labels:
           app.kubernetes.io/name: nextcloud
           managed-by: ansible
-      type: kubernetes.io/basic-auth
+      type: Opaque
       stringData:
-        username: "{{ vault_nextcloud_admin_username }}"
-        password: "{{ vault_nextcloud_admin_password }}"
+        admin-username: "{{ vault_nextcloud_admin_username }}"
+        admin-password: "{{ vault_nextcloud_admin_password }}"
+        smtp-username: "{{ vault_smtp_username }}"
+        smtp-password: "{{ vault_smtp_password }}"
     state: present
     kubeconfig: /etc/rancher/k3s/k3s.yaml
 
-- name: Create database credentials secret
+- name: Create database credentials secret (for CNPG bootstrap)
   kubernetes.core.k8s:
     definition:
       apiVersion: v1
@@ -31,10 +33,14 @@
         labels:
           app.kubernetes.io/name: nextcloud
           managed-by: ansible
-      type: kubernetes.io/basic-auth
+      type: Opaque
       stringData:
+        # Keys for CNPG bootstrap
         username: nextcloud
         password: "{{ vault_nextcloud_db_password }}"
+        # Keys for Nextcloud Helm chart externalDatabase
+        db-username: nextcloud
+        db-password: "{{ vault_nextcloud_db_password }}"
     state: present
     kubeconfig: /etc/rancher/k3s/k3s.yaml
 
@@ -52,24 +58,6 @@
       type: Opaque
       stringData:
         redis-password: "{{ vault_nextcloud_redis_password }}"
-    state: present
-    kubeconfig: /etc/rancher/k3s/k3s.yaml
-
-- name: Create SMTP credentials secret
-  kubernetes.core.k8s:
-    definition:
-      apiVersion: v1
-      kind: Secret
-      metadata:
-        name: nextcloud-smtp-credentials
-        namespace: nextcloud
-        labels:
-          app.kubernetes.io/name: nextcloud
-          managed-by: ansible
-      type: Opaque
-      stringData:
-        smtp-username: "{{ vault_smtp_username }}"
-        smtp-password: "{{ vault_smtp_password }}"
     state: present
     kubeconfig: /etc/rancher/k3s/k3s.yaml
 

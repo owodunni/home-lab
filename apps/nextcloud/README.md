@@ -6,7 +6,7 @@ Nextcloud is an open-source file sync and share platform with Authentik SSO inte
 
 | Component | Configuration |
 |-----------|---------------|
-| Chart | `nextcloud/nextcloud` v6.6.0 |
+| Chart | `nextcloud/nextcloud` v8.9.0 |
 | PostgreSQL | CloudNative-PG cluster with Barman Cloud Plugin |
 | Redis | Bitnami Redis for caching/locking |
 | Email | Gmail SMTP via cluster config |
