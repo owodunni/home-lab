@@ -1,0 +1,168 @@
+---
+# Nextcloud with Authentik SSO
+
+image:
+  repository: nextcloud
+  tag: 30.0.6-fpm-alpine
+  pullPolicy: IfNotPresent
+
+# Run on Pi CM5 nodes only (ARM64), avoid beelink
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/arch
+              operator: In
+              values:
+                - arm64
+            - key: kubernetes.io/hostname
+              operator: NotIn
+              values:
+                - beelink
+
+# Admin credentials from secret
+nextcloud:
+  host: cloud.jardoole.xyz
+  existingSecret:
+    enabled: true
+    secretName: nextcloud-admin-credentials
+    usernameKey: username
+    passwordKey: password
+  mail:
+    enabled: true
+    fromAddress: alert
+    domain: jardoole.xyz
+    smtp:
+      host: smtp.gmail.com
+      port: 587
+      secure: tls
+      authtype: LOGIN
+  configs:
+    proxy.config.php: |
+      <?php
+      $CONFIG = [
+        'trusted_proxies' => ['10.0.0.0/8'],
+        'overwriteprotocol' => 'https',
+      ];
+    custom.config.php: |
+      <?php
+      $CONFIG = [
+        'default_phone_region' => 'AU',
+        'maintenance_window_start' => 1,
+      ];
+
+# SMTP credentials from secret
+mail:
+  existingSecret:
+    enabled: true
+    secretName: nextcloud-smtp-credentials
+    usernameKey: smtp-username
+    passwordKey: smtp-password
+
+# Disable internal database - using CNPG
+internalDatabase:
+  enabled: false
+
+# External PostgreSQL (CNPG)
+externalDatabase:
+  enabled: true
+  type: postgresql
+  host: nextcloud-db-rw.nextcloud.svc.cluster.local
+  database: nextcloud
+  existingSecret:
+    enabled: true
+    secretName: nextcloud-db-credentials
+    usernameKey: username
+    passwordKey: password
+
+# Redis for caching and locking
+redis:
+  enabled: true
+  auth:
+    enabled: true
+    existingSecret: nextcloud-redis-credentials
+    existingSecretPasswordKey: redis-password
+  architecture: standalone
+  master:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+    persistence:
+      enabled: true
+      storageClass: nfs
+      size: 1Gi
+
+# Persistent storage on NFS
+persistence:
+  enabled: true
+  storageClass: nfs
+  size: 100Gi
+  accessMode: ReadWriteOnce
+
+# Resource limits
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    cpu: 2000m
+    memory: 2Gi
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.middlewares: nextcloud-nextcloud-headers@kubernetescrd
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    gethomepage.dev/enabled: "true"
+    gethomepage.dev/name: "Nextcloud"
+    gethomepage.dev/description: "File Sync & Share"
+    gethomepage.dev/group: "Apps"
+    gethomepage.dev/icon: "nextcloud.png"
+    gethomepage.dev/pod-selector: "app.kubernetes.io/name=nextcloud"
+  hosts:
+    - host: cloud.jardoole.xyz
+  tls:
+    - secretName: nextcloud-tls
+      hosts:
+        - cloud.jardoole.xyz
+
+# Nginx configuration for FPM
+nginx:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# Cron job for background tasks
+cronjob:
+  enabled: true
+
+# Liveness/readiness probes
+livenessProbe:
+  enabled: true
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 5
+readinessProbe:
+  enabled: true
+  initialDelaySeconds: 30
+  periodSeconds: 15
+  timeoutSeconds: 10
+  failureThreshold: 3
+
+# Metrics for Prometheus (optional)
+metrics:
+  enabled: false

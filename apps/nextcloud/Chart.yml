@@ -1,0 +1,9 @@
+---
+chart_repository: nextcloud
+chart_name: nextcloud
+chart_version: 6.6.0
+release_name: nextcloud
+namespace: nextcloud
+description: "Nextcloud - File sync and share with Authentik SSO"
+create_namespace: true
+wait_for_ready: true

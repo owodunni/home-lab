@@ -213,6 +213,14 @@
       register: helm_repo_collabora
       failed_when: false
 
+    - name: Add Nextcloud repository
+      kubernetes.core.helm_repository:
+        name: nextcloud
+        repo_url: https://nextcloud.github.io/helm/
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: helm_repo_nextcloud
+      failed_when: false
+
     - name: Update all Helm repositories
       ansible.builtin.command:
         cmd: helm repo update

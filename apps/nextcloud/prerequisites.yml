@@ -1,0 +1,257 @@
+---
+# Nextcloud Prerequisites
+# Creates secrets, ObjectStore, and CNPG PostgreSQL cluster
+
+- name: Create Nextcloud admin credentials secret
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: nextcloud-admin-credentials
+        namespace: nextcloud
+        labels:
+          app.kubernetes.io/name: nextcloud
+          managed-by: ansible
+      type: kubernetes.io/basic-auth
+      stringData:
+        username: "{{ vault_nextcloud_admin_username }}"
+        password: "{{ vault_nextcloud_admin_password }}"
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Create database credentials secret
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: nextcloud-db-credentials
+        namespace: nextcloud
+        labels:
+          app.kubernetes.io/name: nextcloud
+          managed-by: ansible
+      type: kubernetes.io/basic-auth
+      stringData:
+        username: nextcloud
+        password: "{{ vault_nextcloud_db_password }}"
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Create Redis credentials secret
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: nextcloud-redis-credentials
+        namespace: nextcloud
+        labels:
+          app.kubernetes.io/name: nextcloud
+          managed-by: ansible
+      type: Opaque
+      stringData:
+        redis-password: "{{ vault_nextcloud_redis_password }}"
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Create SMTP credentials secret
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: nextcloud-smtp-credentials
+        namespace: nextcloud
+        labels:
+          app.kubernetes.io/name: nextcloud
+          managed-by: ansible
+      type: Opaque
+      stringData:
+        smtp-username: "{{ vault_smtp_username }}"
+        smtp-password: "{{ vault_smtp_password }}"
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Create CNPG S3 credentials for backups
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: cnpg-s3-credentials
+        namespace: nextcloud
+        labels:
+          app.kubernetes.io/name: nextcloud
+          managed-by: ansible
+      type: Opaque
+      stringData:
+        ACCESS_KEY_ID: "{{ vault_cnpg_s3_access_key }}"
+        ACCESS_SECRET_KEY: "{{ vault_cnpg_s3_secret_key }}"
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Create ObjectStore for PostgreSQL backups (Barman Cloud Plugin)
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: barmancloud.cnpg.io/v1
+      kind: ObjectStore
+      metadata:
+        name: nextcloud-db-backup
+        namespace: nextcloud
+        labels:
+          app.kubernetes.io/name: nextcloud
+          managed-by: ansible
+      spec:
+        configuration:
+          destinationPath: s3://postgres-backups/nextcloud
+          endpointURL: "https://{{ minio_internal_domain }}:9000"
+          s3Credentials:
+            accessKeyId:
+              name: cnpg-s3-credentials
+              key: ACCESS_KEY_ID
+            secretAccessKey:
+              name: cnpg-s3-credentials
+              key: ACCESS_SECRET_KEY
+          wal:
+            compression: gzip
+        retentionPolicy: "7d"
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Create PostgreSQL Cluster with Barman Cloud Plugin
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      metadata:
+        name: nextcloud-db
+        namespace: nextcloud
+        labels:
+          app.kubernetes.io/name: nextcloud
+          managed-by: ansible
+      spec:
+        instances: 2
+        imageName: ghcr.io/cloudnative-pg/postgresql:16.4
+
+        # Run on Pi CM5 nodes only (ARM64), spread across different nodes
+        affinity:
+          nodeSelector:
+            kubernetes.io/arch: arm64
+          podAntiAffinityType: required
+
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        storage:
+          size: 2Gi
+          storageClass: local-path
+        bootstrap:
+          initdb:
+            database: nextcloud
+            owner: nextcloud
+            secret:
+              name: nextcloud-db-credentials
+        plugins:
+          - name: barman-cloud.cloudnative-pg.io
+            isWALArchiver: true
+            parameters:
+              barmanObjectName: nextcloud-db-backup
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Wait for PostgreSQL Cluster to be ready
+  kubernetes.core.k8s_info:
+    kind: Cluster
+    api_version: postgresql.cnpg.io/v1
+    namespace: nextcloud
+    name: nextcloud-db
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+  register: pg_cluster
+  until:
+    - pg_cluster.resources | length > 0
+    - pg_cluster.resources[0].status.phase | default('') == 'Cluster in healthy state'
+  retries: 30
+  delay: 10
+
+- name: Create Traefik middleware for Nextcloud headers
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: traefik.io/v1alpha1
+      kind: Middleware
+      metadata:
+        name: nextcloud-headers
+        namespace: nextcloud
+        labels:
+          app.kubernetes.io/name: nextcloud
+          managed-by: ansible
+      spec:
+        headers:
+          stsSeconds: 31536000
+          stsIncludeSubdomains: true
+          stsPreload: true
+          customRequestHeaders:
+            X-Forwarded-Proto: https
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Create NetworkPolicy for Nextcloud egress
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      metadata:
+        name: allow-nextcloud-egress
+        namespace: nextcloud
+        labels:
+          app.kubernetes.io/name: nextcloud
+          managed-by: ansible
+      spec:
+        podSelector:
+          matchLabels:
+            app.kubernetes.io/name: nextcloud
+        policyTypes:
+          - Egress
+        egress:
+          # DNS
+          - to:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: kube-system
+            ports:
+              - port: 53
+                protocol: TCP
+              - port: 53
+                protocol: UDP
+          # PostgreSQL (within namespace)
+          - to:
+              - podSelector:
+                  matchLabels:
+                    cnpg.io/cluster: nextcloud-db
+            ports:
+              - port: 5432
+                protocol: TCP
+          # Redis (within namespace)
+          - to:
+              - podSelector:
+                  matchLabels:
+                    app.kubernetes.io/component: master
+            ports:
+              - port: 6379
+                protocol: TCP
+          # External HTTPS (Authentik OIDC, app stores, etc.)
+          - to:
+              - ipBlock:
+                  cidr: 0.0.0.0/0
+            ports:
+              - port: 443
+                protocol: TCP
+              - port: 80
+                protocol: TCP
+              - port: 587
+                protocol: TCP
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
