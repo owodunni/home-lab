@@ -33,6 +33,7 @@ nextcloud:
     passwordKey: admin-password
     smtpUsernameKey: smtp-username
     smtpPasswordKey: smtp-password
+    smtpHostKey: smtp-host
   mail:
     enabled: true
     fromAddress: alert
@@ -80,6 +81,8 @@ redis:
     existingSecret: nextcloud-redis-credentials
     existingSecretPasswordKey: redis-password
   master:
+    nodeSelector:
+      kubernetes.io/arch: arm64
     resources:
       requests:
         cpu: 50m
@@ -92,8 +95,7 @@ redis:
       storageClass: nfs
       size: 1Gi
   replica:
-    persistence:
-      enabled: false
+    replicaCount: 0
 
 # Persistent storage on NFS
 persistence:

@@ -19,6 +19,7 @@
         admin-password: "{{ vault_nextcloud_admin_password }}"
         smtp-username: "{{ vault_smtp_username }}"
         smtp-password: "{{ vault_smtp_password }}"
+        smtp-host: "{{ smtp_host }}"
     state: present
     kubeconfig: /etc/rancher/k3s/k3s.yaml
 
