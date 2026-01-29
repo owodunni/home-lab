@@ -73,7 +73,7 @@ externalDatabase:
     usernameKey: db-username
     passwordKey: db-password
 
-# Redis for caching and locking
+# Redis for caching and locking (no persistence needed - it's just a cache)
 redis:
   enabled: true
   auth:
@@ -81,8 +81,6 @@ redis:
     existingSecret: nextcloud-redis-credentials
     existingSecretPasswordKey: redis-password
   master:
-    nodeSelector:
-      kubernetes.io/arch: arm64
     resources:
       requests:
         cpu: 50m
@@ -91,9 +89,7 @@ redis:
         cpu: 200m
         memory: 128Mi
     persistence:
-      enabled: true
-      storageClass: nfs
-      size: 1Gi
+      enabled: false
   replica:
     replicaCount: 0
 
