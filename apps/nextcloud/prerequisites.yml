@@ -33,12 +33,26 @@
         labels:
           app.kubernetes.io/name: nextcloud
           managed-by: ansible
-      type: Opaque
+      type: kubernetes.io/basic-auth
       stringData:
-        # Keys for CNPG bootstrap
         username: nextcloud
         password: "{{ vault_nextcloud_db_password }}"
-        # Keys for Nextcloud Helm chart externalDatabase
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Create database credentials secret (for Helm chart)
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: nextcloud-db-helm
+        namespace: nextcloud
+        labels:
+          app.kubernetes.io/name: nextcloud
+          managed-by: ansible
+      type: Opaque
+      stringData:
         db-username: nextcloud
         db-password: "{{ vault_nextcloud_db_password }}"
     state: present

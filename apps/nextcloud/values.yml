@@ -68,7 +68,7 @@ externalDatabase:
   database: nextcloud
   existingSecret:
     enabled: true
-    secretName: nextcloud-db-credentials
+    secretName: nextcloud-db-helm
     usernameKey: db-username
     passwordKey: db-password
 
