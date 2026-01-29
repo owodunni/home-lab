@@ -55,6 +55,7 @@ This avoids network policy issues where pods can't reach external IPs.
 | Radarr | Forward Auth + API Bypass | Needs Authentik setup |
 | Prowlarr | Forward Auth + API Bypass | Needs Authentik setup |
 | OpenCloud | OIDC Native | Needs Authentik setup |
+| Nextcloud | OIDC Native | Needs Authentik setup |
 
 ### Services Pending (Future Work)
 
@@ -490,6 +491,92 @@ For desktop and mobile sync apps, create additional OIDC clients:
 1. **OpenCloud Desktop**: Redirect URIs `http://127.0.0.1`, `http://localhost`
 2. **OpenCloud Android**: Redirect URI `oc://android.opencloud.eu`
 3. **OpenCloud iOS**: Redirect URI `oc://ios.opencloud.eu`
+
+---
+
+## Phase 9: Nextcloud (OIDC Native)
+
+Nextcloud uses native OIDC integration via the `user_oidc` app. The app installation and configuration is automated by the postinstall playbook.
+
+**Important:** Use a confidential client (unlike OpenCloud which uses public). The application slug must be `nextcloud`.
+
+### Step 1: Create Authentik Provider
+
+1. Go to **Admin Interface** → **Applications** → **Providers**
+2. Click **Create**
+3. Select **OAuth2/OpenID Provider**
+4. Configure:
+   - **Name**: `nextcloud`
+   - **Authentication flow**: default-authentication-flow
+   - **Authorization flow**: default-provider-authorization-implicit-consent
+   - **Client type**: Confidential
+   - **Redirect URIs**: `https://cloud.jardoole.xyz/apps/user_oidc/code`
+   - **Post Logout Redirect URIs**: `https://cloud.jardoole.xyz/`
+   - **Signing Key**: Select any available key (e.g., `authentik Self-signed Certificate`)
+   - **Scopes**: Hold Ctrl and select `openid`, `profile`, `email`
+5. Click **Finish**
+
+6. **Copy the generated credentials:**
+   - Click on the newly created `nextcloud` provider
+   - Copy **Client ID**
+   - Copy **Client Secret** (click the eye icon to reveal)
+
+### Step 2: Add Secrets to Vault
+
+```bash
+uv run ansible-vault edit group_vars/all/vault.yml
+```
+
+Add the copied values:
+```yaml
+vault_authentik_nextcloud_client_id: "paste-client-id-here"
+vault_authentik_nextcloud_client_secret: "paste-client-secret-here"
+```
+
+### Step 3: Create Authentik Application
+
+1. Go to **Admin Interface** → **Applications** → **Applications**
+2. Click **Create**
+3. Configure:
+   - **Name**: `Nextcloud`
+   - **Slug**: `nextcloud`
+   - **Provider**: Select `nextcloud` (created in Step 1)
+   - **Launch URL**: `https://cloud.jardoole.xyz`
+4. Click **Create**
+
+### Step 4: Grant Application Access
+
+Bind groups to the application (see [Prerequisites: Granting Application Access](#4-granting-application-access-required-for-all-apps)):
+
+1. Click on the Nextcloud application → **Policy / Group / User Bindings**
+2. Bind both `Admins` and `Users` groups
+
+### Step 5: Deploy
+
+The postinstall playbook automatically:
+- Installs the `user_oidc` Nextcloud app
+- Configures the Authentik OIDC provider
+
+```bash
+make app-deploy APP=nextcloud
+```
+
+### Step 6: Verify
+
+1. Open https://cloud.jardoole.xyz
+2. Click "Log in with Authentik" (or the OIDC login button)
+3. Authenticate with Authentik
+4. Verify you're logged into Nextcloud
+
+### Desktop/Mobile Sync Clients
+
+For sync clients, you may need to create additional redirect URIs in the Authentik provider:
+
+1. Edit the `nextcloud` provider
+2. Add redirect URIs:
+   ```
+   nc://login/callback
+   ```
 
 ---
 

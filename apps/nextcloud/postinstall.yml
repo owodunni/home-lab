@@ -1,0 +1,104 @@
+---
+# Nextcloud Post-install Configuration
+# Installs and configures user_oidc app for Authentik SSO
+
+- name: Get Nextcloud pod name
+  kubernetes.core.k8s_info:
+    kind: Pod
+    namespace: nextcloud
+    label_selectors:
+      - app.kubernetes.io/name=nextcloud
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+  register: nextcloud_pods
+  until:
+    - nextcloud_pods.resources | length > 0
+    - nextcloud_pods.resources[0].status.phase == 'Running'
+    - nextcloud_pods.resources[0].status.containerStatuses | selectattr('ready', 'equalto', true) | list | length > 0
+  retries: 30
+  delay: 10
+
+- name: Set pod name fact
+  ansible.builtin.set_fact:
+    nextcloud_pod: "{{ nextcloud_pods.resources[0].metadata.name }}"
+
+- name: Check if user_oidc app is installed
+  kubernetes.core.k8s_exec:
+    namespace: nextcloud
+    pod: "{{ nextcloud_pod }}"
+    container: nextcloud
+    command: php occ app:list --output=json
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+  register: app_list
+  changed_when: false
+
+- name: Parse installed apps
+  ansible.builtin.set_fact:
+    oidc_installed: "{{ 'user_oidc' in (app_list.stdout | from_json).enabled | default({}) }}"
+
+- name: Install user_oidc app
+  kubernetes.core.k8s_exec:
+    namespace: nextcloud
+    pod: "{{ nextcloud_pod }}"
+    container: nextcloud
+    command: php occ app:install user_oidc
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+  register: install_result
+  when: not oidc_installed
+  failed_when:
+    - install_result.rc != 0
+    - "'already installed' not in install_result.stdout | default('')"
+
+- name: Enable user_oidc app
+  kubernetes.core.k8s_exec:
+    namespace: nextcloud
+    pod: "{{ nextcloud_pod }}"
+    container: nextcloud
+    command: php occ app:enable user_oidc
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+  register: enable_result
+  changed_when: "'enabled' in enable_result.stdout | default('')"
+  failed_when:
+    - enable_result.rc != 0
+    - "'already enabled' not in enable_result.stdout | default('')"
+
+- name: Check if Authentik OIDC provider exists
+  kubernetes.core.k8s_exec:
+    namespace: nextcloud
+    pod: "{{ nextcloud_pod }}"
+    container: nextcloud
+    command: php occ user_oidc:provider authentik
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+  register: provider_check
+  changed_when: false
+  failed_when: false
+
+- name: Configure Authentik OIDC provider
+  kubernetes.core.k8s_exec:
+    namespace: nextcloud
+    pod: "{{ nextcloud_pod }}"
+    container: nextcloud
+    command: >
+      php occ user_oidc:provider authentik
+      --clientid="{{ vault_authentik_nextcloud_client_id }}"
+      --clientsecret="{{ vault_authentik_nextcloud_client_secret }}"
+      --discoveryuri="https://authentik.jardoole.xyz/application/o/nextcloud/.well-known/openid-configuration"
+      --scope="openid email profile"
+      --unique-uid=1
+      --mapping-uid="preferred_username"
+      --check-bearer=1
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+  register: provider_config
+  when: provider_check.rc != 0 or 'not found' in provider_check.stderr | default('')
+  no_log: true
+
+- name: Display OIDC configuration status
+  ansible.builtin.debug:
+    msg: |
+      Nextcloud OIDC Configuration:
+      - user_oidc app: {{ 'Already installed' if oidc_installed else 'Installed' }}
+      - Authentik provider: {{ 'Configured' if provider_config.changed | default(false) else 'Already exists' }}
+
+      Next steps:
+      1. Create OAuth2 provider in Authentik (see docs/authentik-migration.md)
+      2. Add client_id and client_secret to vault
+      3. Redeploy to apply OIDC configuration

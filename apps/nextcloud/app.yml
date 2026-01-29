@@ -5,3 +5,4 @@
     app_chart_file: "{{ inventory_dir }}/apps/nextcloud/Chart.yml"
     app_values_file: "{{ inventory_dir }}/apps/nextcloud/values.yml"
     prerequisites_playbook: "{{ inventory_dir }}/apps/nextcloud/prerequisites.yml"
+    postinstall_playbook: "{{ inventory_dir }}/apps/nextcloud/postinstall.yml"
