@@ -70,7 +70,7 @@
       php occ user_oidc:provider authentik
       --clientid="{{ vault_authentik_nextcloud_client_id }}"
       --clientsecret="{{ vault_authentik_nextcloud_client_secret }}"
-      --discoveryuri="https://authentik.jardoole.xyz/application/o/nextcloud/.well-known/openid-configuration"
+      --discoveryuri="http://authentik-server.authentik.svc.cluster.local:9000/application/o/nextcloud/.well-known/openid-configuration"
       --scope="openid email profile"
       --unique-uid=1
       --mapping-uid="preferred_username"
