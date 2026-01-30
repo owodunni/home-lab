@@ -3,18 +3,20 @@
 # 1. Patches deployment with hostAliases for Authentik (hairpin NAT workaround)
 # 2. Installs and configures user_oidc app for Authentik SSO
 
-# Get Authentik service ClusterIP for hostAliases
-- name: Get Authentik service ClusterIP
+# Get Traefik service ClusterIP for hostAliases
+# Traefik terminates TLS and forwards to Authentik on port 9000
+# Using Authentik's ClusterIP directly fails because it only exposes HTTP (no TLS)
+- name: Get Traefik service ClusterIP
   kubernetes.core.k8s_info:
     kind: Service
-    namespace: authentik
-    name: authentik-server
+    namespace: kube-system
+    name: traefik
     kubeconfig: /etc/rancher/k3s/k3s.yaml
-  register: authentik_svc
+  register: traefik_svc
 
-- name: Set Authentik ClusterIP fact
+- name: Set Traefik ClusterIP fact
   ansible.builtin.set_fact:
-    authentik_cluster_ip: "{{ authentik_svc.resources[0].spec.clusterIP }}"
+    traefik_cluster_ip: "{{ traefik_svc.resources[0].spec.clusterIP }}"
 
 # Patch deployment with hostAliases to resolve external Authentik URL internally
 # This works around hairpin NAT issues where pods can't reach external IPs
@@ -28,7 +30,7 @@
       - op: add
         path: /spec/template/spec/hostAliases
         value:
-          - ip: "{{ authentik_cluster_ip }}"
+          - ip: "{{ traefik_cluster_ip }}"
             hostnames:
               - authentik.jardoole.xyz
   register: patch_result
@@ -131,6 +133,6 @@
   ansible.builtin.debug:
     msg: |
       Nextcloud OIDC Configuration:
-      - hostAliases: authentik.jardoole.xyz -> {{ authentik_cluster_ip }}
+      - hostAliases: authentik.jardoole.xyz -> {{ traefik_cluster_ip }} (via Traefik)
       - user_oidc app: {{ 'Already installed' if oidc_installed else 'Installed' }}
       - Authentik provider: Configured with external discovery URL
