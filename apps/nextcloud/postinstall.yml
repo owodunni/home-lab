@@ -61,23 +61,12 @@
     - enable_result.rc != 0
     - "'already enabled' not in enable_result.stdout | default('')"
 
-- name: Check if Authentik OIDC provider exists
-  kubernetes.core.k8s_exec:
-    namespace: nextcloud
-    pod: "{{ nextcloud_pod }}"
-    container: nextcloud
-    command: php occ user_oidc:provider authentik
-    kubeconfig: /etc/rancher/k3s/k3s.yaml
-  register: provider_check
-  changed_when: false
-  failed_when: false
-
 - name: Configure Authentik OIDC provider
   kubernetes.core.k8s_exec:
     namespace: nextcloud
     pod: "{{ nextcloud_pod }}"
     container: nextcloud
-    command: >
+    command: >-
       php occ user_oidc:provider authentik
       --clientid="{{ vault_authentik_nextcloud_client_id }}"
       --clientsecret="{{ vault_authentik_nextcloud_client_secret }}"
@@ -88,7 +77,6 @@
       --check-bearer=1
     kubeconfig: /etc/rancher/k3s/k3s.yaml
   register: provider_config
-  when: provider_check.rc != 0 or 'not found' in provider_check.stderr | default('')
   no_log: true
 
 - name: Display OIDC configuration status
@@ -96,9 +84,4 @@
     msg: |
       Nextcloud OIDC Configuration:
       - user_oidc app: {{ 'Already installed' if oidc_installed else 'Installed' }}
-      - Authentik provider: {{ 'Configured' if provider_config.changed | default(false) else 'Already exists' }}
-
-      Next steps:
-      1. Create OAuth2 provider in Authentik (see docs/authentik-migration.md)
-      2. Add client_id and client_secret to vault
-      3. Redeploy to apply OIDC configuration
+      - Authentik provider: Configured
