@@ -1,54 +1,9 @@
 ---
 # Nextcloud Post-install Configuration
-# 1. Patches deployment with hostAliases for Authentik (hairpin NAT workaround)
-# 2. Installs and configures user_oidc app for Authentik SSO
-
-# Get Traefik service ClusterIP for hostAliases
-# Traefik terminates TLS and forwards to Authentik on port 9000
-# Using Authentik's ClusterIP directly fails because it only exposes HTTP (no TLS)
-- name: Get Traefik service ClusterIP
-  kubernetes.core.k8s_info:
-    kind: Service
-    namespace: kube-system
-    name: traefik
-    kubeconfig: /etc/rancher/k3s/k3s.yaml
-  register: traefik_svc
-
-- name: Set Traefik ClusterIP fact
-  ansible.builtin.set_fact:
-    traefik_cluster_ip: "{{ traefik_svc.resources[0].spec.clusterIP }}"
-
-# Patch deployment with hostAliases to resolve external Authentik URL internally
-# This works around hairpin NAT issues where pods can't reach external IPs
-- name: Patch Nextcloud deployment with hostAliases
-  kubernetes.core.k8s_json_patch:
-    kind: Deployment
-    namespace: nextcloud
-    name: nextcloud
-    kubeconfig: /etc/rancher/k3s/k3s.yaml
-    patch:
-      - op: add
-        path: /spec/template/spec/hostAliases
-        value:
-          - ip: "{{ traefik_cluster_ip }}"
-            hostnames:
-              - authentik.jardoole.xyz
-  register: patch_result
-
-# Wait for rollout after patch
-- name: Wait for deployment rollout
-  kubernetes.core.k8s_info:
-    kind: Deployment
-    namespace: nextcloud
-    name: nextcloud
-    kubeconfig: /etc/rancher/k3s/k3s.yaml
-  register: deployment_status
-  until:
-    - deployment_status.resources[0].status.readyReplicas | default(0) == deployment_status.resources[0].spec.replicas
-    - deployment_status.resources[0].status.updatedReplicas | default(0) == deployment_status.resources[0].spec.replicas
-  retries: 30
-  delay: 10
-  when: patch_result.changed
+# Installs and configures user_oidc app for Authentik SSO
+#
+# Nextcloud's user_oidc proxies all OIDC calls server-side (no browser redirect
+# to Authentik), so we use internal cluster URLs directly.
 
 - name: Get Nextcloud pod name
   kubernetes.core.k8s_info:
@@ -109,8 +64,7 @@
     - enable_result.rc != 0
     - "'already enabled' not in enable_result.stdout | default('')"
 
-# Use EXTERNAL discovery URL - hostAliases routes it internally
-# This ensures browser gets external URLs it can reach
+# Use internal discovery URL - Nextcloud proxies all OIDC calls server-side
 - name: Configure Authentik OIDC provider
   kubernetes.core.k8s_exec:
     namespace: nextcloud
@@ -120,7 +74,7 @@
       php occ user_oidc:provider authentik
       --clientid="{{ vault_authentik_nextcloud_client_id }}"
       --clientsecret="{{ vault_authentik_nextcloud_client_secret }}"
-      --discoveryuri="https://authentik.jardoole.xyz/application/o/nextcloud/.well-known/openid-configuration"
+      --discoveryuri="http://authentik-server.authentik.svc.cluster.local/application/o/nextcloud/.well-known/openid-configuration"
       --scope="openid email profile"
       --unique-uid=1
       --mapping-uid="preferred_username"
@@ -133,6 +87,5 @@
   ansible.builtin.debug:
     msg: |
       Nextcloud OIDC Configuration:
-      - hostAliases: authentik.jardoole.xyz -> {{ traefik_cluster_ip }} (via Traefik)
       - user_oidc app: {{ 'Already installed' if oidc_installed else 'Installed' }}
-      - Authentik provider: Configured with external discovery URL
+      - Authentik provider: Configured with internal discovery URL
