@@ -246,7 +246,7 @@
             ports:
               - port: 6379
                 protocol: TCP
-          # Authentik (for OIDC) - use internal cluster communication
+          # Authentik (for OIDC) - external URL routed via hostAliases
           - to:
               - namespaceSelector:
                   matchLabels:
@@ -254,7 +254,11 @@
             ports:
               - port: 80
                 protocol: TCP
+              - port: 443
+                protocol: TCP
               - port: 9000
+                protocol: TCP
+              - port: 9443
                 protocol: TCP
           # External HTTPS (app stores, etc.)
           - to:
