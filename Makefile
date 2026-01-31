@@ -283,31 +283,39 @@ app-delete: ## 🗑️  Delete specific app and all resources (usage: make app-d
 	echo ""; \
 	read -p "Are you sure? (yes/no): " answer && [ "$$answer" = "yes" ] || (echo "Cancelled." && exit 1); \
 	echo ""; \
-	echo "Step 1/7: Deleting Helm release..."; \
+	echo "Step 1/9: Deleting Helm release..."; \
 	kubectl delete helmrelease $$release -n $$namespace 2>/dev/null || true; \
 	helm uninstall $$release -n $$namespace 2>/dev/null || true; \
 	echo ""; \
-	echo "Step 2/7: Removing CNPG cluster finalizers..."; \
+	echo "Step 2/9: Force deleting pods..."; \
+	kubectl delete pods -n $$namespace --all --force --grace-period=0 2>/dev/null || true; \
+	echo ""; \
+	echo "Step 3/9: Deleting services..."; \
+	kubectl delete svc -n $$namespace --all 2>/dev/null || true; \
+	echo ""; \
+	echo "Step 4/9: Removing CNPG cluster finalizers and deleting..."; \
 	kubectl get clusters -n $$namespace -o name 2>/dev/null | xargs -r -I{} kubectl patch {} -n $$namespace -p '{"metadata":{"finalizers":null}}' --type=merge 2>/dev/null || true; \
+	kubectl delete clusters -n $$namespace --all --force --grace-period=0 2>/dev/null || true; \
 	echo ""; \
-	echo "Step 3/7: Removing PVC finalizers..."; \
-	kubectl patch pvc -n $$namespace --all -p '{"metadata":{"finalizers":null}}' --type=merge 2>/dev/null || true; \
+	echo "Step 5/9: Removing PVC finalizers..."; \
+	kubectl get pvc -n $$namespace -o name 2>/dev/null | xargs -r -I{} kubectl patch {} -n $$namespace -p '{"metadata":{"finalizers":null}}' --type=merge 2>/dev/null || true; \
 	echo ""; \
-	echo "Step 4/7: Deleting namespace..."; \
-	kubectl delete namespace $$namespace --force --grace-period=0 2>/dev/null || true; \
-	sleep 5; \
+	echo "Step 6/9: Deleting namespace..."; \
+	kubectl delete namespace $$namespace --force --grace-period=0 --timeout=30s 2>/dev/null || true; \
 	echo ""; \
-	echo "Step 5/7: Deleting orphaned PVs..."; \
-	kubectl get pv -o json 2>/dev/null | jq -r '.items[] | select(.spec.claimRef.namespace == "'"$$namespace"'") | .metadata.name' | xargs -r kubectl delete pv 2>/dev/null || true; \
+	echo "Step 7/9: Deleting orphaned PVs..."; \
+	kubectl get pv -o json 2>/dev/null | jq -r '.items[] | select(.spec.claimRef.namespace == "'"$$namespace"'") | .metadata.name' | xargs -r -I{} sh -c 'kubectl patch pv {} -p "{\"metadata\":{\"finalizers\":null}}" --type=merge 2>/dev/null; kubectl delete pv {} 2>/dev/null' || true; \
 	echo ""; \
-	echo "Step 6/7: Cleaning stale NFS mounts on nodes..."; \
+	echo "Step 8/9: Cleaning stale NFS mounts on nodes..."; \
 	for node in pi-cm5-1 pi-cm5-2 pi-cm5-3 beelink; do \
 		echo "  Checking $$node..."; \
 		uv run ansible $$node -b -m shell -a "df -h 2>&1 | grep 'Stale file handle' | grep -oP '/var/lib/kubelet/pods/[^:]+' | xargs -r -I{} umount -f {}" 2>/dev/null || true; \
 	done; \
 	echo ""; \
-	echo "Step 7/7: Cleaning NFS data on beelink..."; \
+	echo "Step 9/9: Cleaning NFS data and restarting NFS server..."; \
 	uv run ansible beelink -b -m shell -a "rm -rf /mnt/storage/k8s-apps/$$namespace-*" 2>/dev/null || true; \
+	uv run ansible beelink -b -a "systemctl restart nfs-server" 2>/dev/null || true; \
+	sleep 2; \
 	echo ""; \
 	echo "✅ App deleted successfully"
 

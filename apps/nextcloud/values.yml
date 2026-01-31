@@ -95,12 +95,10 @@ redis:
   replica:
     replicaCount: 0
 
-# Persistent storage on NFS
+# Persistent storage on NFS (using pre-created PVC to control NFS path name)
 persistence:
   enabled: true
-  storageClass: nfs
-  size: 100Gi
-  accessMode: ReadWriteOnce
+  existingClaim: nextcloud-data
 
 # Resource limits
 resources:

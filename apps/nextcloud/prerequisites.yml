@@ -181,6 +181,31 @@
   retries: 30
   delay: 10
 
+# PVC with unique name to avoid NFS file handle cache issues
+# NFS path will be: nextcloud-nextcloud-data (not nextcloud-nextcloud-nextcloud)
+- name: Create Nextcloud data PVC
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: nextcloud-data
+        namespace: nextcloud
+        labels:
+          app.kubernetes.io/name: nextcloud
+          managed-by: ansible
+        annotations:
+          helm.sh/resource-policy: keep
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: nfs
+        resources:
+          requests:
+            storage: 100Gi
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
 - name: Create Traefik middleware for Nextcloud headers
   kubernetes.core.k8s:
     definition:
