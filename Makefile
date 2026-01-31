@@ -279,18 +279,35 @@ app-delete: ## 🗑️  Delete specific app and all resources (usage: make app-d
 	echo "⚠️  WARNING: This will delete $(APP) and all its resources"; \
 	echo "  - Helm release: $$release"; \
 	echo "  - Namespace: $$namespace"; \
-	echo "  - PVCs and data will be deleted"; \
+	echo "  - PVCs, PVs, and NFS data will be deleted"; \
 	echo ""; \
 	read -p "Are you sure? (yes/no): " answer && [ "$$answer" = "yes" ] || (echo "Cancelled." && exit 1); \
 	echo ""; \
-	echo "Deleting Helm release..."; \
-	uv run ansible pi-cm5-1 -a "helm uninstall $$release -n $$namespace" --become || true; \
+	echo "Step 1/7: Deleting Helm release..."; \
+	kubectl delete helmrelease $$release -n $$namespace 2>/dev/null || true; \
+	helm uninstall $$release -n $$namespace 2>/dev/null || true; \
 	echo ""; \
-	echo "Removing finalizers from stuck resources..."; \
-	uv run ansible pi-cm5-1 -a "kubectl patch pvc -n $$namespace --all -p '{\"metadata\":{\"finalizers\":null}}' --type=merge" --become || true; \
+	echo "Step 2/7: Removing CNPG cluster finalizers..."; \
+	kubectl get clusters -n $$namespace -o name 2>/dev/null | xargs -r -I{} kubectl patch {} -n $$namespace -p '{"metadata":{"finalizers":null}}' --type=merge 2>/dev/null || true; \
 	echo ""; \
-	echo "Deleting namespace..."; \
-	uv run ansible pi-cm5-1 -a "kubectl delete namespace $$namespace --force --grace-period=0" --become || true; \
+	echo "Step 3/7: Removing PVC finalizers..."; \
+	kubectl patch pvc -n $$namespace --all -p '{"metadata":{"finalizers":null}}' --type=merge 2>/dev/null || true; \
+	echo ""; \
+	echo "Step 4/7: Deleting namespace..."; \
+	kubectl delete namespace $$namespace --force --grace-period=0 2>/dev/null || true; \
+	sleep 5; \
+	echo ""; \
+	echo "Step 5/7: Deleting orphaned PVs..."; \
+	kubectl get pv -o json 2>/dev/null | jq -r '.items[] | select(.spec.claimRef.namespace == "'"$$namespace"'") | .metadata.name' | xargs -r kubectl delete pv 2>/dev/null || true; \
+	echo ""; \
+	echo "Step 6/7: Cleaning stale NFS mounts on nodes..."; \
+	for node in pi-cm5-1 pi-cm5-2 pi-cm5-3 beelink; do \
+		echo "  Checking $$node..."; \
+		uv run ansible $$node -b -m shell -a "df -h 2>&1 | grep 'Stale file handle' | grep -oP '/var/lib/kubelet/pods/[^:]+' | xargs -r -I{} umount -f {}" 2>/dev/null || true; \
+	done; \
+	echo ""; \
+	echo "Step 7/7: Cleaning NFS data on beelink..."; \
+	uv run ansible beelink -b -m shell -a "rm -rf /mnt/storage/k8s-apps/$$namespace-*" 2>/dev/null || true; \
 	echo ""; \
 	echo "✅ App deleted successfully"
 
