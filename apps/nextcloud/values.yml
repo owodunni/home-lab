@@ -24,7 +24,7 @@ affinity:
 
 # Nextcloud configuration
 nextcloud:
-  host: cloud.jardoole.xyz
+  host: nextcloud.jardoole.xyz
   # Admin + SMTP credentials from single secret
   existingSecret:
     enabled: true
@@ -55,8 +55,6 @@ nextcloud:
       $CONFIG = [
         'default_phone_region' => 'AU',
         'maintenance_window_start' => 1,
-        // Allow OIDC connections to internal Authentik URL
-        'allow_local_remote_servers' => true,
       ];
 
 # Disable internal database - using CNPG
@@ -95,10 +93,12 @@ redis:
   replica:
     replicaCount: 0
 
-# Persistent storage on NFS (using pre-created PVC to control NFS path name)
+# Persistent storage on NFS (let Helm manage PVC lifecycle)
 persistence:
   enabled: true
-  existingClaim: nextcloud-data
+  storageClass: nfs
+  size: 100Gi
+  accessMode: ReadWriteOnce
 
 # Resource limits
 resources:
@@ -126,7 +126,7 @@ ingress:
   tls:
     - secretName: nextcloud-tls
       hosts:
-        - cloud.jardoole.xyz
+        - nextcloud.jardoole.xyz
 
 # Cron job for background tasks (sidecar mode)
 cronjob:

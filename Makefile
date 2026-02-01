@@ -306,13 +306,19 @@ app-delete: ## 🗑️  Delete specific app and all resources (usage: make app-d
 	echo "Step 7/9: Deleting orphaned PVs..."; \
 	kubectl get pv -o json 2>/dev/null | jq -r '.items[] | select(.spec.claimRef.namespace == "'"$$namespace"'") | .metadata.name' | xargs -r -I{} sh -c 'kubectl patch pv {} -p "{\"metadata\":{\"finalizers\":null}}" --type=merge 2>/dev/null; kubectl delete pv {} 2>/dev/null' || true; \
 	echo ""; \
-	echo "Step 8/9: Cleaning stale NFS mounts on nodes..."; \
+	echo "Step 8/10: Force unmounting all NFS mounts for namespace..."; \
 	for node in pi-cm5-1 pi-cm5-2 pi-cm5-3 beelink; do \
-		echo "  Checking $$node..."; \
-		uv run ansible $$node -b -m shell -a "df -h 2>&1 | grep 'Stale file handle' | grep -oP '/var/lib/kubelet/pods/[^:]+' | xargs -r -I{} umount -f {}" 2>/dev/null || true; \
+		echo "  Unmounting on $$node..."; \
+		uv run ansible $$node -b -m shell -a "mount | grep '$$namespace' | awk '{print \$$3}' | xargs -r -I{} umount -f -l {}" 2>/dev/null || true; \
 	done; \
 	echo ""; \
-	echo "Step 9/9: Cleaning NFS data and restarting NFS server..."; \
+	echo "Step 9/10: Dropping NFS client kernel caches..."; \
+	for node in pi-cm5-1 pi-cm5-2 pi-cm5-3 beelink; do \
+		echo "  Dropping caches on $$node..."; \
+		uv run ansible $$node -b -m shell -a "echo 3 > /proc/sys/vm/drop_caches" 2>/dev/null || true; \
+	done; \
+	echo ""; \
+	echo "Step 10/10: Cleaning NFS data and restarting NFS server..."; \
 	uv run ansible beelink -b -m shell -a "rm -rf /mnt/storage/k8s-apps/$$namespace-*" 2>/dev/null || true; \
 	uv run ansible beelink -b -a "systemctl restart nfs-server" 2>/dev/null || true; \
 	sleep 2; \
