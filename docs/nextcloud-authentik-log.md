@@ -77,11 +77,11 @@ kubectl exec -n nextcloud deploy/nextcloud -c nextcloud -- \
 | DNS resolution | ✅ Working | /etc/hosts entry present |
 | OIDC discovery | ✅ Accessible | Returns HTTP 200 |
 | user_oidc app | ✅ Installed | Version 8.3.0, provider configured |
-| OIDC Login | ❌ Still failing | See next issue below |
+| OIDC Login | 🔧 Fix applied | Awaiting deployment |
 
 ---
 
-## Issue 2: Local Access Rules Violation (Pending Fix)
+## Fix 2: Local Access Rules Violation
 
 **Date**: 2026-02-01
 
@@ -94,7 +94,7 @@ Host "192.168.1.23" (authentik.jardoole.xyz:80) violates local access rules
 
 **Root Cause**: Nextcloud has a security feature that blocks HTTP requests to local/private IP addresses (RFC 1918). Even though the network path is working, Nextcloud's application-level security rejects requests to private IPs.
 
-**Proposed Fix**: Add `'allow_local_remote_servers' => true` to `apps/nextcloud/values.yml`:
+**Fix Applied**: Added `'allow_local_remote_servers' => true` to `apps/nextcloud/values.yml`:
 ```php
 $CONFIG = [
   'default_phone_region' => 'AU',
@@ -103,7 +103,7 @@ $CONFIG = [
 ];
 ```
 
-**Status**: 🔧 Pending implementation
+**Status**: ✅ Applied - awaiting deployment
 
 ---
 

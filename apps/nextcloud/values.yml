@@ -55,6 +55,7 @@ nextcloud:
       $CONFIG = [
         'default_phone_region' => 'AU',
         'maintenance_window_start' => 1,
+        'allow_local_remote_servers' => true,
       ];
 
 # Disable internal database - using CNPG
