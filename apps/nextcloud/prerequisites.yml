@@ -261,7 +261,7 @@
               - port: 9443
                 protocol: TCP
           # Traefik (for OIDC via hostAliases - external URL routed internally)
-          # ipBlock 0.0.0.0/0 doesn't match ClusterIPs, need explicit rule
+          # NetworkPolicy evaluates pod ports (8000/8443), not service ports (80/443)
           - to:
               - namespaceSelector:
                   matchLabels:
@@ -270,9 +270,9 @@
                   matchLabels:
                     app.kubernetes.io/name: traefik
             ports:
-              - port: 443
+              - port: 8443
                 protocol: TCP
-              - port: 80
+              - port: 8000
                 protocol: TCP
           # External HTTPS (app stores, etc.)
           - to:
