@@ -15,6 +15,7 @@ Central reference for all home-lab documentation.
 |----------|---------|
 | [project-structure.md](project-structure.md) | Directory layout & variable hierarchy |
 | [storage-architecture.md](storage-architecture.md) | MergerFS + SnapRAID + NFS design |
+| [network-segmentation.md](network-segmentation.md) | UniFi VLANs & zone-based firewall |
 
 ## Guides
 
