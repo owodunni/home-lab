@@ -77,7 +77,8 @@ kubectl exec -n nextcloud deploy/nextcloud -c nextcloud -- \
 | DNS resolution | ✅ Working | /etc/hosts entry present |
 | OIDC discovery | ✅ Accessible | Returns HTTP 200 |
 | user_oidc app | ✅ Installed | Version 8.3.0, provider configured |
-| OIDC Login | 🔧 Fix applied | Awaiting deployment |
+| OIDC Login | ⚠️ Partial | Redirects work, state mismatch on callback |
+| Redis sessions | ❌ Broken | Password contains URL-breaking characters |
 
 ---
 
@@ -107,15 +108,40 @@ $CONFIG = [
 
 ---
 
-## Secondary Issue: Redis Connection Warnings
+## Fix 3: Redis Password URL Encoding Issue
 
-**Observation**: Logs show Redis session storage failures:
-```
-session_start(): Redis connection not available
-session_start(): Failed to read session data: redis
+**Date**: 2026-02-01
+
+**Problem**: After OIDC connectivity was fixed, login flow redirects to Authentik successfully, but callback fails with "the receiver state did not match the expected value".
+
+**Diagnosis**:
+- OIDC state is stored in PHP session
+- PHP session uses Redis via `session.save_path = "tcp://...?auth=PASSWORD"`
+- Redis password contains URL-special characters: `+`, `/`, `=`
+- Password is NOT URL-encoded in the save_path
+- PHP URL parser breaks the password, causing Redis auth to fail
+- Sessions are lost between requests, so OIDC state cannot be retrieved
+
+**Root Cause**: The password `Qy+/KnXgk4Uvef3iRAQUNWamVWaEUeCwCo/X1e9uLbE=` breaks URL parsing:
+- `+` becomes a space
+- `/` is interpreted as path separator
+- `=` confuses query string parsing
+
+**Fix Required**: Regenerate Redis password with URL-safe alphanumeric characters only.
+
+```bash
+# Generate URL-safe password
+openssl rand -hex 16
+
+# Update vault
+uv run ansible-vault edit group_vars/all/vault.yml
+# Change vault_nextcloud_redis_password to the new value
+
+# Redeploy
+make app-deploy APP=nextcloud
 ```
 
-**Status**: ⚠️ To investigate after OIDC is fixed
+**Status**: 🔧 Pending - user action required
 
 ---
 
