@@ -1,0 +1,76 @@
+---
+# OpenClaw Prerequisites
+# Creates secrets and NetworkPolicy before Helm deploy
+
+- name: Create OpenClaw secrets
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: openclaw-secrets
+        namespace: openclaw
+        labels:
+          app.kubernetes.io/name: openclaw
+          managed-by: ansible
+      type: Opaque
+      stringData:
+        OLLAMA_API_KEY: "{{ vault_openclaw_ollama_api_key }}"
+        OPENCLAW_GATEWAY_TOKEN: "{{ vault_openclaw_gateway_token }}"
+        OPENCLAW_SECRET_KEY: "{{ vault_openclaw_secret_key }}"
+        OPENCLAW_CHANNELS_SIGNAL_PHONE: "{{ vault_openclaw_signal_phone }}"
+        OPENCLAW_CHANNELS_SIGNAL_ALLOWED: "{{ vault_openclaw_signal_allowed_numbers }}"
+    state: present
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+- name: Create NetworkPolicy for OpenClaw
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      metadata:
+        name: openclaw-network-policy
+        namespace: openclaw
+        labels:
+          app.kubernetes.io/name: openclaw
+          managed-by: ansible
+      spec:
+        podSelector: {}
+        policyTypes:
+          - Ingress
+          - Egress
+        ingress:
+          # Allow Traefik ingress controller from kube-system
+          - from:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: kube-system
+            ports:
+              - port: 18789
+                protocol: TCP
+        egress:
+          # DNS resolution via CoreDNS
+          - to:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: kube-system
+            ports:
+              - port: 53
+                protocol: TCP
+              - port: 53
+                protocol: UDP
+          # External HTTPS (Ollama cloud API + Signal API)
+          - to:
+              - ipBlock:
+                  cidr: 0.0.0.0/0
+            ports:
+              - port: 443
+                protocol: TCP
+          # External HTTP (Signal registration)
+          - to:
+              - ipBlock:
+                  cidr: 0.0.0.0/0
+            ports:
+              - port: 80
+                protocol: TCP
+    kubeconfig: /etc/rancher/k3s/k3s.yaml

@@ -1,0 +1,156 @@
+---
+# Helm values for OpenClaw
+# AI assistant with Signal messaging and Chrome browser automation
+
+configMode: overwrite
+
+controllers:
+  main:
+    containers:
+      main:
+        env:
+          CHROMIUM_URL: "ws://localhost:9222"
+          OPENCLAW_CHANNELS_SIGNAL_ENABLED: "true"
+        envFrom:
+          - secretRef:
+              name: openclaw-secrets
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: 500m
+            memory: 1Gi
+      chromium:
+        securityContext:
+          runAsUser: 999
+          runAsNonRoot: true
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+          seccompProfile:
+            type: RuntimeDefault
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+
+service:
+  main:
+    controller: main
+    ports:
+      http:
+        port: 18789
+
+ingress:
+  main:
+    enabled: true
+    className: traefik
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      traefik.ingress.kubernetes.io/router.middlewares: kube-system-authentik-forward-auth@kubernetescrd
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      gethomepage.dev/enabled: "true"
+      gethomepage.dev/name: "OpenClaw"
+      gethomepage.dev/description: "AI Assistant"
+      gethomepage.dev/group: "Apps"
+      gethomepage.dev/icon: "openclaw.png"
+    hosts:
+      - host: openclaw.jardoole.xyz
+        paths:
+          - path: /
+            pathType: Prefix
+            service:
+              identifier: main
+              port: http
+    tls:
+      - secretName: openclaw-tls
+        hosts:
+          - openclaw.jardoole.xyz
+
+persistence:
+  data:
+    enabled: true
+    type: persistentVolumeClaim
+    accessMode: ReadWriteOnce
+    size: 5Gi
+    storageClass: nfs
+    advancedMounts:
+      main:
+        init-config:
+          - path: /home/node/.openclaw
+        init-skills:
+          - path: /home/node/.openclaw
+        main:
+          - path: /home/node/.openclaw
+  shm:
+    enabled: true
+    type: emptyDir
+    medium: Memory
+    sizeLimit: 512Mi
+    advancedMounts:
+      main:
+        chromium:
+          - path: /dev/shm
+  tmp:
+    enabled: true
+    type: emptyDir
+    advancedMounts:
+      main:
+        init-config:
+          - path: /tmp
+        init-skills:
+          - path: /tmp
+        main:
+          - path: /tmp
+        chromium:
+          - path: /tmp
+
+defaultPodOptions:
+  securityContext:
+    fsGroup: 1000
+    fsGroupChangePolicy: OnRootMismatch
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+
+configMaps:
+  config:
+    enabled: true
+    data:
+      openclaw.json: |
+        {
+          "gateway": {
+            "port": 18789,
+            "mode": "local",
+            "trustedProxies": ["10.42.0.0/16", "10.43.0.0/16"]
+          },
+          "providers": {
+            "ollama": {
+              "type": "ollama",
+              "model": "minimax/MiniMax-M2.5"
+            }
+          },
+          "channels": {
+            "signal": {
+              "enabled": true
+            }
+          },
+          "browser": {
+            "enabled": true,
+            "defaultProfile": "default",
+            "profiles": {
+              "default": {
+                "cdpUrl": "ws://localhost:9222"
+              }
+            }
+          },
+          "session": {
+            "idleResetMinutes": 60
+          }
+        }

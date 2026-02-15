@@ -221,6 +221,14 @@
       register: helm_repo_nextcloud
       failed_when: false
 
+    - name: Add OpenClaw repository (AI assistant)
+      kubernetes.core.helm_repository:
+        name: openclaw
+        repo_url: https://serhanekicii.github.io/openclaw-helm
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: helm_repo_openclaw
+      failed_when: false
+
     - name: Update all Helm repositories
       ansible.builtin.command:
         cmd: helm repo update
