@@ -6,7 +6,7 @@ AI assistant with Signal messaging integration, Ollama cloud LLM (MiniMax M2.5),
 
 | Component | Configuration |
 |-----------|---------------|
-| Chart | `openclaw/openclaw` v1.3.15 |
+| Chart | `openclaw/openclaw` v1.3.16 |
 | LLM | Ollama cloud with MiniMax M2.5 |
 | Messaging | Signal (dedicated phone number) |
 | Browser | Chrome CDP sidecar (headless) |
