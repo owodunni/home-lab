@@ -1,0 +1,44 @@
+---
+# Beelink NFS server configuration playbook
+# Safe to rerun - idempotent (uses lineinfile + exportfs -ra)
+# Manages /etc/exports from nfs_exports in group_vars/beelink_nas/main.yml
+#
+# Run this when:
+#   - NFS export rules change (e.g. adding new client CIDRs)
+#   - NFS server needs to be installed or re-enabled after a reboot
+#   - After any change to group_vars/beelink_nas/main.yml nfs_exports
+
+- name: Configure NFS server on Beelink
+  hosts: beelink
+  become: true
+
+  tasks:
+    - name: Install NFS server
+      ansible.builtin.apt:
+        name: nfs-kernel-server
+        state: present
+        update_cache: true
+
+    - name: Configure NFS exports
+      ansible.builtin.lineinfile:
+        path: /etc/exports
+        regexp: "^{{ item.path }}\\s+"
+        line: "{{ item.path }} {{ item.clients }}"
+        state: present
+        create: true
+        mode: "0644"
+        backup: true
+      loop: "{{ nfs_exports }}"
+      notify: Reload NFS exports
+
+    - name: Start and enable NFS server
+      ansible.builtin.systemd:
+        name: nfs-kernel-server
+        state: started
+        enabled: true
+
+  handlers:
+    - name: Reload NFS exports
+      ansible.builtin.command:
+        cmd: exportfs -ra
+      changed_when: true

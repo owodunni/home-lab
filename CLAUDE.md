@@ -33,6 +33,16 @@ Home lab automation using Ansible to provision Raspberry Pi CM5 cluster and Beel
 - **Workers**: beelink (hosts.ini [workers])
 - **NAS**: pi-cm5-4 (hosts.ini [nas])
 
+## Documenting Config Changes
+
+**MANDATORY**: Every config change — especially during debug sessions — MUST include:
+
+1. **What** is being changed
+2. **Why** it is needed (root cause, not symptom)
+3. **What issue** it resolves
+
+Apply this in `group_vars`, `values.yml`, playbooks, and any other config file. A future reader must be able to understand why a non-obvious value exists without needing context from the conversation.
+
 ## Architecture Principles
 
 **MANDATORY**: Before structural changes:

@@ -103,7 +103,13 @@ snapraid_content_files:
 nfs_exports:
   # K3s management network (192.168.1.0/24) and pod network (10.42.0.0/16)
   # fsid=1 required for MergerFS exports (NFSv4)
+  # 127.0.0.1/8 required because Debian sets hostname to 127.0.1.1 in /etc/hosts,
+  # so when pods are scheduled on beelink itself, the kubelet resolves "beelink"
+  # to 127.0.1.1 (loopback) rather than 192.168.1.77. Without this range the NFS
+  # server rejects the mount with "access denied", causing PVC mount failures for
+  # any workload running on beelink.
   - path: /mnt/storage
     clients: >-
       192.168.1.0/24(rw,sync,no_subtree_check,no_root_squash,fsid=1)
       10.42.0.0/16(rw,sync,no_subtree_check,no_root_squash,fsid=1)
+      127.0.0.1/8(rw,sync,no_subtree_check,no_root_squash,fsid=1)

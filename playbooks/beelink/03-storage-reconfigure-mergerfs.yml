@@ -5,6 +5,8 @@
 #
 # WARNING: This playbook will DESTROY existing storage data!
 # Ensure you have backups before running this playbook!
+#
+# NFS configuration is handled by 04-nfs-setup.yml (imported at the end)
 
 - name: Reconfigure Beelink storage for MergerFS + SnapRAID
   hosts: beelink
@@ -277,12 +279,6 @@
     # Phase 5: Setup NFS Server
     # ========================================================================
 
-    - name: Install NFS server
-      ansible.builtin.apt:
-        name: nfs-kernel-server
-        state: present
-        update_cache: true
-
     - name: Create NFS export directories
       ansible.builtin.file:
         path: "{{ mergerfs_mount_point }}/{{ item }}"
@@ -299,28 +295,6 @@
         - media/library
         - media/library/movies
         - media/library/tv
-
-    - name: Configure NFS exports
-      ansible.builtin.lineinfile:
-        path: /etc/exports
-        regexp: "^{{ item.path }}\\s+"
-        line: "{{ item.path }} {{ item.clients }}"
-        state: present
-        create: true
-        mode: "0644"
-        backup: true
-      loop: "{{ nfs_exports }}"
-
-    - name: Export NFS shares
-      ansible.builtin.command:
-        cmd: exportfs -ra
-      changed_when: true
-
-    - name: Start and enable NFS server
-      ansible.builtin.systemd:
-        name: nfs-kernel-server
-        state: started
-        enabled: true
 
     # ========================================================================
     # Phase 6: Initial SnapRAID Sync (Optional - can be run manually)
@@ -387,3 +361,8 @@
           ║                                                              ║
           ║  4. Proceed to Phase 4 (K3s NFS integration)                ║
           ╚══════════════════════════════════════════════════════════════╝
+
+# NFS server setup — delegated to standalone playbook so it can be rerun safely
+# without triggering the destructive storage reconfiguration above.
+- name: Configure NFS server
+  import_playbook: 04-nfs-setup.yml
