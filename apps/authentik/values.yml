@@ -22,11 +22,14 @@ server:
   replicas: 1
   resources:
     requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
-      cpu: 500m
+      cpu: 200m
       memory: 512Mi
+    limits:
+      # CPU increased from 500m: server was hitting limit (495m/500m observed),
+      # causing throttling, slow responses and 502 errors.
+      # Memory increased from 512Mi: server was near OOM (511Mi/512Mi observed).
+      cpu: 1000m
+      memory: 1Gi
 
   # Known bug: authentik_prometheus_tmp metric files grow unboundedly in
   # /dev/shm, exhausting the default 64Mi Kubernetes limit and causing a
