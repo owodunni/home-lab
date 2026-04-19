@@ -28,6 +28,22 @@ server:
       cpu: 500m
       memory: 512Mi
 
+  # Known bug: authentik_prometheus_tmp metric files grow unboundedly in
+  # /dev/shm, exhausting the default 64Mi Kubernetes limit and causing a
+  # "no space left on device" panic on startup.
+  # Tracked upstream: goauthentik/authentik#10768 (closed wontfix).
+  # 512Mi delays recurrence to ~48h per issue reports; no upstream fix
+  # exists as of 2025.12.1. Monitor and consider disabling metrics if
+  # this becomes too frequent.
+  volumes:
+    - name: shm
+      emptyDir:
+        medium: Memory
+        sizeLimit: 512Mi
+  volumeMounts:
+    - name: shm
+      mountPath: /dev/shm
+
   env:
     - name: AUTHENTIK_POSTGRESQL__PASSWORD
       valueFrom:
