@@ -14,6 +14,17 @@ setup: ## 🔧 Install all dependencies (Python + Ansible collections + roles)
 	uv sync
 	uv run ansible-galaxy collection install -r requirements.yml
 	uv run ansible-galaxy role install -r requirements.yml
+	@echo "Adding Helm repositories for local linting..."
+	@helm repo add stable https://charts.helm.sh/stable 2>/dev/null || true
+	@helm repo add jetstack https://charts.jetstack.io 2>/dev/null || true
+	@helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
+	@helm repo add jellyfin https://jellyfin.github.io/jellyfin-helm 2>/dev/null || true
+	@helm repo add bjw-s https://bjw-s-labs.github.io/helm-charts 2>/dev/null || true
+	@helm repo add nfs-subdir-external-provisioner https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner 2>/dev/null || true
+	@helm repo add headlamp https://kubernetes-sigs.github.io/headlamp/ 2>/dev/null || true
+	@helm repo add cnpg https://cloudnative-pg.github.io/charts 2>/dev/null || true
+	@helm repo add authentik https://charts.goauthentik.io 2>/dev/null || true
+	@helm repo update
 
 beelink-setup: ## 🖥️ Configure passwordless sudo on beelink (first-time setup)
 	@echo "Configuring passwordless sudo on beelink..."
