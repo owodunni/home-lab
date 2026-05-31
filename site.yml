@@ -1,0 +1,17 @@
+---
+# Site playbook — full provisioning from scratch
+#
+# What: Runs every layer in sequence to take a fresh host from first boot to a
+#       fully provisioned, hardened state.
+# Why:  Provides one command to provision the whole fleet end to end, while each
+#       layer (and each function playbook within it) stays independently
+#       runnable for targeted changes.
+# Resolves: The need for a reproducible bootstrap that fixes layer ordering in
+#           one place — system (base OS + hardware) before security (hardening).
+#
+# Order is significant: each layer assumes the previous one has completed.
+- name: System layer — base OS and hardware configuration
+  ansible.builtin.import_playbook: playbooks/system.yml
+
+- name: Security layer — hardening
+  ansible.builtin.import_playbook: playbooks/security.yml

@@ -1,0 +1,16 @@
+---
+# Security layer
+#
+# What: Hardens a host — currently enables automatic security updates.
+#       Firewall and SSH hardening function playbooks will be added here as
+#       they are written.
+# Why:  Hardening changes (SSH config, firewall rules) are the most likely to
+#       lock an operator out, so this layer runs last in site.yml — on a base
+#       that the system layer has already updated and configured.
+# Resolves: The need for a single ordered entry point to all hardening steps,
+#           runnable on its own (`make security`) or as part of site.yml.
+#
+# Pure orchestration: no logic here, only imports of standalone function
+# playbooks.
+- name: Enable automatic security updates
+  ansible.builtin.import_playbook: unattended-upgrades.yml

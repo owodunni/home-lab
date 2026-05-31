@@ -1,0 +1,18 @@
+---
+# System layer
+#
+# What: Establishes the base OS state for every host — applies all pending
+#       package updates, then applies Pi CM5 firmware/hardware/power settings.
+# Why:  These are the foundational steps every other layer assumes are already
+#       in place: a fully patched OS and correct hardware configuration. Updates
+#       run before firmware config so a single reboot can settle both.
+# Resolves: The need to bring a fresh host to a known, current base state in one
+#           ordered step, without callers needing to remember the sub-steps.
+#
+# Pure orchestration: this playbook adds no logic of its own. The function
+# playbooks it imports remain runnable standalone (e.g. `make upgrade`).
+- name: Apply pending package updates
+  ansible.builtin.import_playbook: upgrade.yml
+
+- name: Configure Pi CM5 firmware and power settings
+  ansible.builtin.import_playbook: pi-base-config.yml

@@ -2,7 +2,7 @@
 # Fix macOS fork safety issue with Python 3.13 + Ansible multiprocessing
 ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
-.PHONY: help setup vault-edit
+.PHONY: help setup vault-edit site system security
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -43,3 +43,17 @@ unattended-upgrades: ## 🔄 Setup unattended upgrades on all servers
 pi-base-config: ## ⚙️ Configure Pi CM5 base settings and power optimization
 	@echo "Configuring Pi CM5 base settings and power optimization..."
 	$(ANSIBLE_PLAYBOOK) playbooks/pi-base-config.yml --diff
+
+# Orchestration layers — each runs its function playbooks in sequence.
+# Layers and the site playbook are composition only; they add no logic.
+system: ## 🧱 System layer: updates + Pi CM5 hardware/firmware config
+	@echo "Running system layer..."
+	$(ANSIBLE_PLAYBOOK) playbooks/system.yml
+
+security: ## 🔒 Security layer: unattended upgrades (firewall/SSH to come)
+	@echo "Running security layer..."
+	$(ANSIBLE_PLAYBOOK) playbooks/security.yml
+
+site: ## 🏗️ Full provisioning: run all layers in sequence (system → security)
+	@echo "Running full site provisioning..."
+	$(ANSIBLE_PLAYBOOK) site.yml
