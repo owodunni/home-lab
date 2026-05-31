@@ -1,5 +1,5 @@
 ---
-description: Git commit guidelines for this repo. Use before every commit: writing commit messages, staging changes, running pre-commit hooks, or when asked how to commit. Enforces atomic commits, imperative mood, 50-char subject, type prefixes (feat/fix/refactor/docs/ci/config), and the make precommit workflow.
+description: Git commit guidelines for this repo. Use before every commit: writing commit messages, staging changes, or when asked how to commit. Enforces atomic commits, imperative mood, 50-char subject, type prefixes (feat/fix/refactor/docs/ci/config). Pre-commit hooks run automatically on git commit after make setup.
 ---
 
 # Git Commit Guidelines
@@ -93,7 +93,7 @@ Addresses security compliance requirement SEC-001.
 
 ## Pre-commit Hook Workflow
 
-**⚠️ IMPORTANT**: Commits will likely fail initially due to pre-commit hooks running yamllint and ansible-lint.
+Pre-commit hooks run **automatically** on every `git commit` after running `make setup`. There is no need to run `make precommit` manually before committing.
 
 ### Recommended Workflow
 
@@ -102,22 +102,21 @@ Addresses security compliance requirement SEC-001.
    git add .
    ```
 
-2. **Run pre-commit hooks manually** (before committing):
-   ```bash
-   make precommit
-   ```
-
-3. **Fix any issues** reported by yamllint or ansible-lint
-
-4. **Stage the fixes**:
-   ```bash
-   git add .
-   ```
-
-5. **Commit with proper message**:
+2. **Commit** — hooks run automatically:
    ```bash
    git commit -m "Add backup automation for NAS nodes"
    ```
+
+3. **If hooks fail**, fix the reported issues, then re-stage and commit:
+   ```bash
+   git add .
+   git commit -m "Add backup automation for NAS nodes"
+   ```
+
+To run checks without committing (e.g., during development):
+```bash
+make precommit
+```
 
 ### Common Pre-commit Failures
 
@@ -130,8 +129,8 @@ Addresses security compliance requirement SEC-001.
 
 Use proper markdown links in commit messages:
 
-✅ **Good**: `Updated [git-commit-guidelines.md](./docs/git-commit-guidelines.md) with new rules`
-❌ **Bad**: `Updated docs/git-commit-guidelines.md with new rules`
+✅ **Good**: `Updated [upgrade.yml](./playbooks/upgrade.yml) with retry logic`
+❌ **Bad**: `Updated playbooks/upgrade.yml with retry logic`
 
 ✅ **Good**: `Based on [cbea.ms/git-commit](https://cbea.ms/git-commit/) best practices`
 ❌ **Bad**: `Based on https://cbea.ms/git-commit/ best practices`

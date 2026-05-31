@@ -50,6 +50,6 @@ Ansible-based automation for a Raspberry Pi CM5 cluster running K3s Kubernetes.
 
 ```bash
 make help       # List all commands
-make precommit  # Run linters (yamllint, ansible-lint)
+make precommit  # Run linters manually (auto-runs on git commit after make setup)
 make ping       # Test node connectivity
 ```

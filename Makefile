@@ -14,6 +14,7 @@ setup: ## 🔧 Install all dependencies (Python + Ansible collections + roles)
 	uv sync
 	uv run ansible-galaxy collection install -r requirements.yml
 	uv run ansible-galaxy role install -r requirements.yml
+	uv run pre-commit install
 
 lint: ## 🔍 Run all linting and syntax checks
 	@echo "Running yamllint..."
@@ -38,7 +39,3 @@ unattended-upgrades: ## 🔄 Setup unattended upgrades on all servers
 pi-base-config: ## ⚙️ Configure Pi CM5 base settings and power optimization
 	@echo "Configuring Pi CM5 base settings and power optimization..."
 	$(ANSIBLE_PLAYBOOK) playbooks/pi-base-config.yml --diff
-
-pi-storage-config: ## 💾 Configure Pi CM5 storage settings
-	@echo "Configuring Pi CM5 storage settings..."
-	$(ANSIBLE_PLAYBOOK) playbooks/pi-storage-config.yml --diff

@@ -19,10 +19,12 @@ Apply this in `group_vars`, `values.yml`, playbooks, and any other config file. 
 **Pre-commit workflow:**
 
 1. Stage files: `git add .`
-2. Run pre-commit: `make precommit`
-3. Fix issues reported by linters
+2. Commit — pre-commit hooks run automatically
+3. If hooks fail, fix the reported issues
 4. Stage fixes: `git add .`
-5. Commit with proper message format
+5. Commit again with proper message format
+
+Run `make precommit` to trigger hooks manually without committing.
 
 **IMPORTANT:** Always commit after completing changes. Do not leave work uncommitted at the end of a task.
 
