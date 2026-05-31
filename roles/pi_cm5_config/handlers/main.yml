@@ -1,0 +1,14 @@
+---
+# Handlers for Pi CM5 configuration changes
+
+- name: Reboot required
+  ansible.builtin.debug:
+    msg: "Pi CM5 configuration changed. Reboot required to apply changes."
+  changed_when: true
+  listen: reboot required
+
+- name: Config restored
+  ansible.builtin.debug:
+    msg: "Config.txt was corrupted and has been restored from backup."
+  changed_when: true
+  listen: config restored

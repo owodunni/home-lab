@@ -1,0 +1,13 @@
+---
+# Setup automatic security updates for Pi cluster
+# Uses hifis.toolkit.unattended_upgrades role with group_vars configuration
+- name: Setup unattended upgrades on all hosts
+  hosts: all
+  become: true
+
+  tasks:
+    # Configure automatic security updates using hifis.toolkit role
+    # https://github.com/hifis-net/ansible-collection-toolkit/tree/main/roles/unattended_upgrades
+    - name: Install and configure unattended-upgrades
+      ansible.builtin.include_role:
+        name: hifis.toolkit.unattended_upgrades
