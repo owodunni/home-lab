@@ -1,0 +1,14 @@
+---
+# Ansible-lint configuration
+
+# Exclude temporary and backup directories
+exclude_paths:
+  - .venv/
+  - .ansible/
+  - tree/
+
+# Use production profile for stricter linting
+profile: production
+
+# Enable offline mode to avoid external API calls
+offline: true
