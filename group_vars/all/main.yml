@@ -2,6 +2,15 @@
 # Common variables available to all hosts
 # Variables defined here can be overridden in more specific group_vars
 
+# Privilege Escalation (sudo)
+# ===========================
+# What: Become password for the cluster admin user, sourced from vault.
+# Why: The Pis require a password for sudo, so playbooks using
+#      `become: true` (e.g. upgrade.yml) need a become password to run.
+# Resolves: "Missing sudo password" failures during privilege escalation
+#           when running playbooks non-interactively (no --ask-become-pass).
+ansible_become_password: "{{ vault_become_password }}"
+
 # SMTP Configuration (Gmail Relay)
 # =================================
 # Cluster-wide email settings for alerts and notifications.
