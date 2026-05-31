@@ -1,0 +1,5 @@
+---
+# Host-specific configuration for pi-cm5-1
+
+# Staggered restart for HA - Control plane lead node restarts first
+unattended_automatic_reboot_time: "02:15"

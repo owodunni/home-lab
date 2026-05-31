@@ -1,0 +1,5 @@
+---
+# Host-specific configuration for pi-cm5-3
+
+# Staggered restart for HA - Third node restarts 1hr after first
+unattended_automatic_reboot_time: "03:00"

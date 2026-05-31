@@ -1,0 +1,5 @@
+---
+# Host-specific configuration for pi-cm5-2
+
+# Staggered restart for HA - Second node restarts 30min after first
+unattended_automatic_reboot_time: "02:30"

@@ -1,0 +1,14 @@
+---
+# Common variables available to all hosts
+# Variables defined here can be overridden in more specific group_vars
+
+# SMTP Configuration (Gmail Relay)
+# =================================
+# Cluster-wide email settings for alerts and notifications.
+# Uses Gmail SMTP with a custom "From" address (alert@jardoole.xyz).
+# See docs/email-configuration.md for setup instructions.
+smtp_host: "smtp.gmail.com"
+smtp_port: 587
+smtp_use_tls: true
+smtp_use_ssl: false
+smtp_from: "alert@jardoole.xyz"
