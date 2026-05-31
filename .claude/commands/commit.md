@@ -25,19 +25,19 @@ When there are many uncommited changes split them in multiple atomic commits.
 When writing a commit we engrave the reasoning behind why changes where made
 this allows us to go back at a latter time and understand our commits.
 
-To do this we want a title that clearly explains what changes happens if the
-commit is applied. We then want a body that explains what we have done followed
-by why we have done it.
-
-- **What**: Brief description of the change
-- **Why**: Business/technical justification
+To do this we want a subject line that completes the sentence
+"If applied, this commit will ___". The body then explains the
+context: what was wrong before, why this change fixes it, and any
+non-obvious consequences. Focus on WHY, not on listing what files
+were touched — the diff already shows that.
 
 Example:
 ```
-feat: Implement automated certificate renewal
+feat: Add automated certificate renewal
 
-Added Let's Encrypt integration with automatic renewal via cron job.
-Previous manual process caused service outages when certificates expired.
+Manual renewal caused outages when certificates expired without
+notice. Integrates Let's Encrypt with a cron job that renews
+automatically before expiry.
 ```
 
 ### 1. Separate subject from body with a blank line
@@ -46,8 +46,8 @@ Previous manual process caused service outages when certificates expired.
 Add support for pi-cm5-5 node provisioning
 
 The new node will serve as a backup NAS device with automatic
-failover capabilities. Updated inventory and added corresponding
-ansible playbook tasks.
+failover capabilities, filling a gap in the current single-node
+storage setup.
 ```
 
 ### 2. Limit the subject line to 50 characters
