@@ -2,6 +2,46 @@
 
 Home lab automation using Ansible to provision servers.
 
+## Playbook Architecture: Layers
+
+Playbooks are organized into three flat tiers under `playbooks/` (plus the
+top-level `site.yml`). No subfolders.
+
+1. **Function playbooks** — one concern each (e.g. `upgrade.yml`,
+   `pi-base-config.yml`, `unattended-upgrades.yml`). They set their own
+   `hosts`/`become` and are self-contained: they know nothing about
+   orchestration and run standalone.
+2. **Layer playbooks** — group related function playbooks into an ordered
+   phase. Pure `import_playbook` aggregators; **no logic of their own**.
+3. **`site.yml`** (repo root) — imports the layers in sequence to provision a
+   fresh host end to end.
+
+Each tier stays independently runnable: a single function, a whole layer, or
+the entire site.
+
+### Current layers (run in this order)
+
+| Layer | Purpose | Function playbooks |
+|---|---|---|
+| **system** | Base OS state: apply all package updates, then Pi CM5 firmware/hardware/power settings. | `upgrade.yml`, `pi-base-config.yml` |
+| **security** | Hardening: automatic security updates (firewall, SSH hardening to come). | `unattended-upgrades.yml` |
+
+**Order matters:** `system` runs before `security` so hardening lands on an
+already-updated, correctly-configured base. Hardening is the most likely step
+to lock an operator out, so it runs last.
+
+### Working with layers
+
+- **New single concern** → create a flat function playbook in `playbooks/`,
+  then add one `import_playbook` line to the layer it belongs to.
+- **New phase** → create a layer playbook and add it to `site.yml` in the right
+  position. Document the ordering rationale (see below).
+- Keep layer and `site.yml` files logic-free — they only compose. Put real
+  tasks in roles or function playbooks.
+- `import_playbook` entries need a `name:` (ansible-lint `name[play]`).
+- Targets: `make system`, `make security`, `make site`, plus per-function
+  targets (`make upgrade`, etc.).
+
 ## Documenting Config Changes
 
 **MANDATORY**: Every config change — especially during debug sessions — MUST include:
