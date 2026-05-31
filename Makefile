@@ -2,7 +2,7 @@
 # Fix macOS fork safety issue with Python 3.13 + Ansible multiprocessing
 ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
-.PHONY: help setup
+.PHONY: help setup vault-edit
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -20,13 +20,17 @@ lint: ## 🔍 Run all linting and syntax checks
 	@echo "Running yamllint..."
 	uv run yamllint .
 	@echo "Running ansible-lint..."
-	ANSIBLE_VAULT_PASSWORD_FILE=vault_passwords/all.txt uv run ansible-lint
+	uv run ansible-lint
 	@echo "Checking Ansible syntax..."
 	$(ANSIBLE_PLAYBOOK) --syntax-check playbooks/*.yml
 
 precommit: ## 🚀 Run pre-commit hooks on staged files
 	@echo "Running pre-commit hooks on staged files..."
 	uv run pre-commit run
+
+vault-edit: ## 🔐 Edit the encrypted secrets file (group_vars/all/vault.yml)
+	@echo "Opening encrypted vault for editing..."
+	uv run ansible-vault edit group_vars/all/vault.yml
 
 upgrade: ## 📦 Run system upgrade playbook on all servers
 	@echo "Running system upgrade playbook on all servers..."
