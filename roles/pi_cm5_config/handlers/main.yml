@@ -1,9 +1,24 @@
 ---
 # Handlers for Pi CM5 configuration changes
 
-- name: Reboot required
+# What: Reboot the node when a boot-config task reported a change.
+# Why: config.txt/cmdline.txt edits only take effect after a reboot. A handler
+#   fires only when notified (i.e. an actual change), so this reboots strictly
+#   "if needed" — mirroring upgrade.yml's reboot-when-required pattern.
+# Resolves: Previously the handler only printed a message, leaving the node in a
+#   stale state until a manual reboot. Gated by pi_cm5_config_reboot_enabled so
+#   environments that batch reboots can opt out.
+- name: Reboot Pi CM5 to apply configuration changes
+  ansible.builtin.reboot:
+    msg: "Rebooting to apply Pi CM5 configuration changes"
+    reboot_timeout: 300
+  when: pi_cm5_config_reboot_enabled | default(true)
+  listen: reboot required
+
+- name: Warn that a reboot is still required
   ansible.builtin.debug:
-    msg: "Pi CM5 configuration changed. Reboot required to apply changes."
+    msg: "Pi CM5 configuration changed but auto-reboot is disabled. Reboot manually to apply."
+  when: not (pi_cm5_config_reboot_enabled | default(true))
   changed_when: true
   listen: reboot required
 

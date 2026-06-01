@@ -80,6 +80,11 @@ pi_cm5_config_poe_enabled: false
 # Create backup before making changes
 pi_cm5_config_backup_enabled: true
 
+# Automatically reboot when a config change requires it (handler-triggered).
+# Only reboots when an actual change occurred — set false to defer reboots and
+# only print a warning instead (e.g. to batch reboots across the cluster).
+pi_cm5_config_reboot_enabled: true
+
 # K3s cgroup configuration for cmdline.txt
 pi_cm5_config_cmdline_file: "/boot/firmware/cmdline.txt"
 
