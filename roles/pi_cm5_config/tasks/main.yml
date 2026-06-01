@@ -2,12 +2,20 @@
 # Pi CM5 configuration tasks - using geerlingguy's elegant lineinfile pattern
 # Simple, variable-driven approach for maximum flexibility
 
+# What: Snapshot the pristine config.txt to a fixed `.orig` file, once.
+# Why: Two causes made this report "changed" on every run: (1) the dest used
+#   ansible_date_time.epoch so a new file was written each run — fixed with a
+#   stable `.orig` name + force=false (copy only when absent); (2) /boot/firmware
+#   is FAT32, which cannot store Unix permissions, so an explicit `mode` could
+#   never persist and copy re-applied it forever — fixed by omitting mode, the
+#   same approach the lineinfile tasks below use.
+# Resolves: Role reporting a spurious change on every run (always-backup noise).
 - name: Backup original config.txt if backup enabled
   ansible.builtin.copy:
     src: "{{ pi_cm5_config_config_file }}"
-    dest: "{{ pi_cm5_config_config_file }}.backup-{{ ansible_date_time.epoch }}"
+    dest: "{{ pi_cm5_config_config_file }}.orig"
     remote_src: true
-    mode: "0644"
+    force: false
   when:
     - pi_cm5_config_backup_enabled | default(true)
     - not ansible_check_mode
@@ -71,12 +79,18 @@
     - pi-cm5-config
     - poe-settings
 
+# What: Snapshot the pristine cmdline.txt to a fixed `.orig` file, once.
+# Why: Same fix as the config.txt backup above — an epoch-suffixed dest created a
+#   new file every run and always reported "changed". force=false keeps the
+#   original captured exactly once; mode is omitted because /boot/firmware is
+#   FAT32 and cannot persist Unix permissions (would report changed forever).
+# Resolves: Spurious change reported on every run for cgroup-enabled nodes.
 - name: Create manual backup of cmdline.txt before cgroup changes
   ansible.builtin.copy:
     src: "{{ pi_cm5_config_cmdline_file }}"
-    dest: "{{ pi_cm5_config_cmdline_file }}.backup-{{ ansible_date_time.epoch }}"
+    dest: "{{ pi_cm5_config_cmdline_file }}.orig"
     remote_src: true
-    mode: preserve
+    force: false
   when:
     - pi_cm5_config_cgroup_enabled | default(false)
     - not ansible_check_mode
