@@ -3,3 +3,13 @@
 
 # Staggered restart for HA - Third node restarts 1hr after first
 unattended_automatic_reboot_time: "03:00"
+
+# Pi CM5 configuration for NAS node in the Turing Pi 2 cluster.
+# PCIe is enabled so the kernel can detect the 2 SATA drives wired to this
+# node's PCIe lanes via the Turing Pi 2 board's SATA controller.
+pi_cm5_config_pcie_enabled: true # Required to detect the 2 SATA drives on this node
+
+# PCIe generation speed for the SATA controller
+# 3 = PCIe Gen3 for maximum throughput (~2x faster than Gen2)
+# Note: Gen3 is not officially certified and may cause stability issues with some drives
+pi_cm5_config_pcie_generation: 3
