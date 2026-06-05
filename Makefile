@@ -2,7 +2,7 @@
 # Fix macOS fork safety issue with Python 3.13 + Ansible multiprocessing
 ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
-.PHONY: help setup vault-edit site system storage security disk-encrypt snapraid-mergerfs
+.PHONY: help setup vault-edit site system networking storage security disk-encrypt snapraid-mergerfs wireguard
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -58,6 +58,14 @@ snapraid-mergerfs: ## 💽 Install and configure MergerFS + SnapRAID storage poo
 	@echo "Configuring MergerFS + SnapRAID storage pool..."
 	$(ANSIBLE_PLAYBOOK) playbooks/snapraid-mergerfs.yml
 
+wireguard: ## 🔑 Configure WireGuard peer on offsite storage hosts
+	@echo "Configuring WireGuard peers..."
+	$(ANSIBLE_PLAYBOOK) playbooks/wireguard.yml
+
+networking: ## 🌐 Networking layer: WireGuard peers for cross-site connectivity
+	@echo "Running networking layer..."
+	$(ANSIBLE_PLAYBOOK) playbooks/networking.yml
+
 storage: ## 🗄️ Storage layer: encrypt drives + configure MergerFS/SnapRAID pool
 	@echo "Running storage layer..."
 	$(ANSIBLE_PLAYBOOK) playbooks/storage.yml
@@ -66,6 +74,6 @@ security: ## 🔒 Security layer: unattended upgrades (firewall/SSH to come)
 	@echo "Running security layer..."
 	$(ANSIBLE_PLAYBOOK) playbooks/security.yml
 
-site: ## 🏗️ Full provisioning: run all layers in sequence (system → storage → security)
+site: ## 🏗️ Full provisioning: run all layers in sequence (system → networking → storage → security)
 	@echo "Running full site provisioning..."
 	$(ANSIBLE_PLAYBOOK) site.yml

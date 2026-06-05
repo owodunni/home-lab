@@ -1,0 +1,10 @@
+---
+# Networking layer — VPN and cross-site connectivity
+#
+# What: Wires up WireGuard peers so offsite hosts can reach the home LAN.
+# Why:  Networking must be established before storage and security layers run,
+#       so Ansible can reach all hosts regardless of physical location.
+# Order: After system (patched OS), before storage and security.
+
+- name: Networking | WireGuard peers
+  ansible.builtin.import_playbook: wireguard.yml

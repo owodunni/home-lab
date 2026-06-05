@@ -1,0 +1,70 @@
+---
+# Configure WireGuard peer on offsite storage hosts
+#
+# What: Installs WireGuard, deploys /etc/wireguard/wg0.conf from vault-backed
+#       variables, and enables wg-quick@wg0 to start on boot.
+# Why:  Beelink is at an offsite location. WireGuard tunnels it into the home
+#       LAN (192.168.1.0/24) so Ansible and internal services can reach it as
+#       if it were a local host. The Ubiquiti router runs the WireGuard server.
+# Resolves: Cross-site reachability without exposing any ports publicly.
+#
+# Prerequisites (the play skips with a warning until these are set):
+#   - vault_wg_private_key — per-host, in host_vars/<host>/vault.yml (encrypted),
+#     same pattern as vault_luks_key. Each peer needs its OWN private key; keep
+#     it per-host like wg_address, never at group scope, or every storage host
+#     added later would share one WireGuard identity.
+#   - wg_server_public_key and wg_address must be filled in after creating
+#     the peer in the UniFi WireGuard UI
+
+- name: Configure WireGuard peer on storage hosts
+  hosts: storage
+  become: true
+
+  # WireGuard is only configured once the peer exists in the UniFi UI and its
+  # values are filled in. Until then the required vars are empty/undefined, so
+  # the play skips instead of writing a broken wg0.conf and failing in wg-quick.
+  # This keeps `make site` from aborting a storage host over an unconfigured
+  # tunnel — storage setup runs locally and does not depend on the tunnel.
+  vars:
+    wg_configured: >-
+      {{ (wg_address | default('')) | length > 0
+         and (wg_server_public_key | default('')) | length > 0
+         and (vault_wg_private_key | default('')) | length > 0 }}
+
+  tasks:
+    - name: Warn when WireGuard is not yet configured
+      ansible.builtin.debug:
+        msg: >-
+          Skipping WireGuard: wg_address, wg_server_public_key and
+          vault_wg_private_key are not all set. Fill them in after creating the
+          peer in the UniFi UI, then re-run `make wireguard`.
+      when: not (wg_configured | bool)
+
+    - name: Install wireguard
+      ansible.builtin.apt:
+        name: wireguard
+        state: present
+        update_cache: true
+        cache_valid_time: 86400
+      when: wg_configured | bool
+
+    - name: Deploy WireGuard config
+      ansible.builtin.template:
+        src: templates/wg0.conf.j2
+        dest: /etc/wireguard/wg0.conf
+        mode: "0600"
+        owner: root
+        group: root
+      when: wg_configured | bool
+      register: wg_config
+
+    - name: Ensure wg-quick@wg0 is enabled and running
+      # Restart only when the config actually changed (to apply new settings);
+      # otherwise just ensure it is up. Folding enable/start/restart into one
+      # task avoids the start-then-restart tunnel flap a separate handler caused
+      # on first deploy.
+      ansible.builtin.systemd:
+        name: wg-quick@wg0
+        enabled: true
+        state: "{{ 'restarted' if wg_config is changed else 'started' }}"
+      when: wg_configured | bool

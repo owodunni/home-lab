@@ -3,6 +3,14 @@
 # Hardware: Intel N150, 6x M.2 slots, Dual 2.5G LAN
 
 # ============================================================================
+# WireGuard
+# ============================================================================
+# IP assigned to beelink's WireGuard interface. Set this to whatever address
+# UniFi assigns when you add beelink as a peer (typically from a /24 like
+# 10.0.0.x — check your UniFi WireGuard server subnet).
+wg_address: ""  # e.g. 10.0.0.2/32 — fill in after creating peer in UniFi UI
+
+# ============================================================================
 # Drive Layout
 # ============================================================================
 # Three NVMe drives: 2 data + 1 parity

@@ -1,0 +1,10 @@
+[Interface]
+PrivateKey = {{ vault_wg_private_key }}
+Address = {{ wg_address }}
+
+[Peer]
+PublicKey = {{ wg_server_public_key }}
+Endpoint = {{ wg_server_endpoint }}
+AllowedIPs = {{ wg_allowed_ips }}
+# Keep tunnel alive through NAT — beelink initiates outbound, server can't reach it otherwise
+PersistentKeepalive = 25

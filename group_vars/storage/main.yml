@@ -27,6 +27,24 @@ mergerfs_mount_point: /mnt/storage
 mergerfs_options: "defaults,allow_other,use_ino,cache.files=partial,dropcacheonclose=true,category.create=mfs"
 
 # ============================================================================
+# WireGuard
+# ============================================================================
+# Beelink is offsite; WireGuard tunnels it into the home LAN via the Ubiquiti
+# WireGuard server. Fill in wg_server_public_key after creating the server in
+# the UniFi UI (Settings → VPN → WireGuard).
+
+# Public key of the Ubiquiti WireGuard server — copy from UniFi UI
+wg_server_public_key: ""
+
+# DDNS hostname of the home network and the WireGuard listen port on Ubiquiti
+# (default UniFi port is 51820)
+wg_server_endpoint: "jardoole.xyz:51820"
+
+# Only route home LAN traffic through the tunnel — beelink's internet traffic
+# exits locally, not via the home connection (split tunnel)
+wg_allowed_ips: "192.168.1.0/24"
+
+# ============================================================================
 # Package versions
 # ============================================================================
 # Pinned upstream releases installed by snapraid-mergerfs.yml. Bump here to
