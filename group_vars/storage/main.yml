@@ -1,0 +1,39 @@
+---
+# Storage group defaults — apply to all hosts in [storage]
+#
+# Override per-host variables (storage_drives, etc.)
+# in host_vars/<hostname>.yml to customise for each storage node.
+
+# Filesystem used for data and parity partitions
+storage_filesystem: ext4
+
+# Mount options applied to all encrypted data/parity mounts
+# noatime: skip access-time writes for better SSD/NVMe longevity
+storage_mount_options: "defaults,noatime"
+
+# Path on the remote host where the LUKS keyfile is stored for unattended boot
+# The vault_luks_key secret is written here by disk-encrypt.yml
+luks_key_remote_path: /root/.luks/luks.key
+
+# MergerFS unified pool mount point
+mergerfs_mount_point: /mnt/storage
+
+# MergerFS mount options
+# allow_other: non-root users (pods/services with arbitrary UIDs) can access the pool
+# use_ino: preserve inode numbers — required for hardlinks to work across the pool
+# cache.files=partial: cache metadata for performance
+# dropcacheonclose=true: release kernel page cache when files are closed
+# category.create=mfs: place new files on the drive with the most free space
+mergerfs_options: "defaults,allow_other,use_ino,cache.files=partial,dropcacheonclose=true,category.create=mfs"
+
+# ============================================================================
+# Package versions
+# ============================================================================
+# Pinned upstream releases installed by snapraid-mergerfs.yml. Bump here to
+# upgrade fleet-wide; override in host_vars/<host>.yml for a single node.
+
+# MergerFS .deb release — https://github.com/trapexit/mergerfs/releases
+mergerfs_version: "2.42.0"
+
+# SnapRAID source release (built from source) — https://github.com/amadvance/snapraid/releases
+snapraid_version: "14.6"

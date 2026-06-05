@@ -7,11 +7,14 @@
 #       layer (and each function playbook within it) stays independently
 #       runnable for targeted changes.
 # Resolves: The need for a reproducible bootstrap that fixes layer ordering in
-#           one place — system (base OS + hardware) before security (hardening).
+#           one place — system → storage → security.
 #
 # Order is significant: each layer assumes the previous one has completed.
 - name: System layer — base OS and hardware configuration
   ansible.builtin.import_playbook: playbooks/system.yml
+
+- name: Storage layer — encrypted drives, MergerFS pool, SnapRAID parity
+  ansible.builtin.import_playbook: playbooks/storage.yml
 
 - name: Security layer — hardening
   ansible.builtin.import_playbook: playbooks/security.yml

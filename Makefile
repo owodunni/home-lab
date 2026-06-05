@@ -2,7 +2,7 @@
 # Fix macOS fork safety issue with Python 3.13 + Ansible multiprocessing
 ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
-.PHONY: help setup vault-edit site system security
+.PHONY: help setup vault-edit site system storage security disk-encrypt snapraid-mergerfs
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -50,10 +50,22 @@ system: ## 🧱 System layer: updates + Pi CM5 hardware/firmware config
 	@echo "Running system layer..."
 	$(ANSIBLE_PLAYBOOK) playbooks/system.yml
 
+disk-encrypt: ## 🔐 Set up LUKS encryption on storage drives
+	@echo "Setting up LUKS encryption on storage drives..."
+	$(ANSIBLE_PLAYBOOK) playbooks/disk-encrypt.yml
+
+snapraid-mergerfs: ## 💽 Install and configure MergerFS + SnapRAID storage pool
+	@echo "Configuring MergerFS + SnapRAID storage pool..."
+	$(ANSIBLE_PLAYBOOK) playbooks/snapraid-mergerfs.yml
+
+storage: ## 🗄️ Storage layer: encrypt drives + configure MergerFS/SnapRAID pool
+	@echo "Running storage layer..."
+	$(ANSIBLE_PLAYBOOK) playbooks/storage.yml
+
 security: ## 🔒 Security layer: unattended upgrades (firewall/SSH to come)
 	@echo "Running security layer..."
 	$(ANSIBLE_PLAYBOOK) playbooks/security.yml
 
-site: ## 🏗️ Full provisioning: run all layers in sequence (system → security)
+site: ## 🏗️ Full provisioning: run all layers in sequence (system → storage → security)
 	@echo "Running full site provisioning..."
 	$(ANSIBLE_PLAYBOOK) site.yml

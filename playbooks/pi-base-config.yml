@@ -3,7 +3,7 @@
 # Applies essential headless configuration and power-saving features to all Pi nodes
 
 - name: Configure Pi CM5 base settings and power optimization
-  hosts: all
+  hosts: pi_cm5
   become: true
   gather_facts: true
 

@@ -21,14 +21,17 @@ the entire site.
 
 ### Current layers (run in this order)
 
-| Layer | Purpose | Function playbooks |
-|---|---|---|
-| **system** | Base OS state: apply all package updates, then Pi CM5 firmware/hardware/power settings. | `upgrade.yml`, `pi-base-config.yml` |
-| **security** | Hardening: automatic security updates (firewall, SSH hardening to come). | `unattended-upgrades.yml` |
+| Layer | Purpose | Function playbooks | Hosts |
+|---|---|---|---|
+| **system** | Base OS state: apply all package updates, then Pi CM5 firmware/hardware/power settings. | `upgrade.yml`, `pi-base-config.yml` | `all` / `pi_cm5` |
+| **storage** | Encrypted drives, MergerFS pool, SnapRAID parity. Only runs on `[storage]` group hosts. | `disk-encrypt.yml`, `snapraid-mergerfs.yml` | `storage` |
+| **security** | Hardening: automatic security updates (firewall, SSH hardening to come). | `unattended-upgrades.yml` | `all` |
 
-**Order matters:** `system` runs before `security` so hardening lands on an
-already-updated, correctly-configured base. Hardening is the most likely step
-to lock an operator out, so it runs last.
+**Order matters:** `system` first (patched OS before anything else), then
+`storage` (functional setup before security rules can interfere with package
+downloads and drive operations), then `security` last. Hardening is the most
+likely step to lock an operator out, so it always runs after the host is
+fully configured.
 
 ### Working with layers
 

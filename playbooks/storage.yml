@@ -1,0 +1,22 @@
+---
+# Storage layer
+#
+# What: Brings storage hosts from raw drives to a fully encrypted, pooled,
+#       parity-protected storage server. Runs only on the [storage] group.
+# Why:  Storage setup is a distinct phase from base OS (system layer) and
+#       hardening (security layer): it depends on both being complete first
+#       (up-to-date packages, secure baseline) but is only relevant for hosts
+#       that carry HDDs/NVMe drives.
+# Resolves: The need to run disk encryption and storage software setup as an
+#           ordered unit without coupling them to the Pi-specific system layer.
+#
+# Order matters: disk-encrypt must run before snapraid-mergerfs because
+# snapraid-mergerfs expects LUKS devices to already be open.
+#
+# Pure orchestration: no logic here, only imports of standalone function
+# playbooks.
+- name: Set up LUKS encryption on storage drives
+  ansible.builtin.import_playbook: disk-encrypt.yml
+
+- name: Configure MergerFS + SnapRAID storage pool
+  ansible.builtin.import_playbook: snapraid-mergerfs.yml

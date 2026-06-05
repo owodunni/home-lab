@@ -1,0 +1,40 @@
+# /etc/snapraid.conf
+# Managed by Ansible (playbooks/snapraid-mergerfs.yml) — do not edit by hand.
+# Changes will be overwritten on the next playbook run. Edit the template at
+# playbooks/templates/snapraid.conf.j2 or the vars in host_vars/ instead.
+#
+# Architecture: {{ snapraid_data_drives | length }} data drive(s) + {{ snapraid_parity_drives | length }} parity drive(s)
+
+# Parity file location(s)
+{% for parity_file in snapraid_parity_drives %}
+parity {{ parity_file }}
+{% endfor %}
+
+# Content files (checksums + parity metadata)
+# Stored on multiple drives so metadata survives a single drive failure
+{% for content_file in snapraid_content_files %}
+content {{ content_file }}
+{% endfor %}
+
+# Data drives
+{% for drive in snapraid_data_drives %}
+data {{ drive.name }} {{ drive.path }}/
+{% endfor %}
+
+# Exclusions — files that do not need parity protection
+exclude *.unrecoverable
+exclude /tmp/
+exclude /lost+found/
+exclude *.!sync
+exclude .AppleDouble
+exclude .DS_Store
+exclude ._.DS_Store
+exclude .Thumbs.db
+exclude .fseventsd
+exclude .Spotlight-V100
+exclude .TemporaryItems
+exclude .Trashes
+
+# Save parity state every 500 blocks so an interrupted sync can resume from a
+# checkpoint rather than restarting from scratch (~2-3 min intervals)
+autosave 500

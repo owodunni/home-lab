@@ -1,0 +1,80 @@
+---
+# Set up LUKS full-disk encryption on storage drives
+#
+# What: Creates LUKS2 containers on each drive in storage_drives, opens
+#       them, and configures /etc/crypttab so they unlock on boot using the
+#       keyfile deployed from vault_luks_key.
+# Why:  Data-at-rest encryption — drives must be encrypted before any
+#       filesystem or data lands on them.
+# Resolves: The need for a single, idempotent playbook that brings raw drives
+#           to an encrypted state without touching existing filesystems.
+#
+# Prerequisites:
+#   - vault_luks_key must be defined in host_vars/<host>/vault.yml (encrypted)
+#   - Drives listed in storage_drives must exist on the target host
+#
+# Safe to re-run: luks_device with state: present is a no-op if LUKS already
+# exists on the device; the keyfile write is idempotent.
+
+- name: Set up LUKS encryption on storage drives
+  hosts: storage
+  become: true
+
+  tasks:
+    - name: Install cryptsetup
+      ansible.builtin.apt:
+        name: cryptsetup
+        state: present
+        update_cache: true
+        cache_valid_time: 86400 # 24h — skip refresh if cache is recent
+
+    - name: Create LUKS keyfile directory
+      ansible.builtin.file:
+        path: "{{ luks_key_remote_path | dirname }}"
+        state: directory
+        mode: "0700"
+        owner: root
+        group: root
+
+    - name: Deploy LUKS keyfile from vault
+      ansible.builtin.copy:
+        content: "{{ vault_luks_key }}"
+        dest: "{{ luks_key_remote_path }}"
+        mode: "0400"
+        owner: root
+        group: root
+
+    - name: Create LUKS2 containers on each drive
+      community.crypto.luks_device:
+        device: "{{ item.device }}"
+        keyfile: "{{ luks_key_remote_path }}"
+        type: luks2
+        state: present
+      loop: "{{ storage_drives }}"
+
+    - name: Open LUKS devices
+      community.crypto.luks_device:
+        device: "{{ item.device }}"
+        name: "{{ item.crypt_name }}"
+        keyfile: "{{ luks_key_remote_path }}"
+        state: opened
+      loop: "{{ storage_drives }}"
+
+    - name: Configure /etc/crypttab for unattended boot unlock
+      ansible.builtin.lineinfile:
+        path: /etc/crypttab
+        regexp: '^{{ item.crypt_name }}\s+'
+        line: "{{ item.crypt_name }} {{ item.device }} {{ luks_key_remote_path }} luks"
+        state: present
+        create: true
+        mode: "0644"
+      loop: "{{ storage_drives }}"
+      register: crypttab_result
+
+    - name: Rebuild initramfs to embed LUKS keyfile reference  # noqa: no-handler
+      ansible.builtin.command:
+        cmd: update-initramfs -u -k all
+      when: crypttab_result.changed
+      changed_when: true
+      async: 120
+      poll: 5

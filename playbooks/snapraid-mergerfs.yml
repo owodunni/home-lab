@@ -1,0 +1,166 @@
+---
+# Install and configure MergerFS + SnapRAID storage pool
+#
+# What: Creates ext4 filesystems on open LUKS devices, mounts them, installs
+#       MergerFS to pool data drives into a single mount, installs SnapRAID
+#       for parity protection, and lays out the base directory structure.
+# Why:  MergerFS + SnapRAID gives a flexible, expandable storage pool with
+#       single-drive-failure recovery without the overhead of RAID rebuilds.
+# Resolves: The need to go from open LUKS block devices to a usable, protected
+#           storage pool in one idempotent step.
+#
+# Prerequisites:
+#   - disk-encrypt.yml must have run successfully (LUKS devices open)
+#   - storage_drives, mergerfs_*, snapraid_* vars defined
+#
+# Safe to re-run: filesystem creation uses force: false (skips if fs exists);
+# package installs and config writes are idempotent.
+
+- name: Configure MergerFS + SnapRAID storage pool
+  hosts: storage
+  become: true
+
+  tasks:
+    # ========================================================================
+    # Individual drive filesystems and mounts
+    # ========================================================================
+
+    - name: Create mount points for each drive
+      ansible.builtin.file:
+        path: "{{ item.mount_point }}"
+        state: directory
+        mode: "0755"
+        owner: root
+        group: root
+      loop: "{{ storage_drives }}"
+
+    - name: Create ext4 filesystem on each LUKS device
+      community.general.filesystem:
+        fstype: "{{ storage_filesystem }}"
+        dev: "/dev/mapper/{{ item.crypt_name }}"
+        opts: "-L {{ item.label }}"
+        force: false
+      loop: "{{ storage_drives }}"
+
+    - name: Mount all drives
+      ansible.posix.mount:
+        path: "{{ item.mount_point }}"
+        src: "/dev/mapper/{{ item.crypt_name }}"
+        fstype: "{{ storage_filesystem }}"
+        opts: "{{ storage_mount_options }}"
+        state: mounted
+        backup: true
+      loop: "{{ storage_drives }}"
+
+    # ========================================================================
+    # MergerFS
+    # ========================================================================
+
+    - name: Check if MergerFS is already installed
+      ansible.builtin.stat:
+        path: /usr/bin/mergerfs
+      register: mergerfs_binary
+
+    - name: Download MergerFS .deb package
+      ansible.builtin.get_url:
+        url: "https://github.com/trapexit/mergerfs/releases/download/\
+          {{ mergerfs_version }}/mergerfs_{{ mergerfs_version }}.debian-bookworm_amd64.deb"
+        dest: /tmp/mergerfs.deb
+        mode: "0644"
+      when: not mergerfs_binary.stat.exists
+
+    - name: Install MergerFS
+      ansible.builtin.apt:
+        deb: /tmp/mergerfs.deb
+        state: present
+      when: not mergerfs_binary.stat.exists
+
+    - name: Create MergerFS pool mount point
+      ansible.builtin.file:
+        path: "{{ mergerfs_mount_point }}"
+        state: directory
+        mode: "0755"
+        owner: root
+        group: root
+
+    - name: Configure MergerFS pool in /etc/fstab
+      ansible.posix.mount:
+        path: "{{ mergerfs_mount_point }}"
+        src: "{{ mergerfs_data_drives | join(':') }}"
+        fstype: fuse.mergerfs
+        opts: "{{ mergerfs_options }}"
+        state: mounted
+        backup: true
+
+    - name: Create base directory structure in storage pool
+      ansible.builtin.file:
+        path: "{{ mergerfs_mount_point }}/{{ item }}"
+        state: directory
+        mode: "0755"
+        owner: root
+        group: root
+      loop:
+        - media
+        - media/library
+        - media/library/movies
+        - media/library/tv
+
+    # ========================================================================
+    # SnapRAID
+    # ========================================================================
+
+    - name: Install SnapRAID build dependencies
+      ansible.builtin.apt:
+        name:
+          - build-essential
+          - git
+          - wget
+        state: present
+        update_cache: true
+        cache_valid_time: 86400 # 24h — skip refresh if cache is recent
+
+    - name: Check if SnapRAID is already installed
+      ansible.builtin.stat:
+        path: /usr/local/bin/snapraid
+      register: snapraid_binary
+
+    - name: Download SnapRAID source tarball
+      ansible.builtin.get_url:
+        url: "https://github.com/amadvance/snapraid/releases/download/v{{ snapraid_version }}/snapraid-{{ snapraid_version }}.tar.gz"
+        dest: "/tmp/snapraid-{{ snapraid_version }}.tar.gz"
+        mode: "0644"
+      when: not snapraid_binary.stat.exists
+
+    - name: Extract SnapRAID source
+      ansible.builtin.unarchive:
+        src: "/tmp/snapraid-{{ snapraid_version }}.tar.gz"
+        dest: /tmp/
+        remote_src: true
+        creates: "/tmp/snapraid-{{ snapraid_version }}"
+      when: not snapraid_binary.stat.exists
+
+    - name: Build and install SnapRAID
+      ansible.builtin.shell: |
+        cd /tmp/snapraid-{{ snapraid_version }}
+        ./configure
+        make
+        make install
+      args:
+        creates: /usr/local/bin/snapraid
+      when: not snapraid_binary.stat.exists
+
+    - name: Write SnapRAID configuration
+      ansible.builtin.template:
+        src: templates/snapraid.conf.j2
+        dest: /etc/snapraid.conf
+        mode: "0644"
+        owner: root
+        group: root
+        backup: true
+
+    - name: Remind operator to run initial SnapRAID sync
+      ansible.builtin.debug:
+        msg: >-
+          SnapRAID installed. Run the initial parity sync manually once data is
+          in place: ssh {{ inventory_hostname }} 'snapraid sync'
+          This takes 1-2 hours for empty drives.

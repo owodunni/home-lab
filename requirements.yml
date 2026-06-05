@@ -4,6 +4,12 @@ collections:
     version: ">=1.0.0"
   - name: kubernetes.core
     version: ">=2.4.0"
+  - name: community.crypto
+    version: ">=2.0.0"
+  - name: community.general
+    version: ">=7.0.0"
+  - name: ansible.posix
+    version: ">=1.5.0"
 
 roles:
   - src: https://github.com/ricsanfre/ansible-role-minio
