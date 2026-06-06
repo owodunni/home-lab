@@ -1,0 +1,21 @@
+---
+# Ingress layer
+#
+# What: Installs Traefik as a bare-metal reverse proxy with automatic HTTPS via
+#       Let's Encrypt ACME DNS-01 challenge through Cloudflare. Runs on all
+#       [ingress] group hosts.
+# Why:  Beelink and future bare-metal application hosts need HTTPS termination
+#       and wildcard certificate management without a full Kubernetes stack.
+#       Traefik's built-in ACME resolver handles issuance and renewal — one tool
+#       replaces certbot + cert-manager.
+# Resolves: A reusable HTTPS ingress layer for any bare-metal host running
+#           user-facing services.
+#
+# Order: After networking (WireGuard must be up for cross-site reachability) and
+#        after storage (Traefik conf.d lives on the host filesystem, not the pool,
+#        but services in the next layer depend on the pool). Before services
+#        (Traefik must be running before app routing configs land in conf.d).
+#        Before security (hardening runs last).
+
+- name: Ingress | Traefik reverse proxy with ACME
+  ansible.builtin.import_playbook: traefik.yml

@@ -1,0 +1,146 @@
+---
+# Install and configure Traefik as a systemd service with ACME via Cloudflare DNS-01
+#
+# What: Downloads the Traefik binary from GitHub, creates a traefik system user,
+#       writes static config with Cloudflare DNS-01 ACME resolver, and installs a
+#       systemd unit that injects CF_DNS_API_TOKEN from the vault at runtime.
+# Why:  Beelink is a bare-metal host (not k3s), so we need Traefik as a systemd
+#       service. The built-in ACME resolver handles certificate issuance and
+#       auto-renewal — no certbot or cert-manager needed.
+# Resolves: HTTPS termination and wildcard Let's Encrypt certificates on bare-metal
+#           hosts without a Kubernetes stack.
+#
+# Prerequisites:
+#   - vault_cloudflare_api_token in host or group vault (DNS:Edit permission)
+#   - Ports 80 and 443 reachable on the target host
+
+- name: Install and configure Traefik reverse proxy
+  hosts: ingress
+  become: true
+
+  vars:
+    _traefik_arch_map:
+      x86_64: amd64
+      aarch64: arm64
+    traefik_arch: "{{ _traefik_arch_map[ansible_architecture] | default('amd64') }}"
+    traefik_download_url: >-
+      https://github.com/traefik/traefik/releases/download/v{{ traefik_version
+      }}/traefik_v{{ traefik_version }}_linux_{{ traefik_arch }}.tar.gz
+
+  tasks:
+    - name: Create traefik system group
+      ansible.builtin.group:
+        name: traefik
+        system: true
+        state: present
+
+    - name: Create traefik system user
+      ansible.builtin.user:
+        name: traefik
+        group: traefik
+        system: true
+        shell: /usr/sbin/nologin
+        home: /etc/traefik
+        create_home: false
+        state: present
+
+    - name: Create Traefik config directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: traefik
+        group: traefik
+        mode: "0750"
+      loop:
+        - /etc/traefik
+        - /etc/traefik/conf.d
+
+    - name: Check installed Traefik version
+      ansible.builtin.command:
+        cmd: /usr/local/bin/traefik version --short
+      register: traefik_installed_version
+      failed_when: false
+      changed_when: false
+
+    - name: Download and install Traefik binary
+      when: >
+        traefik_installed_version.rc != 0
+        or traefik_version not in traefik_installed_version.stdout
+      block:
+        - name: Download Traefik archive
+          ansible.builtin.get_url:
+            url: "{{ traefik_download_url }}"
+            dest: /tmp/traefik.tar.gz
+            mode: "0644"
+
+        - name: Extract Traefik binary
+          ansible.builtin.unarchive:
+            src: /tmp/traefik.tar.gz
+            dest: /usr/local/bin
+            include:
+              - traefik
+            remote_src: true
+            owner: root
+            group: root
+            mode: "0755"
+
+        - name: Remove Traefik archive
+          ansible.builtin.file:
+            path: /tmp/traefik.tar.gz
+            state: absent
+
+    - name: Create acme.json for certificate storage
+      ansible.builtin.file:
+        path: /etc/traefik/acme.json
+        state: touch
+        owner: traefik
+        group: traefik
+        mode: "0600"
+        modification_time: preserve
+        access_time: preserve
+
+    - name: Deploy Traefik static config
+      ansible.builtin.template:
+        src: templates/traefik-static.yml.j2
+        dest: /etc/traefik/traefik.yml
+        owner: traefik
+        group: traefik
+        mode: "0640"
+      notify: Restart traefik
+
+    - name: Deploy Traefik environment file
+      ansible.builtin.template:
+        src: templates/traefik.env.j2
+        dest: /etc/traefik/env
+        owner: traefik
+        group: traefik
+        mode: "0600"
+      notify: Restart traefik
+
+    - name: Install Traefik systemd unit
+      ansible.builtin.template:
+        src: templates/traefik.service.j2
+        dest: /etc/systemd/system/traefik.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify:
+        - Reload systemd
+        - Restart traefik
+
+    - name: Enable and start Traefik
+      ansible.builtin.systemd:
+        name: traefik
+        enabled: true
+        state: started
+        daemon_reload: true
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Restart traefik
+      ansible.builtin.systemd:
+        name: traefik
+        state: restarted

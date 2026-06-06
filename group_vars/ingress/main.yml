@@ -1,0 +1,30 @@
+---
+# Variables for all hosts in the [ingress] group
+# (bare-metal hosts running Traefik + application services)
+
+# ============================================================================
+# Traefik
+# ============================================================================
+traefik_version: "3.7.4"
+
+# Public domain — Traefik issues a wildcard cert for *.jardoole.xyz
+traefik_domain: "jardoole.xyz"
+
+# Email registered with Let's Encrypt for expiry notifications
+letsencrypt_email: "alex.o.poole@gmail.com"
+
+# Cloudflare API token (DNS:Edit permission for jardoole.xyz) — from vault
+cloudflare_api_token: "{{ vault_cloudflare_api_token }}"
+
+# ============================================================================
+# Garage
+# ============================================================================
+garage_version: "2.3.0"
+
+# S3 region label (arbitrary; clients must match this when configuring buckets)
+garage_s3_region: "garage"
+
+# Ports — all bound to localhost; Traefik terminates TLS and proxies inbound
+garage_s3_api_port: 3900
+garage_rpc_port: 3901
+garage_admin_port: 3903

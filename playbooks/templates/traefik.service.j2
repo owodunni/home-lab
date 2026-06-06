@@ -1,0 +1,25 @@
+# Traefik systemd unit — managed by Ansible, do not edit manually.
+[Unit]
+Description=Traefik reverse proxy
+Documentation=https://doc.traefik.io
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+ExecStart=/usr/local/bin/traefik --configFile=/etc/traefik/traefik.yml
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=1048576
+User=traefik
+Group=traefik
+# Cloudflare API token injected here; file is mode 0600 owned by traefik
+EnvironmentFile=/etc/traefik/env
+NoNewPrivileges=true
+# Allows the traefik user (non-root) to bind to ports 80 and 443
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+ReadWritePaths=/etc/traefik
+
+[Install]
+WantedBy=multi-user.target
