@@ -65,7 +65,7 @@
     - name: Download and install Traefik binary
       when: >
         traefik_installed_version.rc != 0
-        or traefik_version not in traefik_installed_version.stdout
+        or traefik_installed_version.stdout | trim != traefik_version
       block:
         - name: Download Traefik archive
           ansible.builtin.get_url:
@@ -131,6 +131,7 @@
         name: traefik
         enabled: true
         state: started
+        daemon_reload: true
 
   handlers:
     - name: Restart traefik

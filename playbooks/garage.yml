@@ -15,8 +15,9 @@
 #   - MergerFS pool at {{ mergerfs_mount_point }} must be mounted (storage layer)
 #   - vault_garage_rpc_secret and vault_garage_admin_token in host_vars/beelink/vault.yml
 #
-# Idempotency: `garage layout show` is retried until Garage is up, then its
-#              output guards the layout assign/apply block — only runs on first install.
+# Idempotency: `garage status` is retried until Garage is up; the zone label
+#              ('dc1') appears in that output only once the layout is applied, so
+#              the layout assign/apply block runs only on first install.
 
 - name: Install and configure Garage object storage
   hosts: ingress
@@ -26,18 +27,19 @@
     - role: zorun.garage
 
   tasks:
-    - name: Check if cluster layout is initialized (waits for Garage readiness)
+    - name: Wait for Garage to be responsive
       ansible.builtin.command:
-        cmd: garage layout show
-      register: garage_layout
+        cmd: garage status
+      register: garage_status
       retries: 10
       delay: 3
-      until: garage_layout.rc == 0
+      until: garage_status.rc == 0
       changed_when: false
 
     - name: Initialize single-node cluster layout
-      # Runs only on first install — skipped when layout already has assigned nodes
-      when: "'garage_role' not in garage_layout.stdout"
+      # 'dc1' appears in garage status once the layout has been applied with that zone;
+      # absent means first install — the layout has never been committed
+      when: "'dc1' not in garage_status.stdout"
       block:
         - name: Get local node ID
           ansible.builtin.command:
@@ -48,17 +50,28 @@
         - name: Assign node to layout
           # -z: zone/datacenter label (arbitrary for single-node)
           # -c: advertised capacity (1T; informational only for replication_factor=1)
+          # stdout_lines | last: skip any diagnostic banner lines in garage node id output
           ansible.builtin.command:
             cmd: >
               garage layout assign
               -z dc1
               -c 1T
-              {{ garage_node_id.stdout | split('@') | first }}
+              {{ garage_node_id.stdout_lines | last | split('@') | first }}
           changed_when: true
 
-        - name: Apply cluster layout
+        - name: Get staged layout version
           ansible.builtin.command:
-            cmd: garage layout apply --version 1
+            cmd: garage layout show
+          register: garage_layout_staged
+          changed_when: false
+
+        - name: Apply cluster layout
+          # Extract the staged version number from layout show (e.g. "(v1)") rather than
+          # hardcoding --version 1, so re-runs after manual layout changes don't fail
+          ansible.builtin.command:
+            cmd: >-
+              garage layout apply --version
+              {{ garage_layout_staged.stdout | regex_search('\(v(\d+)\)', '\1') | first }}
           changed_when: true
 
     - name: Deploy Traefik routing config for Garage S3
