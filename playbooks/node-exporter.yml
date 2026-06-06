@@ -1,0 +1,16 @@
+---
+# Deploy node_exporter on all fleet hosts
+#
+# What: Installs the Prometheus node_exporter systemd service on every host
+#       so the monitoring layer can scrape CPU, memory, disk, and network metrics.
+# Why:  node_exporter is the standard data plane for host-level metrics in a
+#       Prometheus stack. Must run on all hosts before Prometheus can scrape them.
+# Resolves: Absent metric collection endpoints that Prometheus needs for the
+#           dashboards and alerts configured in prometheus.yml.
+
+- name: Deploy node_exporter on all fleet hosts
+  hosts: all
+  become: true
+
+  roles:
+    - prometheus.prometheus.node_exporter

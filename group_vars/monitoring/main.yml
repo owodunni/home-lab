@@ -1,0 +1,152 @@
+---
+# Variables for all hosts in the [monitoring] group
+# (hosts running the Prometheus / Alertmanager / Grafana stack — currently pi-cm5-1)
+
+# ============================================================================
+# Node exporter scrape targets
+# Keep in sync with hosts.ini. Use ansible_host where set, else inventory_hostname.
+# Prometheus runs on pi-cm5-1, so localhost:9100 is pi-cm5-1's own node_exporter.
+# Beelink is offsite and reachable only via its WireGuard address (192.168.2.5).
+# ============================================================================
+monitoring_node_targets:
+  - "localhost:9100"
+  - "pi-cm5-2:9100"
+  - "pi-cm5-3:9100"
+  - "minio.jardoole.xyz:9100"
+  - "192.168.2.5:9100"
+
+# ============================================================================
+# Prometheus
+# ============================================================================
+prometheus_version: "3.4.0"
+
+# Bind to loopback — Grafana accesses over localhost; no external port exposure needed
+prometheus_web_listen_address: "127.0.0.1:9090"
+
+prometheus_storage_retention: "30d"
+
+prometheus_global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+prometheus_alertmanager_config:
+  - static_configs:
+      - targets:
+          - "localhost:9093"
+
+prometheus_scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets:
+          - "localhost:9090"
+  - job_name: "node"
+    static_configs:
+      - targets: "{{ monitoring_node_targets }}"
+  - job_name: "alertmanager"
+    static_configs:
+      - targets:
+          - "localhost:9093"
+
+prometheus_alert_rules:
+  - alert: InstanceDown
+    # up{job="node"} == 0 means node_exporter on that host is unreachable
+    expr: "up == 0"
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: "{% raw %}{{ $labels.instance }} is unreachable{% endraw %}"
+      description: >-
+        {% raw %}{{ $labels.instance }} (job: {{ $labels.job }}) has been unreachable
+        for more than 5 minutes.{% endraw %}
+  - alert: HighDiskUsage
+    expr: >-
+      (node_filesystem_size_bytes{fstype!~"tmpfs|squashfs"}
+      - node_filesystem_free_bytes{fstype!~"tmpfs|squashfs"})
+      / node_filesystem_size_bytes{fstype!~"tmpfs|squashfs"} > 0.85
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{% raw %}High disk usage on {{ $labels.instance }}{% endraw %}"
+      description: >-
+        {% raw %}Mountpoint {{ $labels.mountpoint }} on {{ $labels.instance }}
+        is above 85% full.{% endraw %}
+  - alert: HighMemoryUsage
+    expr: >-
+      (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes)
+      / node_memory_MemTotal_bytes > 0.90
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{% raw %}High memory usage on {{ $labels.instance }}{% endraw %}"
+      description: >-
+        {% raw %}Memory usage on {{ $labels.instance }} has been above 90%
+        for more than 10 minutes.{% endraw %}
+
+# ============================================================================
+# Alertmanager
+# ============================================================================
+alertmanager_version: "0.28.1"
+
+# Bind to loopback — not exposed externally
+alertmanager_web_listen_address: "127.0.0.1:9093"
+
+alertmanager_smtp:
+  from: "{{ smtp_from }}"
+  smarthost: "{{ smtp_host }}:{{ smtp_port }}"
+  auth_username: "{{ vault_smtp_username }}"
+  auth_password: "{{ vault_smtp_password }}"
+  require_tls: true
+
+alertmanager_receivers:
+  - name: "email"
+    email_configs:
+      - to: "alex.o.poole@gmail.com"
+        send_resolved: true
+
+alertmanager_route:
+  group_by:
+    - alertname
+    - instance
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: "email"
+
+alertmanager_inhibit_rules:
+  # Suppress warning-severity duplicates when a critical alert fires for
+  # the same instance and alertname — avoids alert noise.
+  - source_matchers:
+      - severity = critical
+    target_matchers:
+      - severity = warning
+    equal:
+      - alertname
+      - instance
+
+# ============================================================================
+# Grafana (grafana.grafana collection)
+# ============================================================================
+grafana_version: "latest"
+
+# Bind to loopback — Traefik terminates TLS and proxies inbound
+grafana_address: "127.0.0.1"
+grafana_port: "3000"
+
+# External URL shown in alert links and redirect targets
+grafana_url: "https://grafana.{{ traefik_domain }}"
+
+grafana_security:
+  admin_user: admin
+  admin_password: "{{ vault_grafana_admin_password }}"
+
+grafana_datasources:
+  - name: Prometheus
+    type: prometheus
+    url: "http://localhost:9090"
+    isDefault: true
+    access: proxy
+    jsonData:
+      timeInterval: "15s"

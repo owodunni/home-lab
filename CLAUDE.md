@@ -26,14 +26,23 @@ the entire site.
 | **system** | Base OS state: apply all package updates, then Pi CM5 firmware/hardware/power settings. | `upgrade.yml`, `pi-base-config.yml` | `all` / `pi_cm5` |
 | **networking** | WireGuard peers for cross-site connectivity. Tunnels offsite hosts into the home LAN; skips hosts until their UniFi peer values are filled in. | `wireguard.yml` | `wireguard` |
 | **storage** | Encrypted drives, MergerFS pool, SnapRAID parity. Only runs on `[storage]` group hosts. | `disk-encrypt.yml`, `snapraid-mergerfs.yml` | `storage` |
+| ingress | Traefik reverse proxy with ACME wildcard certificates via Cloudflare DNS-01. | `traefik.yml` | `ingress` |
+| **service-infra** | Foundational infrastructure for application services (e.g., Docker runtime). | `docker.yml` | `services` |
+| **services** | Application services that depend on ingress. Currently: Garage S3 object storage. | `garage.yml` | `ingress` |
+
+| **monitoring** | Observability stack: node_exporter on every host; Prometheus, Alertmanager, and Grafana on `[monitoring]`. Grafana exposed at `grafana.jardoole.xyz` via Traefik. | `node-exporter.yml`, `prometheus.yml`, `grafana.yml` | `all` / `monitoring` |
 | **security** | Hardening: automatic security updates (firewall, SSH hardening to come). | `unattended-upgrades.yml` | `all` |
 
 **Order matters:** `system` first (patched OS before anything else), then
 `networking` (establish cross-site reachability so later layers can manage
 offsite hosts), then `storage` (functional setup before security rules can
-interfere with package downloads and drive operations), then `security` last.
-Hardening is the most likely step to lock an operator out, so it always runs
-after the host is fully configured.
+interfere with package downloads and drive operations), then `ingress` (Traefik
+must be running before any service routing configs land), then `service-infra`
+(container runtime ready for app deployment), then `services` (apps after
+their runtime and reverse proxy are ready), then `monitoring` (Traefik must be running
+for the Grafana routing config; all services must be up so node_exporter can
+scrape them), then `security` last. Hardening is the most likely step to lock
+an operator out, so it always runs after the host is fully configured.
 
 ### Working with layers
 

@@ -2,7 +2,7 @@
 # Fix macOS fork safety issue with Python 3.13 + Ansible multiprocessing
 ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
-.PHONY: help setup vault-edit site system networking storage ingress traefik services garage security disk-encrypt snapraid-mergerfs wireguard
+.PHONY: help setup vault-edit site system networking storage ingress traefik services garage monitoring node-exporter prometheus grafana security disk-encrypt snapraid-mergerfs wireguard
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -86,10 +86,26 @@ services: ## 📦 Services layer: Garage S3 object storage
 	@echo "Running services layer..."
 	$(ANSIBLE_PLAYBOOK) playbooks/services.yml
 
+node-exporter: ## 📡 Deploy Prometheus node_exporter on all fleet hosts
+	@echo "Deploying node_exporter on all fleet hosts..."
+	$(ANSIBLE_PLAYBOOK) playbooks/node-exporter.yml
+
+prometheus: ## 📈 Install Prometheus and Alertmanager on [monitoring] hosts
+	@echo "Configuring Prometheus and Alertmanager..."
+	$(ANSIBLE_PLAYBOOK) playbooks/prometheus.yml
+
+grafana: ## 📊 Install Grafana on [monitoring] hosts
+	@echo "Configuring Grafana..."
+	$(ANSIBLE_PLAYBOOK) playbooks/grafana.yml
+
+monitoring: ## 🔭 Monitoring layer: node_exporter + Prometheus + Alertmanager + Grafana
+	@echo "Running monitoring layer..."
+	$(ANSIBLE_PLAYBOOK) playbooks/monitoring.yml
+
 security: ## 🔒 Security layer: unattended upgrades (firewall/SSH to come)
 	@echo "Running security layer..."
 	$(ANSIBLE_PLAYBOOK) playbooks/security.yml
 
-site: ## 🏗️ Full provisioning: all layers in sequence (system → networking → storage → ingress → services → security)
+site: ## 🏗️ Full provisioning: all layers in sequence (system → networking → storage → ingress → services → monitoring → security)
 	@echo "Running full site provisioning..."
 	$(ANSIBLE_PLAYBOOK) site.yml

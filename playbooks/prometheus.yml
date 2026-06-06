@@ -1,0 +1,23 @@
+---
+# Install and configure Prometheus and Alertmanager on the monitoring host
+#
+# What: Deploys Prometheus (metric storage + query engine) and Alertmanager
+#       (alert routing to email) via the prometheus.prometheus collection roles.
+#       Both services bind to 127.0.0.1 so they are not directly exposed —
+#       Grafana reaches Prometheus over loopback and Traefik is not needed here.
+# Why:  Prometheus stores time-series metrics scraped from node_exporter on every
+#       fleet host. Alertmanager routes firing alert rules to the Gmail SMTP relay
+#       configured in group_vars/all/main.yml.
+# Resolves: Metric ingestion and alert delivery for the home-lab fleet.
+#
+# Prerequisites:
+#   - node_exporter running on all fleet hosts (node-exporter.yml)
+#   - vault_smtp_password in group_vars/all/vault.yml (Gmail app password)
+
+- name: Install Prometheus and Alertmanager
+  hosts: monitoring
+  become: true
+
+  roles:
+    - prometheus.prometheus.prometheus
+    - prometheus.prometheus.alertmanager

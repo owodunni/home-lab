@@ -19,11 +19,18 @@
 - name: Storage layer — encrypted drives, MergerFS pool, SnapRAID parity
   ansible.builtin.import_playbook: playbooks/storage.yml
 
-- name: Ingress layer — Traefik reverse proxy with ACME certificates
+- name: Ingress layer — Traefik reverse proxy with ACME
   ansible.builtin.import_playbook: playbooks/ingress.yml
+
+- name: Service Infrastructure layer — Docker and other service dependencies
+  ansible.builtin.import_playbook: playbooks/service-infra.yml
 
 - name: Services layer — application services (Garage S3)
   ansible.builtin.import_playbook: playbooks/services.yml
+
+
+- name: Monitoring layer — node_exporter, Prometheus, Alertmanager, Grafana
+  ansible.builtin.import_playbook: playbooks/monitoring.yml
 
 - name: Security layer — hardening
   ansible.builtin.import_playbook: playbooks/security.yml

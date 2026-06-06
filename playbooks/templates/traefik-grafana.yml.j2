@@ -1,0 +1,19 @@
+---
+# Traefik dynamic config for Grafana — managed by Ansible, do not edit manually.
+#
+# The wildcard cert (*.{{ traefik_domain }}) is managed by traefik-wildcard-tls.yml.j2
+# (deployed by the ingress layer). This router just selects it via certResolver.
+
+http:
+  routers:
+    grafana:
+      rule: "Host(`grafana.{{ traefik_domain }}`)"
+      service: grafana
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    grafana:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:{{ grafana_port }}"

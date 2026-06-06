@@ -1,0 +1,32 @@
+---
+# Install and configure Grafana on the monitoring host
+#
+# What: Deploys Grafana via the grafana.grafana.grafana role, pre-wired to the
+#       local Prometheus datasource. Drops a Traefik dynamic config so
+#       grafana.jardoole.xyz resolves with the wildcard HTTPS cert managed by
+#       the ingress layer.
+# Why:  Grafana is the visualization layer over Prometheus metrics. Using the
+#       same Traefik/wildcard-cert pattern as Garage S3 means no extra certificate
+#       management — the ingress layer handles it.
+# Resolves: Browser-accessible metric dashboards for the home-lab fleet.
+#
+# Prerequisites:
+#   - Prometheus running on monitoring host (prometheus.yml)
+#   - Traefik running on ingress host with conf.d at /etc/traefik/conf.d (ingress layer)
+#   - vault_grafana_admin_password in group_vars/monitoring/vault.yml
+
+- name: Install Grafana and wire Traefik routing
+  hosts: monitoring
+  become: true
+
+  roles:
+    - grafana.grafana.grafana
+
+  tasks:
+    - name: Deploy Traefik routing config for Grafana
+      ansible.builtin.template:
+        src: templates/traefik-grafana.yml.j2
+        dest: /etc/traefik/conf.d/grafana.yml
+        owner: traefik
+        group: traefik
+        mode: "0640"
