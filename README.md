@@ -13,6 +13,16 @@ Ansible-based automation for a Raspberry Pi CM5 cluster running K3s Kubernetes.
 | pi-cm5-1, pi-cm5-2, pi-cm5-3 | Control Plane | K3s masters |
 | pi-cm5-4 | Claw | AI |
 
+## Bootstrapping a Fresh Host
+
+Fresh Debian installs don't include `sudo`, so Ansible's privilege escalation fails on first run. SSH in as root and install it before running any playbook:
+
+```bash
+ssh root@<hostname>
+apt install -y sudo
+usermod -aG sudo alexanderp
+```
+
 ## Prerequisites
 
 - **UV Package Manager**: [Install UV](https://docs.astral.sh/uv/getting-started/installation/)
