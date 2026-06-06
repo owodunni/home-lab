@@ -7,7 +7,7 @@
 #       layer (and each function playbook within it) stays independently
 #       runnable for targeted changes.
 # Resolves: The need for a reproducible bootstrap that fixes layer ordering in
-#           one place — system → networking → storage → security.
+#           one place — system → networking → storage → ingress → services → security.
 #
 # Order is significant: each layer assumes the previous one has completed.
 - name: System layer — base OS and hardware configuration
@@ -18,6 +18,12 @@
 
 - name: Storage layer — encrypted drives, MergerFS pool, SnapRAID parity
   ansible.builtin.import_playbook: playbooks/storage.yml
+
+- name: Ingress layer — Traefik reverse proxy with ACME certificates
+  ansible.builtin.import_playbook: playbooks/ingress.yml
+
+- name: Services layer — application services (Garage S3)
+  ansible.builtin.import_playbook: playbooks/services.yml
 
 - name: Security layer — hardening
   ansible.builtin.import_playbook: playbooks/security.yml
