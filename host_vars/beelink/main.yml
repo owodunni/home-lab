@@ -1,0 +1,69 @@
+---
+# Beelink ME Mini N150 — local storage server
+# Hardware: Intel N150, 6x M.2 slots, Dual 2.5G LAN
+
+# ============================================================================
+# WireGuard
+# ============================================================================
+# Beelink's peer identity on the Ubiquiti WireGuard server.
+# wg_address: assigned by UniFi when the beelink peer was created.
+# wg_allowed_ips: split tunnel — home LAN + WireGuard subnet; internet exits locally.
+# wg_server_public_key / wg_server_endpoint: inherited from group_vars/wireguard/.
+wg_address: "192.168.2.5/32"
+wg_allowed_ips: "192.168.1.0/24, 192.168.2.0/24"
+
+# ============================================================================
+# Drive Layout
+# ============================================================================
+# Three NVMe drives: 2 data + 1 parity
+# Each drive is LUKS-encrypted; ext4 formatted on the decrypted device.
+# Data drives are pooled via MergerFS; parity is managed by SnapRAID.
+
+# crypt_name is the LUKS mapper name (opened under /dev/mapper/<crypt_name>).
+# Keeping it on the drive entry makes each drive a single source of truth — the
+# encrypt and pool playbooks loop storage_drives directly, no parallel arrays.
+storage_drives:
+  - device: /dev/disk/by-id/nvme-CT2000P310SSD8_24454C177944
+    label: disk1
+    mount_point: /mnt/disk1
+    crypt_name: disk1_crypt
+  - device: /dev/disk/by-id/nvme-CT2000P310SSD8_24454C37CB1B
+    label: disk2
+    mount_point: /mnt/disk2
+    crypt_name: disk2_crypt
+  - device: /dev/disk/by-id/nvme-CT2000P310SSD8_24454C40D38E
+    label: parity1
+    mount_point: /mnt/parity1
+    crypt_name: parity1_crypt
+
+# ============================================================================
+# MergerFS
+# ============================================================================
+# Pool the two data drives; parity drive is excluded from the pool
+mergerfs_data_drives:
+  - /mnt/disk1
+  - /mnt/disk2
+
+# ============================================================================
+# SnapRAID
+# ============================================================================
+snapraid_parity_drives:
+  - /mnt/parity1/snapraid.parity
+
+snapraid_data_drives:
+  - path: /mnt/disk1
+    name: d1
+  - path: /mnt/disk2
+    name: d2
+
+# Content files stored on multiple drives so metadata survives a single failure
+snapraid_content_files:
+  - /var/snapraid.content
+  - /mnt/disk1/.snapraid.content
+  - /mnt/disk2/.snapraid.content
+
+# ============================================================================
+# Unattended Upgrades
+# ============================================================================
+# Reboot after the Pi nodes (02:00–03:00) to stagger restarts across the fleet
+unattended_automatic_reboot_time: "03:30"
