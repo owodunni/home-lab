@@ -124,23 +124,17 @@
         owner: root
         group: root
         mode: "0644"
-      notify:
-        - Reload systemd
-        - Restart traefik
+      notify: Restart traefik
 
     - name: Enable and start Traefik
       ansible.builtin.systemd:
         name: traefik
         enabled: true
         state: started
-        daemon_reload: true
 
   handlers:
-    - name: Reload systemd
-      ansible.builtin.systemd:
-        daemon_reload: true
-
     - name: Restart traefik
       ansible.builtin.systemd:
         name: traefik
         state: restarted
+        daemon_reload: true

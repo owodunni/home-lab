@@ -22,7 +22,7 @@ api_bind_addr = "127.0.0.1:{{ garage_s3_api_port }}"
 root_domain = ".s3.{{ traefik_domain }}"
 
 [s3_web]
-bind_addr = "127.0.0.1:3902"
+bind_addr = "127.0.0.1:{{ garage_s3_web_port }}"
 root_domain = ".{{ traefik_domain }}"
 index = "index.html"
 

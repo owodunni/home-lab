@@ -27,4 +27,8 @@ garage_s3_region: "garage"
 # Ports — all bound to localhost; Traefik terminates TLS and proxies inbound
 garage_s3_api_port: 3900
 garage_rpc_port: 3901
+garage_s3_web_port: 3902
 garage_admin_port: 3903
+
+# Absolute path to the Garage config template; role requires this but has no default
+garage_local_template: "{{ playbook_dir }}/templates/garage.toml.j2"

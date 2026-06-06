@@ -15,35 +15,24 @@
 #   - MergerFS pool at {{ mergerfs_mount_point }} must be mounted (storage layer)
 #   - vault_garage_rpc_secret and vault_garage_admin_token in host_vars/beelink/vault.yml
 #
-# Idempotency: cluster layout init is guarded by checking `garage layout show`
-#              output — the layout assign/apply block only runs on first install.
+# Idempotency: `garage layout show` is retried until Garage is up, then its
+#              output guards the layout assign/apply block — only runs on first install.
 
 - name: Install and configure Garage object storage
   hosts: ingress
   become: true
 
-  vars:
-    garage_config_file: /etc/garage.toml
-    # Absolute path so the role's template task resolves the file correctly
-    garage_local_template: "{{ playbook_dir }}/templates/garage.toml.j2"
-
   roles:
     - role: zorun.garage
 
   tasks:
-    - name: Wait for Garage to be responsive
-      ansible.builtin.command:
-        cmd: garage status
-      register: garage_status
-      retries: 10
-      delay: 3
-      until: garage_status.rc == 0
-      changed_when: false
-
-    - name: Check if cluster layout is already initialized
+    - name: Check if cluster layout is initialized (waits for Garage readiness)
       ansible.builtin.command:
         cmd: garage layout show
       register: garage_layout
+      retries: 10
+      delay: 3
+      until: garage_layout.rc == 0
       changed_when: false
 
     - name: Initialize single-node cluster layout
