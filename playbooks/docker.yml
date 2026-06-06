@@ -1,0 +1,19 @@
+---
+# Install and configure Docker engine
+#
+# What: Uses geerlingguy.docker role to install Docker CE and Docker Compose.
+# Why:  Provides a standardized, modular container runtime for application
+#       services across the cluster.
+# Resolves: Container runtime dependency for future application services.
+
+- name: Install and configure Docker
+  hosts: services
+  become: true
+
+  tasks:
+    - name: Include geerlingguy.docker role
+      ansible.builtin.include_role:
+        name: geerlingguy.docker
+      vars:
+        docker_install_compose: true
+        docker_edition: 'ce'

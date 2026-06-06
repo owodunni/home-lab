@@ -1,0 +1,11 @@
+---
+# Service Infrastructure layer
+#
+# What: Groups foundational infrastructure playbooks for application services.
+# Why:  Provides a standardized, modular layer for service dependencies
+#       before the services themselves are deployed.
+# Order: After Ingress (Traefik ready for routing), before Services (apps depend
+#        on this infrastructure).
+
+- name: Service Infra | Docker
+  ansible.builtin.import_playbook: docker.yml
