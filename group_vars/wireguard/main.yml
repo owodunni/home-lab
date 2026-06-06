@@ -1,0 +1,15 @@
+---
+# WireGuard group defaults — apply to all hosts in [wireguard]
+#
+# What: Ubiquiti/UniFi WireGuard server vars shared by all peers.
+# Why:  Hosts in [wireguard] may belong to different functional groups
+#       (storage, desktop, etc.), so server config lives here rather than in
+#       any one functional group. Per-host vars (wg_address, wg_allowed_ips,
+#       vault_wg_private_key) stay in host_vars/<host>/.
+
+# Public key of the Ubiquiti WireGuard server — copy from UniFi UI
+# (Settings → VPN → WireGuard → server peer entry)
+wg_server_public_key: "RsORWyXzXsq4H77U6ynqquEGngw/q9fwfyQv8FIfdVY="
+
+# DDNS hostname of the home network and the WireGuard listen port on Ubiquiti
+wg_server_endpoint: "jardoole.xyz:51820"

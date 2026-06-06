@@ -58,7 +58,7 @@ snapraid-mergerfs: ## 💽 Install and configure MergerFS + SnapRAID storage poo
 	@echo "Configuring MergerFS + SnapRAID storage pool..."
 	$(ANSIBLE_PLAYBOOK) playbooks/snapraid-mergerfs.yml
 
-wireguard: ## 🔑 Configure WireGuard peer on offsite storage hosts
+wireguard: ## 🔑 Configure WireGuard peers on [wireguard] group hosts
 	@echo "Configuring WireGuard peers..."
 	$(ANSIBLE_PLAYBOOK) playbooks/wireguard.yml
 

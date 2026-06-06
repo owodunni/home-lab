@@ -16,8 +16,8 @@
 #   - wg_server_public_key and wg_address must be filled in after creating
 #     the peer in the UniFi WireGuard UI
 
-- name: Configure WireGuard peer on storage hosts
-  hosts: storage
+- name: Configure WireGuard peer on wireguard hosts
+  hosts: wireguard
   become: true
 
   # WireGuard is only configured once the peer exists in the UniFi UI and its

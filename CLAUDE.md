@@ -80,6 +80,11 @@ Run `make precommit` to trigger hooks manually without committing.
 - Use `vault_` prefix for all encrypted variables
 - Run `/vault` for the complete guide
 
+**ABSOLUTE PROHIBITION**: Never read, cat, view, print, or inspect vault files
+in any way under any circumstances. This includes `host_vars/*/vault.yml`,
+`group_vars/*/vault.yml`, and any file beginning with `$ANSIBLE_VAULT`.
+No exceptions.
+
 ## CRITICAL: Ansible Execution Restrictions
 
 **NEVER run playbooks or make tasks except `make precommit`** - they consume tokens rapidly.
