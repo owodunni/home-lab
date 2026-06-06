@@ -56,6 +56,28 @@ usermod -aG sudo alexanderp
    make help
    ```
 
+## FAQ
+
+### Storage playbook fails with "No key available with this passphrase"
+
+The drives still have LUKS headers from a previous setup. Ansible's
+`luks_device state: present` is idempotent — it detects an existing LUKS
+header and skips creation, then the open fails because the old key doesn't
+match the one in the vault.
+
+Fix: wipe the stale LUKS headers so the playbook can re-encrypt from scratch.
+
+```bash
+ssh alexanderp@beelink
+sudo wipefs -a /dev/disk/by-id/<drive1>
+sudo wipefs -a /dev/disk/by-id/<drive2>
+sudo wipefs -a /dev/disk/by-id/<drive3>
+```
+
+Drive IDs are listed in `host_vars/beelink/main.yml` under `storage_drives`.
+After wiping, re-run the storage playbook and it will create fresh LUKS
+containers with the current vault key.
+
 ## Common Commands
 
 ```bash
