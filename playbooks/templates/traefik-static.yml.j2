@@ -7,13 +7,15 @@ global:
 log:
   level: INFO
 
-# Dashboard on :8080 — bound to all interfaces but only reachable via the
-# WireGuard IP ({{ ansible_host | default(inventory_hostname) }}), not from the internet.
+# Dashboard on :8080 — bound to ansible_host ({{ ansible_host | default(inventory_hostname) }})
+# so it is only reachable on the management interface, not from the internet.
 api:
   dashboard: true
   insecure: true
 
 entryPoints:
+  traefik:
+    address: "{{ ansible_host | default(inventory_hostname) }}:8080"
   web:
     address: ":80"
     http:

@@ -1,0 +1,18 @@
+---
+# Wildcard TLS certificate — managed by Ansible, do not edit manually.
+#
+# Requests and renews *.{{ traefik_domain }} via Let's Encrypt DNS-01, anchored
+# to the ingress layer. Keeping this in a file owned by traefik.yml (not by any
+# application) means the wildcard cert lifecycle is independent of any specific
+# service — removing Garage or any other service router does not stop renewal.
+http:
+  routers:
+    wildcard-tls:
+      rule: "Host(`{{ traefik_domain }}`)"
+      service: noop@internal
+      tls:
+        certResolver: letsencrypt
+        domains:
+          - main: "{{ traefik_domain }}"
+            sans:
+              - "*.{{ traefik_domain }}"

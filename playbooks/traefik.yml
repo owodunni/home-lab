@@ -126,6 +126,14 @@
         mode: "0644"
       notify: Restart traefik
 
+    - name: Deploy wildcard TLS certificate config
+      ansible.builtin.template:
+        src: templates/traefik-wildcard-tls.yml.j2
+        dest: /etc/traefik/conf.d/wildcard-tls.yml
+        owner: traefik
+        group: traefik
+        mode: "0640"
+
     - name: Enable and start Traefik
       ansible.builtin.systemd:
         name: traefik

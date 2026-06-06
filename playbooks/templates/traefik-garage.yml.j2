@@ -1,8 +1,8 @@
 ---
 # Traefik dynamic config for Garage S3 — managed by Ansible, do not edit manually.
 #
-# The wildcard cert (*.{{ traefik_domain }}) is requested on first start via the
-# letsencrypt resolver and reused for all other *.{{ traefik_domain }} routers.
+# The wildcard cert (*.{{ traefik_domain }}) is managed by traefik-wildcard-tls.yml.j2
+# (deployed by the ingress layer). This router just selects it via certResolver.
 
 http:
   routers:
@@ -11,10 +11,6 @@ http:
       service: garage-s3
       tls:
         certResolver: letsencrypt
-        domains:
-          - main: "{{ traefik_domain }}"
-            sans:
-              - "*.{{ traefik_domain }}"
 
   services:
     garage-s3:
