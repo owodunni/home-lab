@@ -1,0 +1,78 @@
+---
+
+- name: Check that all required variables are defined
+  debug:
+    msg: "{{ item }}"
+  with_items:
+    - "garage_version = {{ garage_version }}"
+    - "garage_local_template = {{ garage_local_template }}"
+    - "garage_metadata_dir = {{ garage_metadata_dir }}"
+    - "garage_data_dir = {{ garage_data_dir }}"
+  run_once: true
+
+- name: Download garage version {{garage_version}} for {{garage_architecture}}
+  get_url:
+    url: https://garagehq.deuxfleurs.fr/_releases/v{{garage_version}}/{{garage_architecture}}-unknown-linux-musl/garage
+    dest: "{{garage_binaries_dir}}/garage-{{garage_version}}"
+    mode: "755"
+  tags: [download]
+
+- name: Symlink garage entry point to version {{garage_version}}
+  file:
+    state: link
+    src: "{{garage_binaries_dir}}/garage-{{garage_version}}"
+    dest: "{{garage_main_binary}}"
+    force: yes
+  notify: restart garage
+
+- name: Create garage group
+  group:
+    state: present
+    name: "{{garage_system_group}}"
+    system: yes
+
+- name: Create garage user
+  user:
+    state: present
+    name: "{{garage_system_user}}"
+    group: "{{garage_system_group}}"
+    system: yes
+
+- name: Create metadata dir {{garage_metadata_dir}}
+  file:
+    state: directory
+    path: "{{garage_metadata_dir}}"
+    mode: "700"
+    owner: "{{garage_system_user}}"
+    group: "{{garage_system_group}}"
+
+- name: Create data dir {{garage_data_dir}}
+  file:
+    state: directory
+    path: "{{garage_data_dir}}"
+    mode: "700"
+    owner: "{{garage_system_user}}"
+    group: "{{garage_system_group}}"
+
+- name: Copy systemd service file to {{garage_systemd_service}}.service
+  template:
+    src: systemd/garage.service.j2
+    dest: "/etc/systemd/system/{{garage_systemd_service}}.service"
+  notify:
+  - reload systemd
+  - restart garage
+
+- name: Copy garage configuration
+  template:
+    src: "{{garage_local_template}}"
+    dest: "{{garage_config_file}}"
+    mode: "640"
+    owner: root
+    group: "{{garage_system_group}}"
+  notify: restart garage
+
+- name: Start and enable garage service
+  service:
+    name: "{{garage_systemd_service}}"
+    state: started
+    enabled: yes

@@ -1,0 +1,23 @@
+---
+# Traefik dynamic config for Garage S3 — managed by Ansible, do not edit manually.
+#
+# The wildcard cert (*.{{ traefik_domain }}) is requested on first start via the
+# letsencrypt resolver and reused for all other *.{{ traefik_domain }} routers.
+
+http:
+  routers:
+    garage-s3:
+      rule: "Host(`s3.{{ traefik_domain }}`)"
+      service: garage-s3
+      tls:
+        certResolver: letsencrypt
+        domains:
+          - main: "{{ traefik_domain }}"
+            sans:
+              - "*.{{ traefik_domain }}"
+
+  services:
+    garage-s3:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:{{ garage_s3_api_port }}"

@@ -1,0 +1,7 @@
+---
+
+- name: reload systemd
+  systemd: daemon_reload=yes
+
+- name: restart garage
+  systemd: name={{garage_systemd_service}} state=restarted

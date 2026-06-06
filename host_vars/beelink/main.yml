@@ -63,6 +63,14 @@ snapraid_content_files:
   - /mnt/disk2/.snapraid.content
 
 # ============================================================================
+# Garage — S3-compatible object storage
+# ============================================================================
+# Metadata (LMDB/sqlite index) on the local OS SSD for fast access.
+# Object data on the MergerFS pool so SnapRAID provides parity protection.
+garage_metadata_dir: /var/lib/garage/meta
+garage_data_dir: "{{ mergerfs_mount_point }}/garage"
+
+# ============================================================================
 # Unattended Upgrades
 # ============================================================================
 # Reboot after the Pi nodes (02:00–03:00) to stagger restarts across the fleet

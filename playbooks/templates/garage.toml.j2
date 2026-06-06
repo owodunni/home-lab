@@ -1,0 +1,32 @@
+# Garage configuration — managed by Ansible, do not edit manually.
+
+metadata_dir = "{{ garage_metadata_dir }}"
+data_dir = "{{ garage_data_dir }}"
+
+# SQLite is sufficient for single-node; LMDB requires extra memory tuning
+db_engine = "sqlite"
+
+# Single-node: no replication. SnapRAID at the MergerFS layer provides parity.
+replication_factor = 1
+
+rpc_bind_addr = "[::]:{{ garage_rpc_port }}"
+# Loopback RPC — no remote peers join this cluster
+rpc_public_addr = "127.0.0.1:{{ garage_rpc_port }}"
+rpc_secret = "{{ vault_garage_rpc_secret }}"
+
+[s3_api]
+s3_region = "{{ garage_s3_region }}"
+# Localhost only — Traefik terminates TLS and proxies inbound S3 traffic
+api_bind_addr = "127.0.0.1:{{ garage_s3_api_port }}"
+# Virtual-hosted bucket style: <bucket>.s3.{{ traefik_domain }}
+root_domain = ".s3.{{ traefik_domain }}"
+
+[s3_web]
+bind_addr = "127.0.0.1:3902"
+root_domain = ".{{ traefik_domain }}"
+index = "index.html"
+
+[admin]
+# Admin API is localhost-only and never routed through Traefik
+api_bind_addr = "127.0.0.1:{{ garage_admin_port }}"
+admin_token = "{{ vault_garage_admin_token }}"

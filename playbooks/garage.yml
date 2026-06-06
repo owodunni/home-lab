@@ -1,0 +1,81 @@
+---
+# Install and configure Garage S3-compatible object storage
+#
+# What: Deploys Garage via the zorun.garage role (binary + user + systemd service),
+#       then does a one-time cluster layout initialization and drops a Traefik
+#       dynamic config so s3.jardoole.xyz routes to the Garage S3 API with TLS.
+# Why:  MinIO moved to BUSL (non-OSS). Garage is a lightweight, self-hostable
+#       S3-compatible alternative well-suited to single-node setups backed by
+#       SnapRAID/MergerFS.
+# Resolves: An S3-compatible object store on beelink with HTTPS termination via
+#           the ingress layer.
+#
+# Prerequisites:
+#   - Traefik (ingress layer) must already be running
+#   - MergerFS pool at {{ mergerfs_mount_point }} must be mounted (storage layer)
+#   - vault_garage_rpc_secret and vault_garage_admin_token in host_vars/beelink/vault.yml
+#
+# Idempotency: cluster layout init is guarded by checking `garage layout show`
+#              output — the layout assign/apply block only runs on first install.
+
+- name: Install and configure Garage object storage
+  hosts: ingress
+  become: true
+
+  vars:
+    garage_config_file: /etc/garage.toml
+    # Absolute path so the role's template task resolves the file correctly
+    garage_local_template: "{{ playbook_dir }}/templates/garage.toml.j2"
+
+  roles:
+    - role: zorun.garage
+
+  tasks:
+    - name: Wait for Garage to be responsive
+      ansible.builtin.command:
+        cmd: garage status
+      register: garage_status
+      retries: 10
+      delay: 3
+      until: garage_status.rc == 0
+      changed_when: false
+
+    - name: Check if cluster layout is already initialized
+      ansible.builtin.command:
+        cmd: garage layout show
+      register: garage_layout
+      changed_when: false
+
+    - name: Initialize single-node cluster layout
+      # Runs only on first install — skipped when layout already has assigned nodes
+      when: "'garage_role' not in garage_layout.stdout"
+      block:
+        - name: Get local node ID
+          ansible.builtin.command:
+            cmd: garage node id
+          register: garage_node_id
+          changed_when: false
+
+        - name: Assign node to layout
+          # -z: zone/datacenter label (arbitrary for single-node)
+          # -c: advertised capacity (1T; informational only for replication_factor=1)
+          ansible.builtin.command:
+            cmd: >
+              garage layout assign
+              -z dc1
+              -c 1T
+              {{ garage_node_id.stdout | split('@') | first }}
+          changed_when: true
+
+        - name: Apply cluster layout
+          ansible.builtin.command:
+            cmd: garage layout apply --version 1
+          changed_when: true
+
+    - name: Deploy Traefik routing config for Garage S3
+      ansible.builtin.template:
+        src: templates/traefik-garage.yml.j2
+        dest: /etc/traefik/conf.d/garage.yml
+        owner: traefik
+        group: traefik
+        mode: "0640"

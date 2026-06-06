@@ -1,0 +1,17 @@
+galaxy_info:
+  role_name: garage
+  author: Baptiste Jonglez
+  description: Setup Garage, a S3-compatible distributed software written in Rust
+  license: MIT
+  min_ansible_version: 2.2
+  platforms:
+  - name: Debian
+    versions:
+    - all
+  - name: Ubuntu
+    versions:
+    - all
+  galaxy_tags:
+    - garage
+    - s3
+    - storage
