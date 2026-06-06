@@ -24,7 +24,7 @@ the entire site.
 | Layer | Purpose | Function playbooks | Hosts |
 |---|---|---|---|
 | **system** | Base OS state: apply all package updates, then Pi CM5 firmware/hardware/power settings. | `upgrade.yml`, `pi-base-config.yml` | `all` / `pi_cm5` |
-| **networking** | WireGuard peers for cross-site connectivity. Tunnels offsite `[storage]` hosts into the home LAN; skips hosts until their UniFi peer values are filled in. | `wireguard.yml` | `storage` |
+| **networking** | WireGuard peers for cross-site connectivity. Tunnels offsite hosts into the home LAN; skips hosts until their UniFi peer values are filled in. | `wireguard.yml` | `wireguard` |
 | **storage** | Encrypted drives, MergerFS pool, SnapRAID parity. Only runs on `[storage]` group hosts. | `disk-encrypt.yml`, `snapraid-mergerfs.yml` | `storage` |
 | **security** | Hardening: automatic security updates (firewall, SSH hardening to come). | `unattended-upgrades.yml` | `all` |
 
