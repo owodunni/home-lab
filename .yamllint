@@ -21,3 +21,5 @@ ignore: |
   uv.lock
   .ansible/
   **/vault.yml
+  # Third-party roles installed via ansible-galaxy
+  roles/zorun.garage/

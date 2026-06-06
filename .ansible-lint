@@ -1,11 +1,13 @@
 ---
 # Ansible-lint configuration
 
-# Exclude temporary and backup directories
+# Exclude temporary, backup, and third-party role directories
 exclude_paths:
   - .venv/
   - .ansible/
   - tree/
+  # Third-party roles installed via ansible-galaxy are external code we don't own
+  - roles/zorun.garage/
 
 # Use production profile for stricter linting
 profile: production
