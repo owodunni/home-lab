@@ -5,10 +5,12 @@
 # ============================================================================
 # WireGuard
 # ============================================================================
-# IP assigned to beelink's WireGuard interface. Set this to whatever address
-# UniFi assigns when you add beelink as a peer (typically from a /24 like
-# 10.0.0.x — check your UniFi WireGuard server subnet).
-wg_address: ""  # e.g. 10.0.0.2/32 — fill in after creating peer in UniFi UI
+# Beelink's peer identity on the Ubiquiti WireGuard server.
+# wg_address: assigned by UniFi when the beelink peer was created.
+# wg_allowed_ips: split tunnel — home LAN + WireGuard subnet; internet exits locally.
+# wg_server_public_key / wg_server_endpoint: inherited from group_vars/wireguard/.
+wg_address: "192.168.2.5/32"
+wg_allowed_ips: "192.168.1.0/24, 192.168.2.0/24"
 
 # ============================================================================
 # Drive Layout
