@@ -28,8 +28,8 @@ the entire site.
 | **storage** | Encrypted drives, MergerFS pool, SnapRAID parity. Only runs on `[storage]` group hosts. | `disk-encrypt.yml`, `snapraid-mergerfs.yml` | `storage` |
 | ingress | Traefik reverse proxy with ACME wildcard certificates via Cloudflare DNS-01. | `traefik.yml` | `ingress` |
 | **service-infra** | Foundational infrastructure for application services (e.g., Docker runtime). | `docker.yml` | `services` |
-| **services** | Application services that depend on ingress. Currently: Garage S3 object storage. | `garage.yml` | `ingress` |
-
+| **auth** | Identity provider (Authentik SSO/OIDC). Must be live before any service configures OIDC integration against it. | `authentik.yml` | `pi-cm5-1` |
+| **services** | Application services that depend on ingress. Currently: Garage S3 object storage. | `garage.yml` | `beelink` |
 | **monitoring** | Observability stack: node_exporter on every host; Prometheus, Alertmanager, and Grafana on `[monitoring]`. Grafana exposed at `grafana.jardoole.xyz` via Traefik. | `node-exporter.yml`, `prometheus.yml`, `grafana.yml` | `all` / `monitoring` |
 | **security** | Hardening: automatic security updates (firewall, SSH hardening to come). | `unattended-upgrades.yml` | `all` |
 
@@ -38,11 +38,39 @@ the entire site.
 offsite hosts), then `storage` (functional setup before security rules can
 interfere with package downloads and drive operations), then `ingress` (Traefik
 must be running before any service routing configs land), then `service-infra`
-(container runtime ready for app deployment), then `services` (apps after
-their runtime and reverse proxy are ready), then `monitoring` (Traefik must be running
-for the Grafana routing config; all services must be up so node_exporter can
-scrape them), then `security` last. Hardening is the most likely step to lock
-an operator out, so it always runs after the host is fully configured.
+(container runtime ready for app deployment), then `auth` (Authentik must be
+live before any service configures OIDC integration against it), then `services`
+(apps after their runtime, reverse proxy, and identity provider are ready), then
+`monitoring` (Traefik must be running for the Grafana routing config; Authentik
+must be live so Grafana SSO can be wired up), then `security` last. Hardening
+is the most likely step to lock an operator out, so it always runs after the
+host is fully configured.
+
+### Service host targeting
+
+Function playbooks target hosts directly by name — **not** by infrastructure tier group:
+
+```yaml
+# correct — self-documenting, only runs on beelink
+hosts: beelink
+
+# wrong — runs on every host in [ingress], which is rarely what you want
+hosts: ingress
+```
+
+Infrastructure groups (`[ingress]`, `[services]`, `[monitoring]`) describe *what
+infrastructure runs where*. They are targets for infrastructure playbooks only
+(e.g. `docker.yml` uses `hosts: services` because Docker goes everywhere in that
+group). Service playbooks name the specific host(s) the service runs on.
+
+When a service needs to run on multiple hosts, list them explicitly:
+
+```yaml
+hosts: beelink,pi-cm5-1
+```
+
+This keeps `hosts.ini` clean and makes `CLAUDE.md`'s Hosts column the single
+source of truth for "what runs where."
 
 ### Working with layers
 

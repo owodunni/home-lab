@@ -20,7 +20,10 @@
 #              the layout assign/apply block runs only on first install.
 
 - name: Install and configure Garage object storage
-  hosts: ingress
+  # hosts: beelink — Garage runs only on beelink (storage host with MergerFS pool).
+  # Service playbooks target the specific host(s) they run on directly, not
+  # infrastructure tier groups like [ingress], to avoid deploying to unintended hosts.
+  hosts: beelink
   become: true
 
   roles:
