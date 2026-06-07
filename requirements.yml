@@ -1,5 +1,7 @@
 ---
 collections:
+  - name: community.docker
+    version: ">=3.0.0"
   - name: hifis.toolkit
     version: ">=1.0.0"
   - name: kubernetes.core

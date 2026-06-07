@@ -1,0 +1,18 @@
+# Traefik dynamic config for Authentik — managed by Ansible, do not edit manually.
+#
+# The wildcard cert (*.{{ traefik_domain }}) is managed by traefik-wildcard-tls.yml.j2
+# (deployed by the ingress layer). This router just selects it via certResolver.
+
+http:
+  routers:
+    authentik:
+      rule: "Host(`auth.{{ traefik_domain }}`)"
+      service: authentik
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    authentik:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:{{ authentik_port }}"

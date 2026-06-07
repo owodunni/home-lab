@@ -1,0 +1,18 @@
+---
+# Auth layer
+#
+# What: Deploys the identity provider (Authentik) that all downstream services
+#       use for SSO/OIDC. This layer runs before services and monitoring so
+#       those layers can configure their OIDC integration against a live Authentik.
+# Why:  Auth is foundational infrastructure — like ingress, everything downstream
+#       depends on it being alive. Separating it into its own layer makes the
+#       dependency explicit and enforces it structurally rather than by convention.
+# Resolves: Ordering guarantee that Authentik is live before any service tries
+#           to configure SSO against it.
+#
+# Order: After service-infra (Docker must be installed before compose stack can run).
+#        Before services (Garage, etc. may need OIDC in future).
+#        Before monitoring (Grafana SSO configured against Authentik).
+
+- name: Auth | Authentik identity provider
+  ansible.builtin.import_playbook: authentik.yml

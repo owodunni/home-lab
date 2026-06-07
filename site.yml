@@ -25,6 +25,9 @@
 - name: Service Infrastructure layer — Docker and other service dependencies
   ansible.builtin.import_playbook: playbooks/service-infra.yml
 
+- name: Auth layer — Authentik identity provider (SSO/OIDC for all services)
+  ansible.builtin.import_playbook: playbooks/auth.yml
+
 - name: Services layer — application services (Garage S3)
   ansible.builtin.import_playbook: playbooks/services.yml
 
