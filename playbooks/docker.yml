@@ -10,10 +10,5 @@
   hosts: services
   become: true
 
-  tasks:
-    - name: Include geerlingguy.docker role
-      ansible.builtin.include_role:
-        name: geerlingguy.docker
-      vars:
-        docker_install_compose: true
-        docker_edition: 'ce'
+  roles:
+    - role: geerlingguy.docker

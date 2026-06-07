@@ -1,0 +1,6 @@
+---
+# Variables for hosts in the [services] group
+
+# geerlingguy.docker role overrides
+# docker_edition defaults to 'ce' in the role — not repeated here
+docker_install_compose: true
