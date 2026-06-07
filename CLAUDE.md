@@ -29,7 +29,7 @@ the entire site.
 | ingress | Traefik reverse proxy with ACME wildcard certificates via Cloudflare DNS-01. | `traefik.yml` | `ingress` |
 | **service-infra** | Foundational infrastructure for application services (e.g., Docker runtime). | `docker.yml` | `services` |
 | **auth** | Identity provider (Authentik SSO/OIDC). Must be live before any service configures OIDC integration against it. | `authentik.yml` | `authentik` |
-| **services** | Application services that depend on ingress. Currently: Garage S3 object storage. | `garage.yml` | `beelink` |
+| **services** | Application services that depend on ingress. Currently: Garage S3 object storage. | `garage.yml` | `garage` |
 | **monitoring** | Observability stack: node_exporter on every host; Prometheus, Alertmanager, and Grafana on `[monitoring]`. Grafana exposed at `grafana.jardoole.xyz` via Traefik. | `node-exporter.yml`, `prometheus.yml`, `grafana.yml` | `all` / `monitoring` |
 | **security** | Hardening: automatic security updates (firewall, SSH hardening to come). | `unattended-upgrades.yml` | `all` |
 
