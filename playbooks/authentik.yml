@@ -1,24 +1,10 @@
 ---
-# Install and configure Authentik identity provider
-#
-# What: Deploys Authentik (PostgreSQL + Redis + server + worker) as a
-#       docker-compose stack, then registers the auth.jardoole.xyz route
-#       with the Traefik instance already running on this host (ingress layer).
-# Why:  Authentik provides SSO/OIDC for all downstream services (Grafana, etc.).
-#       It runs in the auth layer — after service-infra (Docker must exist) and
-#       ingress (Traefik must be running), but before services/monitoring so
-#       those layers can configure OIDC integration.
-# Resolves: Centralised identity management across the home-lab service fleet.
+# Deploy Authentik (PostgreSQL + Redis + server + worker) as a docker-compose
+# stack and register the auth.jardoole.xyz route with Traefik.
 #
 # Prerequisites:
 #   - Docker runtime (service-infra layer)
 #   - Traefik running with conf.d at /etc/traefik/conf.d (ingress layer)
-#   - vault_authentik_pg_pass and vault_authentik_secret_key in
-#     host_vars/{{ target host }}/vault.yml
-#
-# Host: targets the [authentik] inventory group. To move Authentik to a
-#       different host, change the group membership in hosts.ini — no edits
-#       needed here (see CLAUDE.md: Service host targeting).
 #
 # Vault vars required in group_vars/authentik/vault.yml:
 #   vault_authentik_pg_pass
