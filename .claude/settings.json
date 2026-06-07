@@ -1,5 +1,12 @@
 {
   "enabledPlugins": {
     "devops-skills@akin-ozer": true
+  },
+  "permissions": {
+    "deny": [
+      "Read(./vault_passwords/**)",
+      "Read(all.txt)",
+      "Read(~/.ssh/**)"
+    ]
   }
 }
