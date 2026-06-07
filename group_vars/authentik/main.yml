@@ -1,0 +1,15 @@
+---
+# Authentik service configuration
+# Secrets (vault_authentik_pg_pass, vault_authentik_secret_key) live in vault.yml.
+
+# Pin to a specific release. To upgrade: bump this value and re-run the auth layer.
+# Releases: https://github.com/goauthentik/authentik/releases
+authentik_version: "2025.6.1"
+
+# Directory on the target host where the docker-compose stack and persistent
+# data subdirs (media, certs, custom-templates) are stored.
+authentik_dir: /opt/authentik
+
+# Port the Authentik server container binds on the host.
+# Traefik routes auth.{{ traefik_domain }} → 127.0.0.1:{{ authentik_port }}.
+authentik_port: 9000

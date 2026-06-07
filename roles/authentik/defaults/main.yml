@@ -1,14 +1,6 @@
 ---
-# Authentik identity provider defaults
-
-# Pin to a specific release; upgrade by bumping this value and re-running the auth layer.
-# Check https://github.com/goauthentik/authentik/releases for latest versions.
+# Fallback defaults — production values are set in group_vars/authentik/main.yml.
+# These exist so the role can be tested in isolation without group_vars.
 authentik_version: "2025.6.1"
-
-# Directory where docker-compose.yml, .env, and persistent data subdirs live.
-# Must be on a local or NFS-mounted path with adequate space for media uploads.
 authentik_dir: /opt/authentik
-
-# Port the Authentik server container binds on the host.
-# Traefik routes auth.{{ traefik_domain }} → 127.0.0.1:{{ authentik_port }}.
 authentik_port: 9000

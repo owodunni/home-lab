@@ -28,7 +28,7 @@ the entire site.
 | **storage** | Encrypted drives, MergerFS pool, SnapRAID parity. Only runs on `[storage]` group hosts. | `disk-encrypt.yml`, `snapraid-mergerfs.yml` | `storage` |
 | ingress | Traefik reverse proxy with ACME wildcard certificates via Cloudflare DNS-01. | `traefik.yml` | `ingress` |
 | **service-infra** | Foundational infrastructure for application services (e.g., Docker runtime). | `docker.yml` | `services` |
-| **auth** | Identity provider (Authentik SSO/OIDC). Must be live before any service configures OIDC integration against it. | `authentik.yml` | `pi-cm5-1` |
+| **auth** | Identity provider (Authentik SSO/OIDC). Must be live before any service configures OIDC integration against it. | `authentik.yml` | `authentik` |
 | **services** | Application services that depend on ingress. Currently: Garage S3 object storage. | `garage.yml` | `beelink` |
 | **monitoring** | Observability stack: node_exporter on every host; Prometheus, Alertmanager, and Grafana on `[monitoring]`. Grafana exposed at `grafana.jardoole.xyz` via Traefik. | `node-exporter.yml`, `prometheus.yml`, `grafana.yml` | `all` / `monitoring` |
 | **security** | Hardening: automatic security updates (firewall, SSH hardening to come). | `unattended-upgrades.yml` | `all` |
@@ -48,29 +48,33 @@ host is fully configured.
 
 ### Service host targeting
 
-Function playbooks target hosts directly by name — **not** by infrastructure tier group:
+Each service has a dedicated inventory group in `hosts.ini`. Function playbooks
+target the group name — never a hostname directly, and never an infrastructure
+tier group.
+
+```ini
+# hosts.ini — to move Authentik, change this one line
+[authentik]
+pi-cm5-1
+```
 
 ```yaml
-# correct — self-documenting, only runs on beelink
-hosts: beelink
-
-# wrong — runs on every host in [ingress], which is rarely what you want
-hosts: ingress
+# authentik.yml — never changes when the service moves
+hosts: authentik
 ```
+
+Service variables live in `group_vars/<service>/`:
+
+- `main.yml` — non-secret config (version pins, ports, directories)
+- `vault.yml` — encrypted secrets (passwords, API tokens)
+
+This means all variables travel with the service definition. Migrating a service
+to a new host is a single-line `hosts.ini` change with no playbook edits.
 
 Infrastructure groups (`[ingress]`, `[services]`, `[monitoring]`) describe *what
-infrastructure runs where*. They are targets for infrastructure playbooks only
-(e.g. `docker.yml` uses `hosts: services` because Docker goes everywhere in that
-group). Service playbooks name the specific host(s) the service runs on.
-
-When a service needs to run on multiple hosts, list them explicitly:
-
-```yaml
-hosts: beelink,pi-cm5-1
-```
-
-This keeps `hosts.ini` clean and makes `CLAUDE.md`'s Hosts column the single
-source of truth for "what runs where."
+infrastructure runs where* and are targets for infrastructure playbooks only
+(e.g. `docker.yml` uses `hosts: services` because Docker goes on every host in
+that group). Never use infrastructure groups as service targets.
 
 ### Working with layers
 

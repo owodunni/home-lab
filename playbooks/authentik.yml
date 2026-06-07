@@ -16,12 +16,16 @@
 #   - vault_authentik_pg_pass and vault_authentik_secret_key in
 #     host_vars/{{ target host }}/vault.yml
 #
-# Host: targets the specific host running Authentik. Must be in [ingress] so
-#       Traefik is present to serve auth.jardoole.xyz. Change the host name
-#       here — no inventory group needed (see CLAUDE.md: Service host targeting).
+# Host: targets the [authentik] inventory group. To move Authentik to a
+#       different host, change the group membership in hosts.ini — no edits
+#       needed here (see CLAUDE.md: Service host targeting).
+#
+# Vault vars required in group_vars/authentik/vault.yml:
+#   vault_authentik_pg_pass
+#   vault_authentik_secret_key
 
 - name: Deploy Authentik identity provider
-  hosts: pi-cm5-1
+  hosts: authentik
   become: true
 
   roles:
