@@ -1,5 +1,9 @@
 # Ansible external roles and collections
+# Install via: ansible-galaxy install -r requirements.yml
+# roles_path in ansible.cfg puts ~/.ansible/roles first so galaxy never writes here
 .ansible/
+roles/zorun.garage/
+roles/geerlingguy.docker/
 
 # Python virtual environments
 .venv/
