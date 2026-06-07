@@ -29,12 +29,9 @@
     group: root
     mode: "0600"
 
-- name: Pull Authentik images
-  community.docker.docker_compose_v2_pull:
-    project_src: "{{ authentik_dir }}"
-
 - name: Start Authentik stack
   community.docker.docker_compose_v2:
     project_src: "{{ authentik_dir }}"
     state: present
+    pull: always
     remove_orphans: true
