@@ -2,7 +2,7 @@
 # Fix macOS fork safety issue with Python 3.13 + Ansible multiprocessing
 ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
-.PHONY: help setup vault-edit site system networking storage ingress traefik services garage monitoring node-exporter prometheus grafana security disk-encrypt snapraid-mergerfs wireguard
+.PHONY: help setup vault-edit site system networking storage ingress traefik auth authentik services garage monitoring node-exporter prometheus grafana security disk-encrypt snapraid-mergerfs wireguard
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -78,6 +78,14 @@ ingress: ## 🌍 Ingress layer: Traefik + ACME wildcard certificates
 	@echo "Running ingress layer..."
 	$(ANSIBLE_PLAYBOOK) playbooks/ingress.yml
 
+authentik: ## 🔐 Install Authentik identity provider on [authentik] hosts
+	@echo "Configuring Authentik..."
+	$(ANSIBLE_PLAYBOOK) playbooks/authentik.yml
+
+auth: ## 🛡️ Auth layer: Authentik SSO/OIDC identity provider
+	@echo "Running auth layer..."
+	$(ANSIBLE_PLAYBOOK) playbooks/auth.yml
+
 garage: ## 🗃️ Install Garage S3-compatible object storage on [ingress] hosts
 	@echo "Configuring Garage..."
 	$(ANSIBLE_PLAYBOOK) playbooks/garage.yml
@@ -106,6 +114,6 @@ security: ## 🔒 Security layer: unattended upgrades (firewall/SSH to come)
 	@echo "Running security layer..."
 	$(ANSIBLE_PLAYBOOK) playbooks/security.yml
 
-site: ## 🏗️ Full provisioning: all layers in sequence (system → networking → storage → ingress → services → monitoring → security)
+site: ## 🏗️ Full provisioning: all layers in sequence (system → networking → storage → ingress → service-infra → auth → services → monitoring → security)
 	@echo "Running full site provisioning..."
 	$(ANSIBLE_PLAYBOOK) site.yml
