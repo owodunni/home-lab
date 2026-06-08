@@ -6,13 +6,15 @@
 # Node exporter scrape targets
 # Keep in sync with hosts.ini. Use ansible_host where set, else inventory_hostname.
 # Prometheus runs on pi-cm5-1, so localhost:9100 is pi-cm5-1's own node_exporter.
+# pi-cm5-4 uses its inventory hostname directly (network issues previously required
+# minio.jardoole.xyz as a workaround, but that is resolved).
 # Beelink is offsite and reachable only via its WireGuard address (192.168.2.5).
 # ============================================================================
 monitoring_node_targets:
   - "localhost:9100"
   - "pi-cm5-2:9100"
   - "pi-cm5-3:9100"
-  - "minio.jardoole.xyz:9100"
+  - "pi-cm5-4:9100"
   - "192.168.2.5:9100"
 
 # ============================================================================
