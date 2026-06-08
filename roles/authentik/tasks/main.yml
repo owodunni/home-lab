@@ -1,5 +1,5 @@
 ---
-- name: Create Authentik directory tree
+- name: Create Authentik root and config directories
   ansible.builtin.file:
     path: "{{ authentik_dir }}/{{ item }}"
     state: directory
@@ -8,8 +8,19 @@
     mode: "0750"
   loop:
     - ""
-    - media
     - certs
+
+- name: Create Authentik data directories
+  # Authentik server container runs as UID 1000; these dirs are bind-mounted
+  # into the container so they must be readable/writable by that user.
+  ansible.builtin.file:
+    path: "{{ authentik_dir }}/{{ item }}"
+    state: directory
+    owner: "1000"
+    group: "1000"
+    mode: "0750"
+  loop:
+    - media
     - custom-templates
 
 - name: Template docker-compose.yml
