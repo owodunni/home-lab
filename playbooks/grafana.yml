@@ -14,6 +14,8 @@
 #   - Prometheus running on monitoring host (prometheus.yml)
 #   - Traefik running on ingress host with conf.d at /etc/traefik/conf.d (ingress layer)
 #   - vault_grafana_admin_password in group_vars/monitoring/vault.yml
+#   - vault_grafana_oauth_client_id in group_vars/monitoring/vault.yml
+#   - vault_grafana_oauth_client_secret in group_vars/monitoring/vault.yml
 
 - name: Install Grafana and wire Traefik routing
   hosts: monitoring

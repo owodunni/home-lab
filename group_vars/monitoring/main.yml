@@ -146,6 +146,22 @@ grafana_ini:
     admin_user: admin
     admin_password: "{{ vault_grafana_admin_password }}"
 
+  auth.generic_oauth:
+    enabled: true
+    name: Authentik
+    allow_sign_up: true
+    client_id: "{{ vault_grafana_oauth_client_id }}"
+    client_secret: "{{ vault_grafana_oauth_client_secret }}"
+    scopes: "openid email profile"
+    auth_url: "https://auth.{{ traefik_domain }}/application/o/authorize/"
+    token_url: "https://auth.{{ traefik_domain }}/application/o/token/"
+    api_url: "https://auth.{{ traefik_domain }}/application/o/userinfo/"
+    # Map Authentik groups to Grafana roles; defaults to Viewer if no group matches
+    role_attribute_path: >-
+      contains(groups[*], 'Grafana Admins') && 'Admin' ||
+      contains(groups[*], 'Grafana Editors') && 'Editor' ||
+      'Viewer'
+
 grafana_datasources:
   - name: Prometheus
     type: prometheus
