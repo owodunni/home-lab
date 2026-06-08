@@ -131,16 +131,18 @@ alertmanager_inhibit_rules:
 # ============================================================================
 grafana_version: "latest"
 
-# Bind to loopback — Traefik terminates TLS and proxies inbound
-grafana_address: "127.0.0.1"
-grafana_port: "3000"
-
-# External URL shown in alert links and redirect targets
-grafana_url: "https://grafana.{{ traefik_domain }}"
-
-grafana_security:
-  admin_user: admin
-  admin_password: "{{ vault_grafana_admin_password }}"
+# grafana_ini maps directly to grafana.ini sections.
+# The role merges this with grafana_ini_default (role defaults/main.yml).
+grafana_ini:
+  server:
+    # Bind to loopback — Traefik terminates TLS and proxies inbound
+    http_addr: "127.0.0.1"
+    http_port: 3000
+    # External URL used in alert links and OAuth redirects
+    root_url: "https://grafana.{{ traefik_domain }}"
+  security:
+    admin_user: admin
+    admin_password: "{{ vault_grafana_admin_password }}"
 
 grafana_datasources:
   - name: Prometheus

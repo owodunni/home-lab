@@ -16,4 +16,4 @@ http:
     grafana:
       loadBalancer:
         servers:
-          - url: "http://127.0.0.1:{{ grafana_port }}"
+          - url: "http://{{ grafana_ini.server.http_addr }}:{{ grafana_ini.server.http_port }}"
