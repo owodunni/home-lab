@@ -3,8 +3,9 @@
 #
 # What: Deploys Prometheus (metric storage + query engine) and Alertmanager
 #       (alert routing to email) via the prometheus.prometheus collection roles.
-#       Both services bind to 127.0.0.1 so they are not directly exposed —
-#       Grafana reaches Prometheus over loopback and Traefik is not needed here.
+#       Both services bind to 127.0.0.1; Traefik proxies them at
+#       prometheus.jardoole.xyz and alertmanager.jardoole.xyz using the
+#       wildcard cert managed by the ingress layer.
 # Why:  Prometheus stores time-series metrics scraped from node_exporter on every
 #       fleet host. Alertmanager routes firing alert rules to the Gmail SMTP relay
 #       configured in group_vars/all/main.yml.
@@ -13,6 +14,7 @@
 # Prerequisites:
 #   - node_exporter running on all fleet hosts (node-exporter.yml)
 #   - vault_smtp_password in group_vars/all/vault.yml (Gmail app password)
+#   - Traefik running on ingress host with conf.d at /etc/traefik/conf.d (ingress layer)
 
 - name: Install Prometheus and Alertmanager
   hosts: monitoring
@@ -21,3 +23,20 @@
   roles:
     - prometheus.prometheus.prometheus
     - prometheus.prometheus.alertmanager
+
+  tasks:
+    - name: Deploy Traefik routing config for Prometheus
+      ansible.builtin.template:
+        src: templates/traefik-prometheus.yml.j2
+        dest: /etc/traefik/conf.d/prometheus.yml
+        owner: traefik
+        group: traefik
+        mode: "0640"
+
+    - name: Deploy Traefik routing config for Alertmanager
+      ansible.builtin.template:
+        src: templates/traefik-alertmanager.yml.j2
+        dest: /etc/traefik/conf.d/alertmanager.yml
+        owner: traefik
+        group: traefik
+        mode: "0640"

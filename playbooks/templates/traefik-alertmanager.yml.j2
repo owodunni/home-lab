@@ -1,0 +1,19 @@
+---
+# Traefik dynamic config for Alertmanager — managed by Ansible, do not edit manually.
+#
+# The wildcard cert (*.{{ traefik_domain }}) is managed by traefik-wildcard-tls.yml.j2
+# (deployed by the ingress layer). This router just selects it via certResolver.
+
+http:
+  routers:
+    alertmanager:
+      rule: "Host(`alertmanager.{{ traefik_domain }}`)"
+      service: alertmanager
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    alertmanager:
+      loadBalancer:
+        servers:
+          - url: "http://{{ alertmanager_web_listen_address }}"

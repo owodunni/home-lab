@@ -1,0 +1,19 @@
+---
+# Traefik dynamic config for Prometheus — managed by Ansible, do not edit manually.
+#
+# The wildcard cert (*.{{ traefik_domain }}) is managed by traefik-wildcard-tls.yml.j2
+# (deployed by the ingress layer). This router just selects it via certResolver.
+
+http:
+  routers:
+    prometheus:
+      rule: "Host(`prometheus.{{ traefik_domain }}`)"
+      service: prometheus
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    prometheus:
+      loadBalancer:
+        servers:
+          - url: "http://{{ prometheus_web_listen_address }}"
