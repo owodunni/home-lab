@@ -80,6 +80,35 @@ services:
       redis:
         condition: service_healthy
 
+  # Periodic pg_dump → offsite Garage S3 (beelink at the barn, reached over WireGuard). Image tag must match the postgres major version above (16).
+  # To restore: docker compose run --rm pg-backup restore (see eeshugerman/postgres-backup-s3 README)
+  pg-backup:
+    image: eeshugerman/postgres-backup-s3:16
+    restart: unless-stopped
+    environment:
+      SCHEDULE: "{{ authentik_backup_schedule }}"
+      BACKUP_KEEP_DAYS: "{{ authentik_backup_keep_days }}"
+      S3_REGION: "{{ authentik_backup_s3_region }}"
+      S3_BUCKET: "{{ authentik_backup_s3_bucket }}"
+      S3_PREFIX: "{{ authentik_backup_s3_prefix }}"
+      # Custom S3 endpoint — Garage, reached via Traefik (not AWS)
+      S3_ENDPOINT: "{{ authentik_backup_s3_endpoint }}"
+      POSTGRES_HOST: postgresql
+      POSTGRES_DATABASE: authentik
+      POSTGRES_USER: authentik
+      POSTGRES_PASSWORD: ${PG_PASS}
+      S3_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY}
+{% if authentik_backup_passphrase_enabled %}
+      # GPG passphrase for at-rest encryption of backup files
+      PASSPHRASE: ${BACKUP_PASSPHRASE}
+{% endif %}
+    env_file:
+      - .env
+    depends_on:
+      postgresql:
+        condition: service_healthy
+
 volumes:
   database:
     driver: local

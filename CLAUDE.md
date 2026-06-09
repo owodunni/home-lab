@@ -28,8 +28,8 @@ the entire site.
 | **storage** | Encrypted drives, MergerFS pool, SnapRAID parity. Only runs on `[storage]` group hosts. | `disk-encrypt.yml`, `snapraid-mergerfs.yml` | `storage` |
 | ingress | Traefik reverse proxy with ACME wildcard certificates via Cloudflare DNS-01. | `traefik.yml` | `ingress` |
 | **service-infra** | Foundational infrastructure for application services (e.g., Docker runtime). | `docker.yml` | `services` |
-| **auth** | Identity provider (Authentik SSO/OIDC). Must be live before any service configures OIDC integration against it. | `authentik.yml` | `authentik` |
-| **services** | Application services that depend on ingress. Currently: Garage S3 object storage. | `garage.yml` | `garage` |
+| **services** | Storage-backend services that depend on ingress but not on auth. Currently: Garage S3 object storage (the offsite target for Authentik's DB backups). | `garage.yml` | `garage` |
+| **auth** | Identity provider (Authentik SSO/OIDC). Must be live before any service configures OIDC integration against it. Provisions its backup bucket/key on Garage, so `services` runs first. | `authentik.yml` | `authentik` |
 | **monitoring** | Observability stack: node_exporter on every host; Prometheus, Alertmanager, and Grafana on `[monitoring]`. Grafana exposed at `grafana.jardoole.xyz` via Traefik. | `node-exporter.yml`, `prometheus.yml`, `grafana.yml` | `all` / `monitoring` |
 | **security** | Hardening: automatic security updates (firewall, SSH hardening to come). | `unattended-upgrades.yml` | `all` |
 
@@ -38,13 +38,17 @@ the entire site.
 offsite hosts), then `storage` (functional setup before security rules can
 interfere with package downloads and drive operations), then `ingress` (Traefik
 must be running before any service routing configs land), then `service-infra`
-(container runtime ready for app deployment), then `auth` (Authentik must be
-live before any service configures OIDC integration against it), then `services`
-(apps after their runtime, reverse proxy, and identity provider are ready), then
-`monitoring` (Traefik must be running for the Grafana routing config; Authentik
-must be live so Grafana SSO can be wired up), then `security` last. Hardening
-is the most likely step to lock an operator out, so it always runs after the
-host is fully configured.
+(container runtime ready for app deployment), then `services` (Garage S3 — it
+needs ingress and storage but no OIDC, and it is the offsite target Authentik
+backs its database up to, so it must exist before `auth`), then `auth`
+(Authentik provisions its backup bucket/key on the now-live Garage, then deploys
+with the pg-backup sidecar), then `monitoring` (Traefik must be running for the
+Grafana routing config; Authentik must be live so Grafana SSO can be wired up),
+then `security` last. Hardening is the most likely step to lock an operator out,
+so it always runs after the host is fully configured.
+
+A future *application* service that consumes OIDC would not fit the current
+`services` layer (which runs before `auth`); sequence it after `auth` instead.
 
 ### Service host targeting
 

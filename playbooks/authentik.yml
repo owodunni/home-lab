@@ -5,10 +5,82 @@
 # Prerequisites:
 #   - Docker runtime (service-infra layer)
 #   - Traefik running with conf.d at /etc/traefik/conf.d (ingress layer)
+#   - Garage installed and running on the [garage] host (services layer, which
+#     site.yml runs before auth — see CLAUDE.md ordering). The first play below
+#     needs the `garage` CLI to provision the backup bucket/key.
 #
 # Vault vars required in group_vars/authentik/vault.yml:
 #   vault_authentik_pg_pass
 #   vault_authentik_secret_key
+#   vault_authentik_backup_s3_access_key  — Garage access key, "GK" + 24 hex chars
+#   vault_authentik_backup_s3_secret_key  — Garage secret, 64 hex chars
+#     Generate both yourself before first run (no copy-paste from a created key):
+#       ID:     printf 'GK%s\n' "$(openssl rand -hex 12)"
+#       Secret: openssl rand -hex 32
+#     The play below imports them into Garage; the deploy play feeds the same
+#     values to the pg-backup sidecar. One source of truth, fully unattended.
+
+- name: Provision Authentik backup bucket and key on Garage
+  # Runs on the Garage host (beelink) because the `garage` CLI lives there, and
+  # in the auth layer (not the services/garage layer) so backup provisioning and
+  # consumption travel with the Authentik service. Garage is already up by now
+  # (services layer precedes auth). All checks short-circuit on subsequent runs.
+  hosts: garage
+  become: true
+  vars:
+    # Single source of truth: bucket name and credentials live with the Authentik
+    # service in group_vars/authentik, pulled here via the [authentik] group so
+    # this play needs no edit when Authentik moves hosts.
+    _authentik_host: "{{ groups['authentik'][0] }}"
+    _backup_bucket: "{{ hostvars[_authentik_host]['authentik_backup_s3_bucket'] }}"
+    _backup_access_key: "{{ hostvars[_authentik_host]['vault_authentik_backup_s3_access_key'] }}"
+    _backup_secret_key: "{{ hostvars[_authentik_host]['vault_authentik_backup_s3_secret_key'] }}"
+  tasks:
+    - name: List existing Garage buckets
+      ansible.builtin.command:
+        cmd: garage bucket list
+      register: garage_bucket_list
+      changed_when: false
+
+    - name: Create Authentik backup bucket
+      # Idempotent: only runs when the bucket does not yet exist
+      when: _backup_bucket not in garage_bucket_list.stdout
+      ansible.builtin.command:
+        cmd: garage bucket create {{ _backup_bucket }}
+      changed_when: true
+
+    - name: List existing Garage API keys
+      ansible.builtin.command:
+        cmd: garage key list
+      register: garage_key_list
+      changed_when: false
+
+    - name: Import the vaulted backup API key and grant bucket access
+      # Idempotent: only runs when the key (matched by name) does not yet exist.
+      when: _backup_bucket not in garage_key_list.stdout
+      block:
+        - name: Import pre-generated credentials from vault
+          # Bring-your-own creds so a rebuilt Garage accepts the same key with no
+          # manual step. Garage validates the format (GK+24 hex / 64 hex); --yes
+          # bypasses the interactive confirmation guard on import.
+          ansible.builtin.command:
+            cmd: >
+              garage key import --yes
+              -n {{ _backup_bucket }}
+              {{ _backup_access_key }}
+              {{ _backup_secret_key }}
+          no_log: true  # secret key is on the command line
+          changed_when: true
+
+        - name: Grant key read/write access to the backup bucket
+          # Key ID is known ahead of time (we supplied it), so no output parsing.
+          ansible.builtin.command:
+            cmd: >
+              garage bucket allow
+              --read --write
+              --bucket {{ _backup_bucket }}
+              --key {{ _backup_access_key }}
+          changed_when: true
 
 - name: Deploy Authentik identity provider
   hosts: authentik

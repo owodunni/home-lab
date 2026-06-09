@@ -13,3 +13,36 @@ authentik_dir: /opt/authentik
 # Port the Authentik server container binds on the host.
 # Traefik routes auth.{{ traefik_domain }} → 127.0.0.1:{{ authentik_port }}.
 authentik_port: 9000
+
+# ============================================================================
+# Database backup — eeshugerman/postgres-backup-s3 sidecar → Garage S3
+#
+# Bucket and API key are provisioned by the first play in playbooks/authentik.yml
+# (which targets the [garage] host) — but you bring the credentials: generate a
+# Garage-format key pair with `scripts/garage-keygen.sh`, then vault both halves
+# into group_vars/authentik/vault.yml as vault_authentik_backup_s3_access_key and
+# vault_authentik_backup_s3_secret_key before running the auth layer. The play
+# imports them into Garage; nothing is printed back. Fully unattended thereafter.
+# ============================================================================
+
+# Cron expression or shorthand (@daily, @weekly, @hourly) for backup frequency.
+authentik_backup_schedule: "@daily"
+
+# Delete backups older than this many days from the bucket.
+authentik_backup_keep_days: 7
+
+# Path prefix inside the bucket — backups land at s3://<bucket>/<prefix>/<timestamp>.sql.gz
+authentik_backup_s3_prefix: pg
+
+# Garage S3 — region label must match garage_s3_region in group_vars/ingress/main.yml.
+# Bucket is created by the garage layer; key credentials go in vault.yml.
+authentik_backup_s3_region: "garage"
+authentik_backup_s3_bucket: "authentik-backup"
+
+# Garage exposes its S3 API at s3.jardoole.xyz via Traefik on beelink.
+# Path-style requests (aws cli default for custom endpoints) are supported.
+authentik_backup_s3_endpoint: "https://s3.jardoole.xyz"
+
+# Set to true and add vault_authentik_backup_passphrase to vault.yml to
+# GPG-encrypt backup files at rest in the bucket.
+authentik_backup_passphrase_enabled: false
