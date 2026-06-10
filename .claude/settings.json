@@ -6,7 +6,10 @@
     "deny": [
       "Read(./vault_passwords/**)",
       "Read(all.txt)",
-      "Read(~/.ssh/**)"
+      "Read(~/.ssh/**)",
+      "Bash(*ansible-vault view*)",
+      "Bash(*ansible-vault decrypt*)",
+      "Bash(*ansible-vault edit*)"
     ]
   }
 }
