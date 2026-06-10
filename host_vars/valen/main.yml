@@ -1,0 +1,24 @@
+---
+# Valen — storage server
+# Hardware: 1x Seagate IronWolf 12TB HDD (sda). 2 more IronWolf 12TB drives
+# planned — add them to storage_drives and mergerfs_data_drives below, and
+# define snapraid_parity_drives/snapraid_data_drives/snapraid_content_files
+# (see group_vars/storage/main.yml) once a parity drive is in place.
+
+# ============================================================================
+# Drive Layout
+# ============================================================================
+# Single data drive for now, LUKS-encrypted; ext4 formatted on the decrypted
+# device.
+storage_drives:
+  - device: /dev/disk/by-id/ata-ST12000VN0008-3MH101_ZZ30G3SR
+    label: disk1
+    mount_point: /mnt/disk1
+    crypt_name: disk1_crypt
+
+# ============================================================================
+# MergerFS
+# ============================================================================
+# Single-drive pool — additional data drives append here as they're added.
+mergerfs_data_drives:
+  - /mnt/disk1

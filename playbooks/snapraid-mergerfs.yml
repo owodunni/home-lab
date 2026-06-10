@@ -11,7 +11,9 @@
 #
 # Prerequisites:
 #   - disk-encrypt.yml must have run successfully (LUKS devices open)
-#   - storage_drives, mergerfs_*, snapraid_* vars defined
+#   - storage_drives, mergerfs_* vars defined
+#   - snapraid_* vars are optional (see snapraid_configured below) — a host
+#     with data drives but no parity drive yet just gets MergerFS
 #
 # Safe to re-run: filesystem creation uses force: false (skips if fs exists);
 # package installs and config writes are idempotent.
@@ -19,6 +21,17 @@
 - name: Configure MergerFS + SnapRAID storage pool
   hosts: storage
   become: true
+
+  # SnapRAID needs a parity drive, data drives, and content file locations to
+  # produce a valid snapraid.conf. Until all three are set (e.g. a new storage
+  # node with data drives only), skip SnapRAID instead of writing a broken
+  # config — this keeps `make storage` from aborting over a missing parity
+  # drive that hasn't arrived yet.
+  vars:
+    snapraid_configured: >-
+      {{ (snapraid_parity_drives | default([]) | length > 0)
+         and (snapraid_data_drives | default([]) | length > 0)
+         and (snapraid_content_files | default([]) | length > 0) }}
 
   tasks:
     # ========================================================================
@@ -109,58 +122,70 @@
     # SnapRAID
     # ========================================================================
 
-    - name: Install SnapRAID build dependencies
-      ansible.builtin.apt:
-        name:
-          - build-essential
-          - git
-          - wget
-        state: present
-        update_cache: true
-        cache_valid_time: 86400 # 24h — skip refresh if cache is recent
-
-    - name: Check if SnapRAID is already installed
-      ansible.builtin.stat:
-        path: /usr/local/bin/snapraid
-      register: snapraid_binary
-
-    - name: Download SnapRAID source tarball
-      ansible.builtin.get_url:
-        url: "https://github.com/amadvance/snapraid/releases/download/v{{ snapraid_version }}/snapraid-{{ snapraid_version }}.tar.gz"
-        dest: "/tmp/snapraid-{{ snapraid_version }}.tar.gz"
-        mode: "0644"
-      when: not snapraid_binary.stat.exists
-
-    - name: Extract SnapRAID source
-      ansible.builtin.unarchive:
-        src: "/tmp/snapraid-{{ snapraid_version }}.tar.gz"
-        dest: /tmp/
-        remote_src: true
-        creates: "/tmp/snapraid-{{ snapraid_version }}"
-      when: not snapraid_binary.stat.exists
-
-    - name: Build and install SnapRAID
-      ansible.builtin.shell: |
-        cd /tmp/snapraid-{{ snapraid_version }}
-        ./configure
-        make
-        make install
-      args:
-        creates: /usr/local/bin/snapraid
-      when: not snapraid_binary.stat.exists
-
-    - name: Write SnapRAID configuration
-      ansible.builtin.template:
-        src: templates/snapraid.conf.j2
-        dest: /etc/snapraid.conf
-        mode: "0644"
-        owner: root
-        group: root
-        backup: true
-
-    - name: Remind operator to run initial SnapRAID sync
+    - name: Warn when SnapRAID is not yet configured
       ansible.builtin.debug:
         msg: >-
-          SnapRAID installed. Run the initial parity sync manually once data is
-          in place: ssh {{ inventory_hostname }} 'snapraid sync'
-          This takes 1-2 hours for empty drives.
+          Skipping SnapRAID: snapraid_parity_drives, snapraid_data_drives and
+          snapraid_content_files are not all set. Define them in
+          host_vars/<host>/main.yml once a parity drive is added, then re-run
+          `make snapraid-mergerfs`.
+      when: not (snapraid_configured | bool)
+
+    - name: Install, configure, and prepare SnapRAID
+      when: snapraid_configured | bool
+      block:
+        - name: Install SnapRAID build dependencies
+          ansible.builtin.apt:
+            name:
+              - build-essential
+              - git
+              - wget
+            state: present
+            update_cache: true
+            cache_valid_time: 86400 # 24h — skip refresh if cache is recent
+
+        - name: Check if SnapRAID is already installed
+          ansible.builtin.stat:
+            path: /usr/local/bin/snapraid
+          register: snapraid_binary
+
+        - name: Download SnapRAID source tarball
+          ansible.builtin.get_url:
+            url: "https://github.com/amadvance/snapraid/releases/download/v{{ snapraid_version }}/snapraid-{{ snapraid_version }}.tar.gz"
+            dest: "/tmp/snapraid-{{ snapraid_version }}.tar.gz"
+            mode: "0644"
+          when: not snapraid_binary.stat.exists
+
+        - name: Extract SnapRAID source
+          ansible.builtin.unarchive:
+            src: "/tmp/snapraid-{{ snapraid_version }}.tar.gz"
+            dest: /tmp/
+            remote_src: true
+            creates: "/tmp/snapraid-{{ snapraid_version }}"
+          when: not snapraid_binary.stat.exists
+
+        - name: Build and install SnapRAID
+          ansible.builtin.shell: |
+            cd /tmp/snapraid-{{ snapraid_version }}
+            ./configure
+            make
+            make install
+          args:
+            creates: /usr/local/bin/snapraid
+          when: not snapraid_binary.stat.exists
+
+        - name: Write SnapRAID configuration
+          ansible.builtin.template:
+            src: templates/snapraid.conf.j2
+            dest: /etc/snapraid.conf
+            mode: "0644"
+            owner: root
+            group: root
+            backup: true
+
+        - name: Remind operator to run initial SnapRAID sync
+          ansible.builtin.debug:
+            msg: >-
+              SnapRAID installed. Run the initial parity sync manually once data is
+              in place: ssh {{ inventory_hostname }} 'snapraid sync'
+              This takes 1-2 hours for empty drives.

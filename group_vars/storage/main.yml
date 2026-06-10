@@ -37,3 +37,13 @@ mergerfs_version: "2.42.0"
 
 # SnapRAID source release (built from source) — https://github.com/amadvance/snapraid/releases
 snapraid_version: "14.6"
+
+# ============================================================================
+# SnapRAID — group-wide defaults
+# ============================================================================
+# Empty by default so hosts without a parity drive yet don't hit an
+# "undefined variable" error — snapraid-mergerfs.yml skips SnapRAID entirely
+# until all three are defined in host_vars/<host>/main.yml.
+snapraid_parity_drives: []
+snapraid_data_drives: []
+snapraid_content_files: []
