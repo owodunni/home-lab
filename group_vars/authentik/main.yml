@@ -46,3 +46,46 @@ authentik_backup_s3_endpoint: "https://s3.jardoole.xyz"
 # Set to true and add vault_authentik_backup_passphrase to vault.yml to
 # GPG-encrypt backup files at rest in the bucket.
 authentik_backup_passphrase_enabled: false
+
+# ============================================================================
+# File-volume backup — lobaro/restic-backup-docker sidecar → Garage S3
+#
+# pg-backup above only covers the Postgres dump. media/, certs/, and
+# custom-templates/ are bind-mounted directories that live outside Postgres
+# (uploaded assets, imported certs, custom templates) and need their own
+# backup. redis/ and the Postgres data dir are intentionally excluded: redis
+# is regenerable cache/session state, and a raw copy of a live Postgres data
+# dir would be crash-inconsistent (pg-backup's logical dump is the correct
+# way to capture that).
+#
+# Vault vars required (group_vars/authentik/vault.yml):
+#   vault_authentik_volumes_backup_s3_access_key / _secret_key — separate
+#     bucket+key from the pg-backup ones above, so retention/lifecycle can
+#     differ. Generate with:
+#       scripts/garage-keygen.sh vault_authentik_volumes_backup_s3
+#   vault_authentik_restic_password — encrypts the restic repo. Generate with:
+#       openssl rand -base64 32
+#     LOSING THIS PASSWORD MAKES ALL EXISTING SNAPSHOTS UNRECOVERABLE — restic
+#     cannot decrypt the repo without it. Store a copy outside this repo
+#     (e.g. password manager) before the first run.
+# ============================================================================
+
+# Image tag — multi-arch (amd64/arm64/arm-v7), matches the Pi CM5 hosts.
+# Releases: https://github.com/lobaro/restic-backup-docker/releases
+authentik_volumes_backup_image_version: "v1.4.2"
+
+# Cron expression (5-field crond syntax — lobaro's entrypoint feeds this
+# straight to crond, unlike eeshugerman's @daily shorthand above). Offset by
+# 3 hours from pg-backup's default @daily run so the two jobs don't compete
+# for upload bandwidth at the same time.
+authentik_volumes_backup_schedule: "0 3 * * *"
+
+# Passed to `restic forget` after each backup run. Keeps a week of dailies
+# plus a few months of older snapshots, then prunes data no longer referenced
+# by any kept snapshot (restic dedupes content across snapshots, so prune is
+# what actually reclaims space for changed/deleted files).
+authentik_volumes_backup_retention_args: "--keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune"
+
+# Separate bucket from authentik_backup_s3_bucket (Postgres dumps) so the two
+# backup types can have independent retention/lifecycle.
+authentik_volumes_backup_s3_bucket: "authentik-volumes-backup"

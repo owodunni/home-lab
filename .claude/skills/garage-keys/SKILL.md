@@ -46,20 +46,25 @@ playbook with no knowledge of its consumers. Pull the service's vars via the
 service group so the play needs no edit when the service moves hosts:
 
 ```yaml
-- name: Provision <service> bucket and key on Garage
+- name: Provision <service> buckets and keys on Garage
   hosts: garage
   become: true
   vars:
     _host: "{{ groups['<service>'][0] }}"
-    _bucket: "{{ hostvars[_host]['<service>_..._s3_bucket'] }}"
-    _access_key: "{{ hostvars[_host]['vault_<service>_..._s3_access_key'] }}"
-    _secret_key: "{{ hostvars[_host]['vault_<service>_..._s3_secret_key'] }}"
+    # One list entry per bucket/key pair the service needs — loop the tasks
+    # below over this so adding a 3rd backup target needs no new tasks.
+    _garage_resources:
+      - bucket: "{{ hostvars[_host]['<service>_..._s3_bucket'] }}"
+        access_key: "{{ hostvars[_host]['vault_<service>_..._s3_access_key'] }}"
+        secret_key: "{{ hostvars[_host]['vault_<service>_..._s3_secret_key'] }}"
   tasks:
-    # garage bucket list / create  (when _bucket not in stdout)
-    # garage key list, then when _bucket not in stdout:
-    #   garage key import --yes -n {{ _bucket }} {{ _access_key }} {{ _secret_key }}
+    # garage bucket list / create, looping over _garage_resources
+    #   (when item.bucket not in stdout)
+    # garage key list, then loop over _garage_resources, when item.bucket not in stdout:
+    #   garage key import --yes -n {{ item.bucket }} {{ item.access_key }} {{ item.secret_key }}
     #     -> no_log: true  (secret on the command line)
-    #   garage bucket allow --read --write --bucket {{ _bucket }} --key {{ _access_key }}
+    #   garage bucket allow {{ item.bucket }} --read --write --key {{ item.access_key }}
+    #     -> bucket is positional here, unlike `key import -n` (a flag)
 ```
 
 All tasks are idempotent: the `list` checks short-circuit on re-runs. The play
@@ -73,6 +78,9 @@ its buckets/keys exist first. See the ordering rationale in CLAUDE.md.
 
 ## Reference implementation
 
-`playbooks/authentik.yml` (first play) — the Authentik Postgres backup bucket.
-The `garage key import` flags were verified against Garage v2.3.0 (`-n`, not
-`--name`; `--yes` is required).
+`playbooks/authentik.yml` (first play) — the Authentik backup buckets.
+Verified against Garage v2.3.0:
+- `garage key import` takes `-n` (not `--name`); `--yes` is required.
+- `garage bucket allow` takes the bucket name as a **positional** argument,
+  not `--bucket` — that flag doesn't exist and errors with "Found argument
+  '--bucket' which wasn't expected".

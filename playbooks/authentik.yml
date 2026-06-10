@@ -14,13 +14,19 @@
 #   vault_authentik_secret_key
 #   vault_authentik_backup_s3_access_key  — Garage access key, "GK" + 24 hex chars
 #   vault_authentik_backup_s3_secret_key  — Garage secret, 64 hex chars
-#     Generate both yourself before first run (no copy-paste from a created key):
-#       ID:     printf 'GK%s\n' "$(openssl rand -hex 12)"
-#       Secret: openssl rand -hex 32
+#   vault_authentik_volumes_backup_s3_access_key / _secret_key — same format,
+#     a separate key pair for the volumes-backup (restic) sidecar's bucket
+#   vault_authentik_restic_password — restic repo encryption password
+#     (openssl rand -base64 32); losing it makes existing snapshots unrecoverable
+#     Generate the two S3 key pairs yourself before first run (no copy-paste from
+#     a created key):
+#       scripts/garage-keygen.sh vault_authentik_backup_s3
+#       scripts/garage-keygen.sh vault_authentik_volumes_backup_s3
 #     The play below imports them into Garage; the deploy play feeds the same
-#     values to the pg-backup sidecar. One source of truth, fully unattended.
+#     values to the pg-backup and volumes-backup sidecars. One source of truth,
+#     fully unattended.
 
-- name: Provision Authentik backup bucket and key on Garage
+- name: Provision Authentik backup buckets and keys on Garage
   # Runs on the Garage host (beelink) because the `garage` CLI lives there, and
   # in the auth layer (not the services/garage layer) so backup provisioning and
   # consumption travel with the Authentik service. Garage is already up by now
@@ -28,13 +34,17 @@
   hosts: garage
   become: true
   vars:
-    # Single source of truth: bucket name and credentials live with the Authentik
-    # service in group_vars/authentik, pulled here via the [authentik] group so
-    # this play needs no edit when Authentik moves hosts.
+    # Single source of truth: bucket names and credentials live with the
+    # Authentik service in group_vars/authentik, pulled here via the
+    # [authentik] group so this play needs no edit when Authentik moves hosts.
     _authentik_host: "{{ groups['authentik'][0] }}"
-    _backup_bucket: "{{ hostvars[_authentik_host]['authentik_backup_s3_bucket'] }}"
-    _backup_access_key: "{{ hostvars[_authentik_host]['vault_authentik_backup_s3_access_key'] }}"
-    _backup_secret_key: "{{ hostvars[_authentik_host]['vault_authentik_backup_s3_secret_key'] }}"
+    _garage_resources:
+      - bucket: "{{ hostvars[_authentik_host]['authentik_backup_s3_bucket'] }}"
+        access_key: "{{ hostvars[_authentik_host]['vault_authentik_backup_s3_access_key'] }}"
+        secret_key: "{{ hostvars[_authentik_host]['vault_authentik_backup_s3_secret_key'] }}"
+      - bucket: "{{ hostvars[_authentik_host]['authentik_volumes_backup_s3_bucket'] }}"
+        access_key: "{{ hostvars[_authentik_host]['vault_authentik_volumes_backup_s3_access_key'] }}"
+        secret_key: "{{ hostvars[_authentik_host]['vault_authentik_volumes_backup_s3_secret_key'] }}"
   tasks:
     - name: List existing Garage buckets
       ansible.builtin.command:
@@ -42,11 +52,14 @@
       register: garage_bucket_list
       changed_when: false
 
-    - name: Create Authentik backup bucket
+    - name: Create Authentik backup buckets
       # Idempotent: only runs when the bucket does not yet exist
-      when: _backup_bucket not in garage_bucket_list.stdout
+      when: item.bucket not in garage_bucket_list.stdout
       ansible.builtin.command:
-        cmd: garage bucket create {{ _backup_bucket }}
+        cmd: garage bucket create {{ item.bucket }}
+      loop: "{{ _garage_resources }}"
+      loop_control:
+        label: "{{ item.bucket }}"
       changed_when: true
 
     - name: List existing Garage API keys
@@ -55,32 +68,39 @@
       register: garage_key_list
       changed_when: false
 
-    - name: Import the vaulted backup API key and grant bucket access
+    - name: Import the vaulted backup API keys
       # Idempotent: only runs when the key (matched by name) does not yet exist.
-      when: _backup_bucket not in garage_key_list.stdout
-      block:
-        - name: Import pre-generated credentials from vault
-          # Bring-your-own creds so a rebuilt Garage accepts the same key with no
-          # manual step. Garage validates the format (GK+24 hex / 64 hex); --yes
-          # bypasses the interactive confirmation guard on import.
-          ansible.builtin.command:
-            cmd: >
-              garage key import --yes
-              -n {{ _backup_bucket }}
-              {{ _backup_access_key }}
-              {{ _backup_secret_key }}
-          no_log: true  # secret key is on the command line
-          changed_when: true
+      # Bring-your-own creds so a rebuilt Garage accepts the same key with no
+      # manual step. Garage validates the format (GK+24 hex / 64 hex); --yes
+      # bypasses the interactive confirmation guard on import.
+      when: item.bucket not in garage_key_list.stdout
+      ansible.builtin.command:
+        cmd: >
+          garage key import --yes
+          -n {{ item.bucket }}
+          {{ item.access_key }}
+          {{ item.secret_key }}
+      loop: "{{ _garage_resources }}"
+      loop_control:
+        label: "{{ item.bucket }}"
+      no_log: true  # secret key is on the command line
+      changed_when: true
 
-        - name: Grant key read/write access to the backup bucket
-          # Key ID is known ahead of time (we supplied it), so no output parsing.
-          ansible.builtin.command:
-            cmd: >
-              garage bucket allow
-              --read --write
-              --bucket {{ _backup_bucket }}
-              --key {{ _backup_access_key }}
-          changed_when: true
+    - name: Grant key read/write access to its backup bucket
+      # Key ID is known ahead of time (we supplied it), so no output parsing.
+      # Bucket is a positional arg here (unlike `garage key import -n`, which
+      # takes a flag) — `garage bucket allow <bucket> --key <key> --read --write`.
+      when: item.bucket not in garage_key_list.stdout
+      ansible.builtin.command:
+        cmd: >
+          garage bucket allow
+          {{ item.bucket }}
+          --read --write
+          --key {{ item.access_key }}
+      loop: "{{ _garage_resources }}"
+      loop_control:
+        label: "{{ item.bucket }}"
+      changed_when: true
 
 - name: Deploy Authentik identity provider
   hosts: authentik

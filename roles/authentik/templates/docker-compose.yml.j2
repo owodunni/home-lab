@@ -109,6 +109,29 @@ services:
       postgresql:
         condition: service_healthy
 
+  # Periodic restic backup of file-based volumes (media, certs,
+  # custom-templates) → offsite Garage S3, alongside the pg-backup dump above.
+  # Mounts are read-only: restic only ever reads the live data.
+  # Restore procedure: docs/restore_volumes.md
+  volumes-backup:
+    image: ghcr.io/lobaro/restic-backup-docker:{{ authentik_volumes_backup_image_version }}
+    restart: unless-stopped
+    environment:
+      RESTIC_REPOSITORY: "s3:{{ authentik_backup_s3_endpoint }}/{{ authentik_volumes_backup_s3_bucket }}"
+      RESTIC_PASSWORD: ${VOLUMES_BACKUP_RESTIC_PASSWORD}
+      AWS_ACCESS_KEY_ID: ${VOLUMES_BACKUP_S3_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${VOLUMES_BACKUP_S3_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: "{{ authentik_backup_s3_region }}"
+      RESTIC_TAG: authentik-volumes
+      BACKUP_CRON: "{{ authentik_volumes_backup_schedule }}"
+      RESTIC_FORGET_ARGS: "{{ authentik_volumes_backup_retention_args }}"
+    volumes:
+      - ./media:/data/media:ro
+      - ./certs:/data/certs:ro
+      - ./custom-templates:/data/custom-templates:ro
+    env_file:
+      - .env
+
 volumes:
   database:
     driver: local
