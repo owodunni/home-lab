@@ -10,11 +10,15 @@
 # ============================================================================
 # Single data drive for now, LUKS-encrypted; ext4 formatted on the decrypted
 # device.
+# spindown: true opts this drive into disk-spindown.yml — valen is only used
+# occasionally, so its HDD spins down when idle to save power and reduce wear.
+# (beelink's NVMe drives have no spindown key and are skipped.)
 storage_drives:
   - device: /dev/disk/by-id/ata-ST12000VN0008-3MH101_ZZ30G3SR
     label: disk1
     mount_point: /mnt/disk1
     crypt_name: disk1_crypt
+    spindown: true
 
 # ============================================================================
 # MergerFS

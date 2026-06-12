@@ -1,0 +1,73 @@
+---
+# HDD spin-down via hdparm
+#
+# What: Installs hdparm and configures spin-down (-S) and APM (-B) settings
+#       for HDDs opted in via storage_drives, applied immediately and
+#       persisted across reboots via /etc/hdparm.conf.
+# Why:  Spinning HDDs draw power and wear out even when the storage pool
+#       isn't being accessed. Hosts like valen are used only occasionally,
+#       so their HDDs should spin down when idle. NVMe-only hosts (e.g.
+#       beelink) have no drives with `spindown: true` and are skipped
+#       entirely.
+# Resolves: The need to reduce idle power draw/wear on occasional-use HDD
+#           storage nodes without affecting always-on NVMe storage nodes.
+#
+# Drives opt in via storage_drives: set `spindown: true` on a drive entry in
+# host_vars/<host>/main.yml — storage_drives stays the single source of
+# truth per drive, no parallel device list.
+#
+# Persistence: the hdparm package ships a udev rule that re-applies
+# /etc/hdparm.conf settings whenever a matching drive appears (e.g. on
+# boot), so no custom udev rules are needed here.
+#
+# Safe to re-run: package install and config template are idempotent; the
+# immediate hdparm apply only runs when the config actually changes.
+
+- name: Configure HDD spin-down
+  hosts: storage
+  become: true
+
+  vars:
+    disk_spindown_drives: >-
+      {{ storage_drives
+         | selectattr('spindown', 'defined')
+         | selectattr('spindown')
+         | map(attribute='device')
+         | list }}
+    disk_spindown_configured: "{{ disk_spindown_drives | length > 0 }}"
+
+  tasks:
+    - name: Skip spin-down when no drives configured
+      ansible.builtin.debug:
+        msg: >-
+          Skipping disk spin-down: no drive in storage_drives has
+          `spindown: true`. Set it on a drive entry in
+          host_vars/<host>/main.yml for HDDs that should spin down when idle.
+      when: not (disk_spindown_configured | bool)
+
+    - name: Configure spin-down for HDDs
+      when: disk_spindown_configured | bool
+      block:
+        - name: Install hdparm
+          ansible.builtin.apt:
+            name: hdparm
+            state: present
+            update_cache: true
+            cache_valid_time: 86400 # 24h — skip refresh if cache is recent
+
+        - name: Write hdparm spin-down configuration
+          ansible.builtin.template:
+            src: templates/hdparm.conf.j2
+            dest: /etc/hdparm.conf
+            mode: "0644"
+            owner: root
+            group: root
+            backup: true
+          register: hdparm_conf
+
+        - name: Apply spin-down settings immediately  # noqa: no-handler
+          ansible.builtin.command:
+            cmd: "hdparm -S {{ disk_spindown_timeout }} -B {{ disk_spindown_apm }} {{ item }}"
+          loop: "{{ disk_spindown_drives }}"
+          when: hdparm_conf.changed
+          changed_when: true

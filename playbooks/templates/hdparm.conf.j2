@@ -1,0 +1,11 @@
+# {{ ansible_managed }}
+#
+# Spin-down settings for HDDs in disk_spindown_drives. Applied at boot by
+# the udev rule shipped with the hdparm package (/lib/udev/hdparm reads this
+# file and matches devices by the by-id path below).
+{% for device in disk_spindown_drives %}
+{{ device }} {
+	apm = {{ disk_spindown_apm }}
+	spindown_time = {{ disk_spindown_timeout }}
+}
+{% endfor %}

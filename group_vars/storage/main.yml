@@ -47,3 +47,17 @@ snapraid_version: "14.6"
 snapraid_parity_drives: []
 snapraid_data_drives: []
 snapraid_content_files: []
+
+# ============================================================================
+# HDD spin-down — group-wide defaults
+# ============================================================================
+# Drives opt in via storage_drives: set `spindown: true` on a drive entry in
+# host_vars/<host>/main.yml (see host_vars/valen/main.yml). NVMe-only hosts
+# (e.g. beelink) have no such entries and disk-spindown.yml skips entirely.
+
+# hdparm -S value: 240 = 240*5s = 20 minutes of inactivity before spin-down.
+disk_spindown_timeout: 240
+
+# hdparm -B value: 1-127 permits the drive to spin down; 127 favours
+# performance over aggressive power saving within that range.
+disk_spindown_apm: 127
