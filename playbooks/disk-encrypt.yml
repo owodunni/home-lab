@@ -23,7 +23,15 @@
   tasks:
     - name: Install cryptsetup
       ansible.builtin.apt:
-        name: cryptsetup
+        # systemd-cryptsetup: ships systemd-cryptsetup-generator, which reads
+        # /etc/crypttab at boot and creates the systemd-cryptsetup@<name>.service
+        # units that unlock these drives. On Debian 13 this generator lives in
+        # a separate package from `cryptsetup` — without it, crypttab entries
+        # are never processed, /dev/mapper/<crypt_name> never appears, and the
+        # dependent mounts time out at boot (emergency mode).
+        name:
+          - cryptsetup
+          - systemd-cryptsetup
         state: present
         update_cache: true
         cache_valid_time: 86400 # 24h — skip refresh if cache is recent
