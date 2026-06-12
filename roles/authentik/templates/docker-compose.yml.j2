@@ -19,25 +19,13 @@ services:
       POSTGRES_USER: authentik
       POSTGRES_DB: authentik
 
-  redis:
-    image: docker.io/library/redis:alpine
-    command: --save 60 1 --loglevel warning
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
-      start_period: 20s
-      interval: 30s
-      retries: 5
-      timeout: 3s
-    volumes:
-      - redis:/data
-
+  # Redis removed in Authentik 2025.10: cache, embedded outpost, and websocket
+  # state moved to Postgres, so no Redis service/host config is needed.
   server:
     image: ghcr.io/goauthentik/server:{{ authentik_version }}
     restart: unless-stopped
     command: server
     environment:
-      AUTHENTIK_REDIS__HOST: redis
       AUTHENTIK_POSTGRESQL__HOST: postgresql
       AUTHENTIK_POSTGRESQL__USER: authentik
       AUTHENTIK_POSTGRESQL__NAME: authentik
@@ -52,15 +40,12 @@ services:
     depends_on:
       postgresql:
         condition: service_healthy
-      redis:
-        condition: service_healthy
 
   worker:
     image: ghcr.io/goauthentik/server:{{ authentik_version }}
     restart: unless-stopped
     command: worker
     environment:
-      AUTHENTIK_REDIS__HOST: redis
       AUTHENTIK_POSTGRESQL__HOST: postgresql
       AUTHENTIK_POSTGRESQL__USER: authentik
       AUTHENTIK_POSTGRESQL__NAME: authentik
@@ -76,8 +61,6 @@ services:
       - .env
     depends_on:
       postgresql:
-        condition: service_healthy
-      redis:
         condition: service_healthy
 
   # Periodic pg_dump → offsite Garage S3 (beelink at the barn, reached over WireGuard). Image tag must match the postgres major version above (16).
@@ -134,6 +117,4 @@ services:
 
 volumes:
   database:
-    driver: local
-  redis:
     driver: local

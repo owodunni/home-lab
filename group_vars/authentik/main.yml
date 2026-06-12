@@ -2,9 +2,14 @@
 # Authentik service configuration
 # Secrets (vault_authentik_pg_pass, vault_authentik_secret_key) live in vault.yml.
 
-# Pin to a specific release. To upgrade: bump this value and re-run the auth layer.
-# Releases: https://github.com/goauthentik/authentik/releases
-authentik_version: "2025.6.1"
+# Pin to a specific release. Releases: https://github.com/goauthentik/authentik/releases
+#
+# UPGRADING: Authentik forbids skipping major releases — each major's DB
+# migrations must run in order. Step through every intermediate major (latest
+# patch of each), backing up the DB and re-running the auth layer at each step,
+# and verify the stack is healthy before advancing. Check each release's notes
+# for breaking changes that need compose/config edits before bumping.
+authentik_version: "2026.5.3"
 
 # Directory on the target host where the docker-compose stack and persistent
 # data subdirs (media, certs, custom-templates) are stored.
@@ -53,10 +58,9 @@ authentik_backup_passphrase_enabled: false
 # pg-backup above only covers the Postgres dump. media/, certs/, and
 # custom-templates/ are bind-mounted directories that live outside Postgres
 # (uploaded assets, imported certs, custom templates) and need their own
-# backup. redis/ and the Postgres data dir are intentionally excluded: redis
-# is regenerable cache/session state, and a raw copy of a live Postgres data
-# dir would be crash-inconsistent (pg-backup's logical dump is the correct
-# way to capture that).
+# backup. The Postgres data dir is intentionally excluded: a raw copy of a
+# live Postgres data dir would be crash-inconsistent (pg-backup's logical
+# dump is the correct way to capture that).
 #
 # Vault vars required (group_vars/authentik/vault.yml):
 #   vault_authentik_volumes_backup_s3_access_key / _secret_key — separate
