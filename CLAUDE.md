@@ -31,6 +31,7 @@ the entire site.
 | **services** | Storage-backend services that depend on ingress but not on auth. Currently: Garage S3 object storage (the offsite target for Authentik's DB backups). | `garage.yml` | `garage` |
 | **auth** | Identity provider (Authentik SSO/OIDC). Must be live before any service configures OIDC integration against it. Provisions its backup bucket/key on Garage, so `services` runs first. | `authentik.yml` | `authentik` |
 | **monitoring** | Observability stack: node_exporter on every host; smartctl_exporter (SMART drive health) on `[storage]`; Prometheus, Alertmanager, and Grafana on `[monitoring]`. Alert rules cover host and drive faults (failed SMART status, reallocated/pending sectors, temperature, NVMe wearout) and route to email via Alertmanager. Grafana exposed at `grafana.jardoole.xyz` via Traefik. | `node-exporter.yml`, `smartctl-exporter.yml`, `prometheus.yml`, `grafana.yml` | `all` / `storage` / `monitoring` |
+| **applications** | End-user app services that sit on the full platform (ingress + Docker + NFS, and auth for SSO). Currently: Seafile file sync/share — compute on a Pi, bulk file data on valen's pool over NFS, behind a co-located Traefik. | `seafile.yml` | `seafile` |
 | **security** | Hardening: automatic security updates (firewall, SSH hardening to come). | `unattended-upgrades.yml` | `all` |
 
 **Order matters:** `system` first (patched OS before anything else), then
@@ -44,11 +45,14 @@ backs its database up to, so it must exist before `auth`), then `auth`
 (Authentik provisions its backup bucket/key on the now-live Garage, then deploys
 with the pg-backup sidecar), then `monitoring` (Traefik must be running for the
 Grafana routing config; Authentik must be live so Grafana SSO can be wired up),
-then `security` last. Hardening is the most likely step to lock an operator out,
-so it always runs after the host is fully configured.
+then `applications` (end-user services that depend on every platform layer
+below them — ingress, Docker, NFS, and a live Authentik for any SSO), then
+`security` last. Hardening is the most likely step to lock an operator out, so
+it always runs after the host is fully configured.
 
-A future *application* service that consumes OIDC would not fit the current
-`services` layer (which runs before `auth`); sequence it after `auth` instead.
+The `applications` layer is where a service that consumes OIDC belongs: it would
+not fit the `services` layer (which runs before `auth`), so it is sequenced
+after `auth` (and after `monitoring`), before `security`.
 
 ### Service host targeting
 

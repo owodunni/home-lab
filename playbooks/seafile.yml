@@ -1,0 +1,65 @@
+---
+# Deploy Seafile CE (MariaDB + Redis + seafile) as a docker-compose stack,
+# store its file data on valen's NFS pool, and route seafile.jardoole.xyz
+# through the co-located Traefik.
+#
+# What: Provisions the Seafile data dir on the storage pool, deploys the stack
+#       on the [seafile] host, and registers the Traefik route.
+# Why:  A real service exercising the NFS layer — compute on a Pi, bulk file
+#       data on valen — matching the "files-on-valen" model the export targets.
+# Resolves: Self-hosted file sync/share backed by the shared pool.
+#
+# Prerequisites:
+#   - Docker runtime (service-infra layer) on the [seafile] host.
+#   - NFS client userspace on the [seafile] host (storage layer / nfs.yml; the
+#     host is in [nfs_client]).
+#   - Traefik running with conf.d at /etc/traefik/conf.d (ingress layer) — the
+#     [seafile] host is in [ingress], so Traefik is co-located here.
+#   - mergerfs runs with `noforget` and the pool media account exists (storage
+#     layer); the seafile container (NON_ROOT, UID 8000) writes as that account.
+#
+# Vault vars required in group_vars/seafile/vault.yml:
+#   vault_seafile_mysql_root_password   — MariaDB root (first-run DB creation)
+#   vault_seafile_mysql_db_password     — seafile DB user password
+#   vault_seafile_jwt_private_key       — >=32 chars, e.g. `openssl rand -hex 32`
+#   vault_seafile_redis_password        — Redis AUTH password
+#   vault_seafile_admin_password        — initial local admin password
+
+- name: Provision the Seafile data directory on the storage pool
+  # Runs on the NFS server (valen) because the directory lives on its local
+  # pool mount. Owned by the media account (UID/GID 8000) so the seafile
+  # container (NON_ROOT → UID 8000) can write to it over NFS without the export
+  # dropping root_squash. setgid (2775) keeps new files in the media group.
+  hosts: nfs_server
+  become: true
+  vars:
+    # Single source of truth: the export device path lives with the service in
+    # group_vars/seafile, pulled here via the [seafile] group so this play needs
+    # no edit if the device name changes. Strip the leading ":" from the NFSv4
+    # device (":/seafile") to get the pool-relative subdir.
+    _seafile_host: "{{ groups['seafile'][0] }}"
+    _seafile_pool_subdir: "{{ hostvars[_seafile_host]['seafile_nfs_device'] | regex_replace('^:/', '') }}"
+  tasks:
+    - name: Create Seafile data directory in the storage pool
+      ansible.builtin.file:
+        path: "{{ mergerfs_mount_point }}/{{ _seafile_pool_subdir }}"
+        state: directory
+        owner: "{{ storage_media_uid }}"
+        group: "{{ storage_media_gid }}"
+        mode: "2775"
+
+- name: Deploy Seafile and register its Traefik route
+  hosts: seafile
+  become: true
+
+  roles:
+    - role: seafile
+
+  tasks:
+    - name: Deploy Traefik routing config for Seafile
+      ansible.builtin.template:
+        src: templates/traefik-seafile.yml.j2
+        dest: /etc/traefik/conf.d/seafile.yml
+        owner: traefik
+        group: traefik
+        mode: "0640"

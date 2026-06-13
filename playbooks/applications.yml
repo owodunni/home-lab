@@ -1,0 +1,17 @@
+---
+# Applications layer
+#
+# What: Deploys end-user application services that sit on top of the full
+#       platform (ingress, Docker, storage/NFS, and identity). Currently:
+#       Seafile file sync/share.
+# Why:  These services depend on everything below them — Traefik for ingress,
+#       Docker for runtime, the NFS pool for bulk data, and (for SSO) Authentik.
+#       They are sequenced after `auth` so any OIDC integration can target a
+#       live identity provider, per the architecture note in CLAUDE.md.
+# Resolves: A place for user-facing apps that must run after auth, keeping them
+#           out of the pre-auth `services` layer.
+#
+# Pure orchestration: no logic here, only imports of standalone function
+# playbooks.
+- name: Deploy Seafile file sync/share
+  ansible.builtin.import_playbook: seafile.yml

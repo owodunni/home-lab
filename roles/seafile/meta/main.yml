@@ -1,0 +1,8 @@
+---
+galaxy_info:
+  role_name: seafile
+  author: home-lab
+  description: Deploy Seafile CE file-sync/share via docker-compose
+  license: MIT
+  min_ansible_version: "2.15"
+dependencies: []

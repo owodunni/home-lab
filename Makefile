@@ -2,7 +2,7 @@
 # Fix macOS fork safety issue with Python 3.13 + Ansible multiprocessing
 ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
-.PHONY: help setup vault-edit site system networking storage ingress traefik auth authentik services garage monitoring node-exporter smartctl-exporter prometheus grafana security disk-encrypt snapraid-mergerfs nfs disk-spindown wireguard
+.PHONY: help setup vault-edit site system networking storage ingress traefik auth authentik services garage monitoring node-exporter smartctl-exporter prometheus grafana security disk-encrypt snapraid-mergerfs nfs disk-spindown wireguard seafile applications
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -122,10 +122,18 @@ monitoring: ## 🔭 Monitoring layer: node_exporter + Prometheus + Alertmanager 
 	@echo "Running monitoring layer..."
 	$(ANSIBLE_PLAYBOOK) playbooks/monitoring.yml
 
+seafile: ## 🗂️ Install Seafile file sync/share on [seafile] hosts (data on NFS)
+	@echo "Configuring Seafile..."
+	$(ANSIBLE_PLAYBOOK) playbooks/seafile.yml
+
+applications: ## 📂 Applications layer: end-user services (Seafile)
+	@echo "Running applications layer..."
+	$(ANSIBLE_PLAYBOOK) playbooks/applications.yml
+
 security: ## 🔒 Security layer: unattended upgrades (firewall/SSH to come)
 	@echo "Running security layer..."
 	$(ANSIBLE_PLAYBOOK) playbooks/security.yml
 
-site: ## 🏗️ Full provisioning: all layers in sequence (system → networking → storage → ingress → service-infra → auth → services → monitoring → security)
+site: ## 🏗️ Full provisioning: all layers in sequence (system → networking → storage → ingress → service-infra → services → auth → monitoring → applications → security)
 	@echo "Running full site provisioning..."
 	$(ANSIBLE_PLAYBOOK) site.yml

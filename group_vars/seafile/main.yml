@@ -1,0 +1,96 @@
+---
+# Seafile service configuration
+# Secrets (DB passwords, JWT key, Redis password, admin password) live in
+# group_vars/seafile/vault.yml with the vault_ prefix.
+
+# ============================================================================
+# Images — pinned upstream tags
+# ============================================================================
+# Seafile CE 13.0. Releases: https://hub.docker.com/r/seafileltd/seafile-mc/tags
+# UPGRADING: read the release notes — Seafile runs DB migrations on container
+# start, so back up the DB (and the NFS data dir) before bumping a major.
+seafile_image: "seafileltd/seafile-mc:13.0-latest"
+
+# MariaDB image — matches the version Seafile's compose ships and tests against.
+seafile_db_image: "mariadb:10.11"
+
+# Redis is cache-only here (CACHE_PROVIDER=redis); pinned to a stable major.
+seafile_redis_image: "redis:7.4"
+
+# ============================================================================
+# Placement and routing
+# ============================================================================
+# Directory on the Seafile host holding the compose stack + .env. The actual
+# persistent data does NOT live here — file data is on NFS (see below) and the
+# MariaDB data is a local Docker named volume.
+seafile_dir: /opt/seafile
+
+# Port the seafile container's HTTP (port 80) is published on, bound to
+# 127.0.0.1. Traefik is co-located on this host (pi-cm5-2 is in [ingress]) and
+# proxies to it over loopback, so the port is never exposed on the LAN.
+seafile_port: 8001
+
+# Public hostname. Traefik terminates TLS (Cloudflare DNS-01 wildcard) and
+# routes Host(seafile.jardoole.xyz) → 127.0.0.1:{{ seafile_port }}.
+# DNS for this name must resolve to the Seafile host (pi-cm5-2).
+seafile_hostname: "seafile.{{ traefik_domain }}"
+
+# https because TLS is terminated upstream by Traefik; Seafile uses this to
+# build absolute URLs (it sits behind the proxy, not serving TLS itself).
+seafile_server_protocol: "https"
+
+# ============================================================================
+# Storage — file data on the NFS pool, DB local
+# ============================================================================
+# The seafile container's /shared (object store + conf) is a native Docker NFS
+# volume backed by valen's MergerFS pool. addr is the DNS name (not an IP) so
+# the server can move; device is relative to the NFSv4 pseudo-root (the pool
+# export uses fsid=0), so ":/seafile" resolves to /mnt/storage/seafile.
+# The container runs as UID/GID 8000 (NON_ROOT below), which matches the pool's
+# storage_media_uid/gid — so writes succeed while the export keeps root_squash.
+seafile_nfs_addr: "valen"
+seafile_nfs_device: ":/seafile"
+
+# Run the Seafile process as the non-root `seafile` user (fixed UID/GID 8000 in
+# the image). Required so its NFS writes are not squashed to nobody by the
+# pool's root_squash export.
+seafile_non_root: true
+
+# ============================================================================
+# Behaviour toggles — keep the first deploy minimal
+# ============================================================================
+# Logs to the container's stdout (captured by Docker's json-file driver on this
+# host) instead of files under /shared. Why: log files on NFS are wasteful
+# small writes AND would keep valen's HDD spun up 24/7, defeating
+# disk-spindown.yml. The pool then only sees the actual file object store.
+seafile_log_to_stdout: true
+
+# SeaDoc (collaborative docs) and the notification server add extra containers
+# and routing; off for the initial deploy. Enable later if wanted.
+seafile_enable_seadoc: false
+seafile_enable_notification_server: false
+
+# Cap the size of the stdout logs Docker retains for the seafile container.
+seafile_log_max_size: "20m"
+seafile_log_max_file: "3"
+
+# ============================================================================
+# Database — names only; credentials are vaulted
+# ============================================================================
+# Seafile creates and uses three databases. Defaults match upstream; kept
+# explicit so they travel with the service config.
+seafile_db_host: "db"
+seafile_db_user: "seafile"
+seafile_ccnet_db: "ccnet_db"
+seafile_seafile_db: "seafile_db"
+seafile_seahub_db: "seahub_db"
+
+# ============================================================================
+# Initial admin account (used only on first-ever startup)
+# ============================================================================
+# Local admin for the first deploy. Password is vaulted
+# (vault_seafile_admin_password). Authentik SSO is a planned follow-up.
+seafile_admin_email: "alex.o.poole@gmail.com"
+
+# IANA timezone for the containers.
+seafile_time_zone: "Etc/UTC"

@@ -8,7 +8,7 @@
 #       runnable for targeted changes.
 # Resolves: The need for a reproducible bootstrap that fixes layer ordering in one
 #           place — system → networking → storage → ingress → service-infra →
-#           services → auth → monitoring → security.
+#           services → auth → monitoring → applications → security.
 #
 # Order is significant: each layer assumes the previous one has completed.
 - name: System layer — base OS and hardware configuration
@@ -34,6 +34,9 @@
 
 - name: Monitoring layer — node_exporter, Prometheus, Alertmanager, Grafana
   ansible.builtin.import_playbook: playbooks/monitoring.yml
+
+- name: Applications layer — end-user services (Seafile)
+  ansible.builtin.import_playbook: playbooks/applications.yml
 
 - name: Security layer — hardening
   ansible.builtin.import_playbook: playbooks/security.yml

@@ -1,0 +1,25 @@
+---
+# Fallback defaults — production values are set in group_vars/seafile/main.yml.
+# These exist so the role can be tested in isolation without group_vars.
+seafile_image: "seafileltd/seafile-mc:13.0-latest"
+seafile_db_image: "mariadb:10.11"
+seafile_redis_image: "redis:7.4"
+seafile_dir: /opt/seafile
+seafile_port: 8001
+seafile_hostname: "seafile.example.com"
+seafile_server_protocol: "https"
+seafile_nfs_addr: "valen"
+seafile_nfs_device: ":/seafile"
+seafile_non_root: true
+seafile_log_to_stdout: true
+seafile_enable_seadoc: false
+seafile_enable_notification_server: false
+seafile_log_max_size: "20m"
+seafile_log_max_file: "3"
+seafile_db_host: "db"
+seafile_db_user: "seafile"
+seafile_ccnet_db: "ccnet_db"
+seafile_seafile_db: "seafile_db"
+seafile_seahub_db: "seahub_db"
+seafile_admin_email: "me@example.com"
+seafile_time_zone: "Etc/UTC"
