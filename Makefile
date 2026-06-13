@@ -2,7 +2,7 @@
 # Fix macOS fork safety issue with Python 3.13 + Ansible multiprocessing
 ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
-.PHONY: help setup vault-edit site system networking storage ingress traefik auth authentik services garage monitoring node-exporter prometheus grafana security disk-encrypt snapraid-mergerfs nfs disk-spindown wireguard
+.PHONY: help setup vault-edit site system networking storage ingress traefik auth authentik services garage monitoring node-exporter smartctl-exporter prometheus grafana security disk-encrypt snapraid-mergerfs nfs disk-spindown wireguard
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -105,6 +105,10 @@ services: ## 📦 Services layer: Garage S3 object storage
 node-exporter: ## 📡 Deploy Prometheus node_exporter on all fleet hosts
 	@echo "Deploying node_exporter on all fleet hosts..."
 	$(ANSIBLE_PLAYBOOK) playbooks/node-exporter.yml
+
+smartctl-exporter: ## 💿 Deploy smartctl_exporter (SMART drive health) on [storage] hosts
+	@echo "Deploying smartctl_exporter on storage hosts..."
+	$(ANSIBLE_PLAYBOOK) playbooks/smartctl-exporter.yml
 
 prometheus: ## 📈 Install Prometheus and Alertmanager on [monitoring] hosts
 	@echo "Configuring Prometheus and Alertmanager..."

@@ -26,3 +26,15 @@ storage_drives:
 # Single-drive pool — additional data drives append here as they're added.
 mergerfs_data_drives:
   - /mnt/disk1
+
+# ============================================================================
+# smartctl_exporter — poll interval override
+# ============================================================================
+# What: Poll SMART hourly instead of the 60s group default.
+# Why:  valen's HDD spins down after 20 min idle (disk-spindown.yml). A SMART
+#       read wakes a standby drive and smartctl_exporter has no skip-standby
+#       flag, so a 60s poll would keep the drive spinning 24/7 and defeat
+#       spin-down. SMART attributes move slowly, so hourly resolution is ample
+#       for health/alerting while letting the drive sleep between brief wakes.
+# Resolves: Conflict between SMART polling and HDD spin-down on this host.
+smartctl_exporter_smartctl_interval: "1h"

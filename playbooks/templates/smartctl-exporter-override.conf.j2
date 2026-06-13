@@ -1,0 +1,11 @@
+{{ ansible_managed | comment }}
+#
+# Grants smartctl_exporter the capabilities smartctl needs to query drives.
+# The prometheus.prometheus.smartctl_exporter role runs the binary as the
+# unprivileged smartctl-exp user with NoNewPrivileges=yes and no capabilities.
+# smartctl issues SG_IO (SATA) and NVMe admin pass-through ioctls that require
+# CAP_SYS_RAWIO and CAP_SYS_ADMIN; without them the exporter runs but reports
+# zero devices. CapabilityBoundingSet keeps the grant to exactly these two.
+[Service]
+AmbientCapabilities=CAP_SYS_RAWIO CAP_SYS_ADMIN
+CapabilityBoundingSet=CAP_SYS_RAWIO CAP_SYS_ADMIN

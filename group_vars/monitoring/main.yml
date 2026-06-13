@@ -19,6 +19,17 @@ monitoring_node_targets:
   - "192.168.2.5:9100"
 
 # ============================================================================
+# smartctl_exporter scrape targets (SMART drive health)
+# Storage hosts only — the disks worth monitoring live there. Deployed by
+# smartctl-exporter.yml on the [storage] group; exposes :9633.
+# beelink is offsite, reachable only via its WireGuard address (192.168.2.5);
+# valen is on the home LAN. Mirrors the addressing used for node targets above.
+# ============================================================================
+monitoring_smartctl_targets:
+  - "valen:9633"
+  - "192.168.2.5:9633"
+
+# ============================================================================
 # Prometheus
 # ============================================================================
 prometheus_version: "3.4.0"
@@ -45,6 +56,9 @@ prometheus_scrape_configs:
   - job_name: "node"
     static_configs:
       - targets: "{{ monitoring_node_targets }}"
+  - job_name: "smartctl"
+    static_configs:
+      - targets: "{{ monitoring_smartctl_targets }}"
   - job_name: "alertmanager"
     static_configs:
       - targets:
@@ -87,6 +101,103 @@ prometheus_alert_rules:
       description: >-
         {% raw %}Memory usage on {{ $labels.instance }} has been above 90%
         for more than 10 minutes.{% endraw %}
+
+  # --- SMART drive health (smartctl_exporter on [storage] hosts) ------------
+  # Metric names follow smartctl_exporter 0.14. ATA attributes are matched by
+  # name on the raw value; NVMe health uses the dedicated nvme metrics.
+  - alert: SmartDeviceHealthFailed
+    # smartctl_device_smart_status == 0 means the drive's own overall-health
+    # self-assessment reports FAILED — replace the disk promptly.
+    expr: "smartctl_device_smart_status == 0"
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "{% raw %}SMART health FAILED on {{ $labels.instance }} ({{ $labels.device }}){% endraw %}"
+      description: >-
+        {% raw %}Device {{ $labels.device }} on {{ $labels.instance }} reports a
+        failed SMART overall-health self-assessment. Back up and replace it.{% endraw %}
+  - alert: SmartctlExporterDown
+    expr: 'up{job="smartctl"} == 0'
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: "{% raw %}smartctl_exporter down on {{ $labels.instance }}{% endraw %}"
+      description: >-
+        {% raw %}smartctl_exporter on {{ $labels.instance }} has been
+        unreachable for more than 5 minutes — drive health is not being
+        monitored.{% endraw %}
+  - alert: SmartReallocatedSectors
+    # Reallocated sectors are a leading indicator of HDD surface failure; any
+    # non-zero count warrants attention.
+    expr: >-
+      smartctl_device_attribute{attribute_name="Reallocated_Sector_Ct",attribute_value_type="raw"} > 0
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{% raw %}Reallocated sectors on {{ $labels.instance }} ({{ $labels.device }}){% endraw %}"
+      description: >-
+        {% raw %}Device {{ $labels.device }} on {{ $labels.instance }} has
+        {{ $value }} reallocated sector(s) — a sign of media degradation.{% endraw %}
+  - alert: SmartPendingSectors
+    expr: >-
+      smartctl_device_attribute{attribute_name="Current_Pending_Sector",attribute_value_type="raw"} > 0
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{% raw %}Pending sectors on {{ $labels.instance }} ({{ $labels.device }}){% endraw %}"
+      description: >-
+        {% raw %}Device {{ $labels.device }} on {{ $labels.instance }} has
+        {{ $value }} current-pending sector(s) awaiting reallocation.{% endraw %}
+  - alert: SmartHighTemperature
+    # 60 °C is a safe generic ceiling for both the IronWolf HDD and the NVMe
+    # drives; tune per-drive later if needed.
+    expr: 'smartctl_device_temperature{temperature_type="current"} > 60'
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{% raw %}High drive temperature on {{ $labels.instance }} ({{ $labels.device }}){% endraw %}"
+      description: >-
+        {% raw %}Device {{ $labels.device }} on {{ $labels.instance }} has been
+        above 60°C ({{ $value }}°C) for more than 10 minutes.{% endraw %}
+  - alert: NvmeMediaErrors
+    expr: "smartctl_device_media_errors > 0"
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{% raw %}NVMe media errors on {{ $labels.instance }} ({{ $labels.device }}){% endraw %}"
+      description: >-
+        {% raw %}Device {{ $labels.device }} on {{ $labels.instance }} reports
+        {{ $value }} NVMe media/data-integrity error(s).{% endraw %}
+  - alert: NvmeWearout
+    # percentage_used is the NVMe endurance estimate; >90% means the drive is
+    # near its rated write life.
+    expr: "smartctl_device_percentage_used > 90"
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{% raw %}NVMe wearout high on {{ $labels.instance }} ({{ $labels.device }}){% endraw %}"
+      description: >-
+        {% raw %}Device {{ $labels.device }} on {{ $labels.instance }} is at
+        {{ $value }}% of its rated write endurance.{% endraw %}
+  - alert: NvmeSpareLow
+    # Available spare blocks have dropped below the drive's own threshold — a
+    # SMART-defined imminent-failure condition for NVMe.
+    expr: "smartctl_device_available_spare < smartctl_device_available_spare_threshold"
+    for: 10m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{% raw %}NVMe spare blocks low on {{ $labels.instance }} ({{ $labels.device }}){% endraw %}"
+      description: >-
+        {% raw %}Device {{ $labels.device }} on {{ $labels.instance }} has
+        available spare below its threshold — replace soon.{% endraw %}
 
 # ============================================================================
 # Alertmanager
@@ -171,3 +282,14 @@ grafana_datasources:
     access: proxy
     jsonData:
       timeInterval: "15s"
+
+# Dashboards auto-provisioned from grafana.com by the grafana.grafana role.
+# Each is downloaded at deploy time and wired to the Prometheus datasource.
+grafana_dashboards:
+  # "SMARTctl Exporter Dashboard" — drive health overview (SMART status,
+  # temperature, reallocated/pending sectors, NVMe wearout). Pairs with the
+  # smartctl scrape job + SMART alert rules above.
+  # https://grafana.com/grafana/dashboards/22604
+  - dashboard_id: 22604
+    revision_id: 2
+    datasource: Prometheus

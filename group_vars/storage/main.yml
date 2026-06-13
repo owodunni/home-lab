@@ -79,3 +79,18 @@ disk_spindown_timeout: 240
 # hdparm -B value: 1-127 permits the drive to spin down; 127 favours
 # performance over aggressive power saving within that range.
 disk_spindown_apm: 127
+
+# ============================================================================
+# smartctl_exporter — group-wide defaults (SMART drive health → Prometheus)
+# ============================================================================
+# Deployed by smartctl-exporter.yml on every [storage] host. Scraped by
+# Prometheus on :9633 (see monitoring_smartctl_targets in group_vars/monitoring).
+
+# Pinned upstream release — https://github.com/prometheus-community/smartctl_exporter/releases
+smartctl_exporter_version: "0.14.0"
+
+# How often the exporter runs smartctl against each device. 60s suits beelink's
+# always-on NVMe. valen overrides this to 1h in host_vars/valen/main.yml because
+# a SMART read wakes its spun-down HDD (disk-spindown.yml) and the exporter has
+# no skip-standby flag — hourly lets the drive sleep between brief wakes.
+smartctl_exporter_smartctl_interval: "60s"

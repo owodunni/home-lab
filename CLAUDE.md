@@ -30,7 +30,7 @@ the entire site.
 | **service-infra** | Foundational infrastructure for application services (e.g., Docker runtime). | `docker.yml` | `services` |
 | **services** | Storage-backend services that depend on ingress but not on auth. Currently: Garage S3 object storage (the offsite target for Authentik's DB backups). | `garage.yml` | `garage` |
 | **auth** | Identity provider (Authentik SSO/OIDC). Must be live before any service configures OIDC integration against it. Provisions its backup bucket/key on Garage, so `services` runs first. | `authentik.yml` | `authentik` |
-| **monitoring** | Observability stack: node_exporter on every host; Prometheus, Alertmanager, and Grafana on `[monitoring]`. Grafana exposed at `grafana.jardoole.xyz` via Traefik. | `node-exporter.yml`, `prometheus.yml`, `grafana.yml` | `all` / `monitoring` |
+| **monitoring** | Observability stack: node_exporter on every host; smartctl_exporter (SMART drive health) on `[storage]`; Prometheus, Alertmanager, and Grafana on `[monitoring]`. Alert rules cover host and drive faults (failed SMART status, reallocated/pending sectors, temperature, NVMe wearout) and route to email via Alertmanager. Grafana exposed at `grafana.jardoole.xyz` via Traefik. | `node-exporter.yml`, `smartctl-exporter.yml`, `prometheus.yml`, `grafana.yml` | `all` / `storage` / `monitoring` |
 | **security** | Hardening: automatic security updates (firewall, SSH hardening to come). | `unattended-upgrades.yml` | `all` |
 
 **Order matters:** `system` first (patched OS before anything else), then

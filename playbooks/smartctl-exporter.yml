@@ -1,0 +1,73 @@
+---
+# Deploy smartctl_exporter on storage hosts
+#
+# What: Installs smartmontools and the Prometheus smartctl_exporter systemd
+#       service on every host in the [storage] group (beelink, valen), exposing
+#       SMART drive-health metrics on :9633 for Prometheus to scrape.
+# Why:  node_exporter reports filesystem capacity and IO but NOT drive health
+#       (SMART). The storage hosts hold the data that matters — beelink's NVMe
+#       SnapRAID pool + Garage object data, and valen's IronWolf HDD — so SMART
+#       attributes (reallocated/pending sectors, temperature, NVMe wearout/media
+#       errors, overall self-assessment) are exactly where early-failure warning
+#       is most valuable.
+# Resolves: Absent drive-health metrics. Pairs with the smartctl alert rules in
+#           group_vars/monitoring/main.yml so Alertmanager emails on SMART faults.
+#
+# Prerequisites:
+#   - prometheus.prometheus collection (ships the smartctl_exporter role)
+#   - Prometheus scrapes the smartctl job (group_vars/monitoring/main.yml)
+#
+# Spin-down note: a SMART read wakes a standby drive and the exporter has no
+# skip-standby flag. valen's HDD spins down when idle (disk-spindown.yml), so it
+# overrides smartctl_exporter_smartctl_interval to 1h in host_vars/valen/main.yml
+# — the drive wakes briefly once an hour, then sleeps. beelink's always-on NVMe
+# keeps the 60s group default.
+
+- name: Deploy smartctl_exporter on storage hosts
+  hosts: storage
+  become: true
+
+  pre_tasks:
+    # smartmontools must be present before the role runs — the role expects
+    # /usr/sbin/smartctl but does not install it. pre_tasks always run first.
+    - name: Install smartmontools (provides /usr/sbin/smartctl)
+      ansible.builtin.apt:
+        name: smartmontools
+        state: present
+        update_cache: true
+        cache_valid_time: 86400 # 24h — skip refresh if cache is recent
+
+  roles:
+    - role: prometheus.prometheus.smartctl_exporter
+
+  tasks:
+    # What: systemd drop-in granting smartctl_exporter the raw-IO/admin caps.
+    # Why:  The role runs the exporter as the unprivileged smartctl-exp user with
+    #       NoNewPrivileges=yes and NO capabilities. smartctl issues SG_IO (SATA)
+    #       and NVMe admin ioctls that require CAP_SYS_RAWIO + CAP_SYS_ADMIN —
+    #       without these the exporter starts but reads zero devices.
+    # Resolves: Empty SMART metrics from an otherwise-running exporter.
+    #       (Fallback if some controller still refuses: set User=root here.)
+    - name: Ensure smartctl_exporter systemd drop-in directory exists
+      ansible.builtin.file:
+        path: /etc/systemd/system/smartctl_exporter.service.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Grant smartctl_exporter raw-IO/admin capabilities via drop-in
+      ansible.builtin.template:
+        src: templates/smartctl-exporter-override.conf.j2
+        dest: /etc/systemd/system/smartctl_exporter.service.d/override.conf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart smartctl_exporter
+
+  handlers:
+    - name: Restart smartctl_exporter
+      ansible.builtin.systemd:
+        name: smartctl_exporter
+        state: restarted
+        daemon_reload: true
