@@ -28,17 +28,28 @@
 - name: Provision the Seafile data directory on the storage pool
   # Runs on the NFS server (valen) because the directory lives on its local
   # pool mount. Owned by the media account (UID/GID 8000) so the seafile
-  # container (NON_ROOT → UID 8000) can write to it over NFS without the export
-  # dropping root_squash. setgid (2775) keeps new files in the media group.
+  # container's long-running server (NON_ROOT → UID 8000) can write to it.
+  # setgid (2775) keeps new files in the media group.
+  #
+  # The pool's base export (nfs.yml) keeps root_squash, but Seafile's image runs
+  # its /etc/my_init.d bootstrap as root *before* dropping to 8000, and squashed
+  # root cannot create /shared/seafile — the container crash-loops. So this play
+  # also drops an /etc/exports.d entry re-exporting just this subtree with
+  # all_squash → the media account, leaving root_squash intact everywhere else.
   hosts: nfs_server
   become: true
   vars:
-    # Single source of truth: the export device path lives with the service in
-    # group_vars/seafile, pulled here via the [seafile] group so this play needs
-    # no edit if the device name changes. Strip the leading ":" from the NFSv4
-    # device (":/seafile") to get the pool-relative subdir.
+    # Single source of truth: the pool-relative subdir lives with the service in
+    # group_vars/seafile (seafile_nfs_subdir), pulled here via the [seafile]
+    # group so this play needs no edit if it changes.
     _seafile_host: "{{ groups['seafile'][0] }}"
-    _seafile_pool_subdir: "{{ hostvars[_seafile_host]['seafile_nfs_device'] | regex_replace('^:/', '') }}"
+    _seafile_pool_subdir: "{{ hostvars[_seafile_host]['seafile_nfs_subdir'] }}"
+
+  handlers:
+    - name: Reload NFS exports
+      ansible.builtin.command: exportfs -ra
+      changed_when: true
+
   tasks:
     - name: Create Seafile data directory in the storage pool
       ansible.builtin.file:
@@ -47,6 +58,26 @@
         owner: "{{ storage_media_uid }}"
         group: "{{ storage_media_gid }}"
         mode: "2775"
+
+    - name: Ensure the NFS exports.d drop-in directory exists
+      # exportfs reads /etc/exports.d/*.exports, but the directory is not always
+      # present until the NFS server package creates it; create it so the
+      # subtree export below can be dropped in regardless of install order.
+      ansible.builtin.file:
+        path: /etc/exports.d
+        state: directory
+        mode: "0755"
+        owner: root
+        group: root
+
+    - name: Export the Seafile subtree with all_squash to the media account
+      ansible.builtin.template:
+        src: templates/exports-seafile.j2
+        dest: /etc/exports.d/seafile.exports
+        mode: "0644"
+        owner: root
+        group: root
+      notify: Reload NFS exports
 
 - name: Deploy Seafile and register its Traefik route
   hosts: seafile

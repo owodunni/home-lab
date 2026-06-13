@@ -44,16 +44,35 @@ seafile_server_protocol: "https"
 # ============================================================================
 # The seafile container's /shared (object store + conf) is a native Docker NFS
 # volume backed by valen's MergerFS pool. addr is the DNS name (not an IP) so
-# the server can move; device is relative to the NFSv4 pseudo-root (the pool
-# export uses fsid=0), so ":/seafile" resolves to /mnt/storage/seafile.
-# The container runs as UID/GID 8000 (NON_ROOT below), which matches the pool's
-# storage_media_uid/gid — so writes succeed while the export keeps root_squash.
+# the server can move.
 seafile_nfs_addr: "valen"
-seafile_nfs_device: ":/seafile"
 
-# Run the Seafile process as the non-root `seafile` user (fixed UID/GID 8000 in
-# the image). Required so its NFS writes are not squashed to nobody by the
-# pool's root_squash export.
+# Pool-relative subdirectory holding Seafile's data. Single source of truth:
+# playbooks/seafile.yml creates {{ mergerfs_mount_point }}/{{ seafile_nfs_subdir }}
+# on valen and exports it; the volume below mounts that same path.
+seafile_nfs_subdir: "seafile"
+
+# Absolute path of that directory on the NFS server (valen). Must equal valen's
+# mergerfs_mount_point (group_vars/storage, /mnt/storage) + seafile_nfs_subdir.
+# Used as the NFSv3 mount device — v3 addresses the real server path directly,
+# unlike the NFSv4 pseudo-root.
+seafile_nfs_server_path: "/mnt/storage/{{ seafile_nfs_subdir }}"
+
+# Mount this volume over NFSv3, NOT v4. Why: Seafile's image runs its
+# /etc/my_init.d bootstrap as root before dropping to UID 8000, so the data dir
+# must squash root → 8000 (all_squash; see the exports.d drop-in in
+# playbooks/seafile.yml). Under NFSv4 the pool is a single pseudo-filesystem and
+# per-subtree squash options are only honored at real mount boundaries — a
+# subdirectory of the same mergerfs filesystem inherits the parent's
+# root_squash, so root squashes to nobody and the first `mkdir /shared/seafile`
+# fails ("Permission denied"). NFSv3 has no pseudo-root: mountd matches the exact
+# export path and applies its all_squash directly, so the root-run bootstrap
+# maps to 8000 and succeeds.
+seafile_nfs_version: 3
+
+# Run the Seafile server process as the non-root `seafile` user (fixed UID/GID
+# 8000 in the image). With the data export's all_squash every client UID already
+# maps to 8000, but this still keeps the in-container process unprivileged.
 seafile_non_root: true
 
 # ============================================================================

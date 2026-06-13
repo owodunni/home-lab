@@ -9,7 +9,9 @@ seafile_port: 8001
 seafile_hostname: "seafile.example.com"
 seafile_server_protocol: "https"
 seafile_nfs_addr: "valen"
-seafile_nfs_device: ":/seafile"
+seafile_nfs_subdir: "seafile"
+seafile_nfs_server_path: "/mnt/storage/{{ seafile_nfs_subdir }}"
+seafile_nfs_version: 3
 seafile_non_root: true
 seafile_log_to_stdout: true
 seafile_enable_seadoc: false

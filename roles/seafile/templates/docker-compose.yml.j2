@@ -109,16 +109,17 @@ networks:
     name: seafile-net
 
 volumes:
-  # File data + conf on valen's MergerFS pool over NFSv4. device is relative to
-  # the pool's NFSv4 pseudo-root (export uses fsid=0), so ":/seafile" maps to
-  # /mnt/storage/seafile. The dir is pre-created and owned by UID/GID 8000 (the
-  # pool media account) by playbooks/seafile.yml; NON_ROOT=true makes Seafile
-  # write as 8000, so root_squash on the export stays intact.
+  # File data + conf on valen's MergerFS pool. Mounted over NFSv3 (not v4) so the
+  # all_squash subtree export added by playbooks/seafile.yml is honored — see
+  # group_vars/seafile/main.yml (seafile_nfs_version) for the full rationale. The
+  # dir is pre-created and owned by UID/GID 8000 (the pool media account);
+  # all_squash maps the container's root-run bootstrap to 8000 too, so /shared
+  # writes succeed while the rest of the pool keeps root_squash.
   seafile-data:
     driver: local
     driver_opts:
       type: nfs
-      o: "addr={{ seafile_nfs_addr }},nfsvers=4,rw"
-      device: "{{ seafile_nfs_device }}"
+      o: "addr={{ seafile_nfs_addr }},nfsvers={{ seafile_nfs_version }},rw"
+      device: ":{{ seafile_nfs_server_path }}"
   # MariaDB data on local disk — a DB data dir over NFS risks locking/corruption.
   seafile-mysql:
