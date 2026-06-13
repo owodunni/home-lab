@@ -41,11 +41,15 @@
     - role: prometheus.prometheus.smartctl_exporter
 
   tasks:
-    # What: systemd drop-in granting smartctl_exporter the raw-IO/admin caps.
+    # What: systemd drop-in granting smartctl_exporter the capabilities it needs.
     # Why:  The role runs the exporter as the unprivileged smartctl-exp user with
-    #       NoNewPrivileges=yes and NO capabilities. smartctl issues SG_IO (SATA)
-    #       and NVMe admin ioctls that require CAP_SYS_RAWIO + CAP_SYS_ADMIN —
-    #       without these the exporter starts but reads zero devices.
+    #       NoNewPrivileges=yes and NO capabilities. smartctl needs CAP_SYS_RAWIO
+    #       (SATA SG_IO) + CAP_SYS_ADMIN (NVMe admin pass-through) for the ioctls,
+    #       AND CAP_DAC_OVERRIDE to open the device nodes at all — the NVMe
+    #       controller char node (/dev/nvme0) is root:root 0600 and SATA nodes
+    #       are root:disk 0660, neither readable by smartctl-exp. Without these
+    #       the exporter starts but logs "Permission denied" and reads zero
+    #       devices (only smartctl_devices / build_info metrics appear).
     # Resolves: Empty SMART metrics from an otherwise-running exporter.
     #       (Fallback if some controller still refuses: set User=root here.)
     - name: Ensure smartctl_exporter systemd drop-in directory exists

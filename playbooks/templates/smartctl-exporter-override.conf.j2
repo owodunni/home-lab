@@ -2,10 +2,20 @@
 #
 # Grants smartctl_exporter the capabilities smartctl needs to query drives.
 # The prometheus.prometheus.smartctl_exporter role runs the binary as the
-# unprivileged smartctl-exp user with NoNewPrivileges=yes and no capabilities.
-# smartctl issues SG_IO (SATA) and NVMe admin pass-through ioctls that require
-# CAP_SYS_RAWIO and CAP_SYS_ADMIN; without them the exporter runs but reports
-# zero devices. CapabilityBoundingSet keeps the grant to exactly these two.
+# unprivileged smartctl-exp user with NoNewPrivileges=yes and no capabilities,
+# so out of the box it can read no devices. Three capabilities are required:
+#   CAP_SYS_RAWIO   - issue SG_IO ioctls to SATA/SAS devices (e.g. /dev/sda)
+#   CAP_SYS_ADMIN   - issue NVMe admin pass-through commands (SMART/health log)
+#   CAP_DAC_OVERRIDE - open the device nodes at all. The SATA block nodes are
+#                     root:disk 0660 and the NVMe *controller* char node
+#                     (/dev/nvme0, which smartctl opens for NVMe SMART) is
+#                     root:root 0600 — neither is accessible to smartctl-exp by
+#                     ownership/group, and the caps above only authorise the
+#                     ioctls, not the open(). DAC_OVERRIDE bypasses the file
+#                     permission check for both, which is simpler and covers
+#                     more device types than juggling supplementary groups.
+# CapabilityBoundingSet caps the grant to exactly these three. (If a controller
+# still refuses, the fallback is User=root here.)
 [Service]
-AmbientCapabilities=CAP_SYS_RAWIO CAP_SYS_ADMIN
-CapabilityBoundingSet=CAP_SYS_RAWIO CAP_SYS_ADMIN
+AmbientCapabilities=CAP_SYS_RAWIO CAP_SYS_ADMIN CAP_DAC_OVERRIDE
+CapabilityBoundingSet=CAP_SYS_RAWIO CAP_SYS_ADMIN CAP_DAC_OVERRIDE
