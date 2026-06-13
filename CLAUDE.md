@@ -25,7 +25,7 @@ the entire site.
 |---|---|---|---|
 | **system** | Base OS state: apply all package updates, then Pi CM5 firmware/hardware/power settings. | `upgrade.yml`, `pi-base-config.yml` | `all` / `pi_cm5` |
 | **networking** | WireGuard peers for cross-site connectivity. Tunnels offsite hosts into the home LAN; skips hosts until their UniFi peer values are filled in. | `wireguard.yml` | `wireguard` |
-| **storage** | Encrypted drives, MergerFS pool, SnapRAID parity, HDD spin-down. Only runs on `[storage]` group hosts. | `disk-encrypt.yml`, `snapraid-mergerfs.yml`, `disk-spindown.yml` | `storage` |
+| **storage** | Encrypted drives, MergerFS pool, SnapRAID parity, NFS export of the pool, HDD spin-down. Runs on `[storage]`; the NFS client step runs on `[nfs_client]` (the Docker fleet). | `disk-encrypt.yml`, `snapraid-mergerfs.yml`, `nfs.yml`, `disk-spindown.yml` | `storage` / `nfs_server` / `nfs_client` |
 | ingress | Traefik reverse proxy with ACME wildcard certificates via Cloudflare DNS-01. | `traefik.yml` | `ingress` |
 | **service-infra** | Foundational infrastructure for application services (e.g., Docker runtime). | `docker.yml` | `services` |
 | **services** | Storage-backend services that depend on ingress but not on auth. Currently: Garage S3 object storage (the offsite target for Authentik's DB backups). | `garage.yml` | `garage` |

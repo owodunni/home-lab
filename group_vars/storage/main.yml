@@ -21,10 +21,28 @@ mergerfs_mount_point: /mnt/storage
 # MergerFS mount options
 # allow_other: non-root users (pods/services with arbitrary UIDs) can access the pool
 # use_ino: preserve inode numbers — required for hardlinks to work across the pool
+# noforget: keep inode→path mappings pinned in memory. Required when the pool is
+#   re-exported over NFS (see playbooks/nfs.yml): without it MergerFS can recycle
+#   inode numbers, and NFS clients then hit "Stale file handle" errors.
 # cache.files=partial: cache metadata for performance
 # dropcacheonclose=true: release kernel page cache when files are closed
 # category.create=mfs: place new files on the drive with the most free space
-mergerfs_options: "defaults,allow_other,use_ino,cache.files=partial,dropcacheonclose=true,category.create=mfs"
+mergerfs_options: "defaults,allow_other,use_ino,noforget,cache.files=partial,dropcacheonclose=true,category.create=mfs"
+
+# ============================================================================
+# Shared media ownership
+# ============================================================================
+# A dedicated unprivileged account owns the media tree in the pool so that
+# containers — both those running locally on the storage host and those reaching
+# in over NFS (see playbooks/nfs.yml) — can read/write without running as root.
+#
+# The UID/GID are FIXED, not just a name: NFSv4 with sec=sys identifies users by
+# numeric ID over the wire, so every client container must run with the SAME
+# PUID/PGID (8000) for ownership to line up. A high, dedicated ID avoids
+# colliding with the login user (typically UID 1000) on any host.
+storage_media_user: media
+storage_media_uid: 8000
+storage_media_gid: 8000
 
 # ============================================================================
 # Package versions

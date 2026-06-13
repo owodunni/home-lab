@@ -1,0 +1,4 @@
+# {{ ansible_managed }}
+# NFS exports for the storage pool — managed by playbooks/nfs.yml.
+# See group_vars/nfs_server/main.yml for the rationale behind each option.
+{{ nfs_export_path }} {{ nfs_export_clients }}({{ nfs_export_options }})

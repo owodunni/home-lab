@@ -105,13 +105,37 @@
         state: mounted
         backup: true
 
+    # A dedicated unprivileged account owns the media tree so containers — both
+    # local on this host and remote over NFS (playbooks/nfs.yml) — can write
+    # without running as root. UID/GID are fixed (group_vars/storage/main.yml)
+    # because NFSv4 sec=sys matches on numeric IDs, so client containers must
+    # run with the same PUID/PGID. See group_vars/storage/main.yml for rationale.
+    - name: Create media group
+      ansible.builtin.group:
+        name: "{{ storage_media_user }}"
+        gid: "{{ storage_media_gid }}"
+        system: true
+        state: present
+
+    - name: Create media service account
+      ansible.builtin.user:
+        name: "{{ storage_media_user }}"
+        uid: "{{ storage_media_uid }}"
+        group: "{{ storage_media_user }}"
+        system: true
+        create_home: false
+        shell: /usr/sbin/nologin
+        state: present
+
     - name: Create base directory structure in storage pool
       ansible.builtin.file:
         path: "{{ mergerfs_mount_point }}/{{ item }}"
         state: directory
-        mode: "0755"
-        owner: root
-        group: root
+        # 2775 = setgid bit so files created by any container inherit the media
+        # group, keeping the whole tree group-writable across NFS clients.
+        mode: "2775"
+        owner: "{{ storage_media_user }}"
+        group: "{{ storage_media_user }}"
       loop:
         - media
         - media/library

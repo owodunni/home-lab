@@ -2,7 +2,7 @@
 # Fix macOS fork safety issue with Python 3.13 + Ansible multiprocessing
 ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
-.PHONY: help setup vault-edit site system networking storage ingress traefik auth authentik services garage monitoring node-exporter prometheus grafana security disk-encrypt snapraid-mergerfs disk-spindown wireguard
+.PHONY: help setup vault-edit site system networking storage ingress traefik auth authentik services garage monitoring node-exporter prometheus grafana security disk-encrypt snapraid-mergerfs nfs disk-spindown wireguard
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -57,6 +57,10 @@ disk-encrypt: ## 🔐 Set up LUKS encryption on storage drives
 snapraid-mergerfs: ## 💽 Install and configure MergerFS + SnapRAID storage pool
 	@echo "Configuring MergerFS + SnapRAID storage pool..."
 	$(ANSIBLE_PLAYBOOK) playbooks/snapraid-mergerfs.yml
+
+nfs: ## 📂 Export the storage pool over NFS + install client on the Docker fleet
+	@echo "Configuring NFS server and clients..."
+	$(ANSIBLE_PLAYBOOK) playbooks/nfs.yml
 
 disk-spindown: ## 💤 Configure HDD spin-down on idle storage drives
 	@echo "Configuring HDD spin-down..."

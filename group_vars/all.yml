@@ -1,5 +1,19 @@
 ---
+# Fleet-wide defaults applied to every host.
+
+# ============================================================================
+# Network
+# ============================================================================
+# The home LAN CIDR. Kept as a single variable so renumbering the LAN (or
+# moving the lab to a different subnet) is a one-line change here instead of
+# editing every consumer. Used by playbooks/nfs.yml to scope the storage
+# export to LAN clients. Hosts are referenced by DNS name elsewhere (e.g.
+# `valen`), so only ACLs that genuinely need a CIDR live here.
+home_lan_subnet: "192.168.1.0/24"
+
+# ============================================================================
 # Unattended upgrades configuration for all Pi cluster hosts
+# ============================================================================
 
 # Trusted update sources - security updates prioritized
 unattended_origins_patterns:

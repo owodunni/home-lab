@@ -1,0 +1,28 @@
+---
+# NFS server defaults — apply to all hosts in [nfs_server]
+#
+# Hosts in this group also belong to [storage], so they inherit
+# group_vars/storage/main.yml (mergerfs_mount_point, storage_media_*).
+
+# What is exported: the unified MergerFS pool.
+nfs_export_path: "{{ mergerfs_mount_point }}"
+
+# Who may mount it: the home LAN only.
+# Why: the Docker hosts (Pis) live on the home LAN. The offsite beelink is
+# reachable via WireGuard but is deliberately NOT allowed — NFS over the tunnel
+# would be slow and high-latency, and nothing offsite needs the pool.
+# Sourced from the fleet-wide home_lan_subnet (group_vars/all.yml) so a LAN
+# renumber doesn't require editing this export.
+nfs_export_clients: "{{ home_lan_subnet }}"
+
+# Export options.
+# rw            — clients may write (media stack imports, Immich uploads).
+# sync          — acknowledge writes only once on stable storage (data safety).
+# no_subtree_check — standard for whole-filesystem exports; avoids rename races.
+# crossmnt      — let clients traverse into submounts beneath the pool root.
+# fsid=0        — make this the NFSv4 pseudo-root, so clients address
+#                 subdirectories as `valen:/<subdir>` (Docker volume device
+#                 ":/media" → {{ mergerfs_mount_point }}/media).
+# root_squash   — (default, stated explicitly) map remote root to nobody so a
+#                 rogue/compromised client root cannot own pool files.
+nfs_export_options: "rw,sync,no_subtree_check,crossmnt,fsid=0,root_squash"

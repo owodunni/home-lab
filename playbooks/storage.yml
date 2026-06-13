@@ -11,8 +11,10 @@
 #           ordered unit without coupling them to the Pi-specific system layer.
 #
 # Order matters: disk-encrypt must run before snapraid-mergerfs because
-# snapraid-mergerfs expects LUKS devices to already be open. disk-spindown
-# runs last since it only tunes power management on the now-mounted drives.
+# snapraid-mergerfs expects LUKS devices to already be open. nfs runs after
+# snapraid-mergerfs because it exports the pool that playbook mounts (and relies
+# on the media account/ownership it creates). disk-spindown runs last since it
+# only tunes power management on the now-mounted drives.
 #
 # Pure orchestration: no logic here, only imports of standalone function
 # playbooks.
@@ -21,6 +23,9 @@
 
 - name: Configure MergerFS + SnapRAID storage pool
   ansible.builtin.import_playbook: snapraid-mergerfs.yml
+
+- name: Export the storage pool over NFS
+  ansible.builtin.import_playbook: nfs.yml
 
 - name: Configure HDD spin-down
   ansible.builtin.import_playbook: disk-spindown.yml

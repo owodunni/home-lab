@@ -1,0 +1,89 @@
+---
+# NFS server + client for the storage pool
+#
+# What: Exports valen's MergerFS pool over NFSv4, and installs the NFS client
+#       userspace on the Docker fleet so containers can mount the pool as
+#       native Docker volumes (the `local` driver with type=nfs — "Option B").
+# Why:  The media stack runs on valen against local disk, but some services
+#       live elsewhere — e.g. Immich on a Pi — and still need the shared pool.
+#       Native NFS volumes keep that storage config inside each service's
+#       compose file, with no host-side fstab to maintain.
+# Resolves: Cross-host access to the pool without bind-mount/fstab sprawl and
+#           without making every container storage-topology aware.
+#
+# Prerequisites:
+#   - snapraid-mergerfs.yml has run: the pool is mounted at mergerfs_mount_point
+#     and its media tree is owned by the storage_media_user account.
+#   - mergerfs runs with `noforget` (group_vars/storage/main.yml) so inode
+#     numbers stay stable across the FUSE pool — without it NFS clients hit
+#     "Stale file handle" errors.
+#
+# Clients reference the server by DNS name (`valen`), not IP, so the server's
+# address can change without edits. The export ACL uses home_lan_subnet
+# (group_vars/all.yml) so a LAN renumber is a one-line change.
+#
+# Consuming the export — declare a native NFS volume per service, e.g.:
+#
+#   volumes:
+#     media:
+#       driver: local
+#       driver_opts:
+#         type: nfs
+#         o: "addr=valen,nfsvers=4,rw"
+#         device: ":/media"          # → {{ mergerfs_mount_point }}/media
+#   services:
+#     immich:
+#       user: "8000:8000"            # MUST match storage_media_uid/gid
+#       volumes: [ "media:/data" ]
+#
+# Safe to re-run: package installs, the exports template, and exportfs are all
+# idempotent.
+
+- name: Export the storage pool over NFS
+  hosts: nfs_server
+  become: true
+
+  handlers:
+    - name: Reload NFS exports
+      ansible.builtin.command: exportfs -ra
+      changed_when: true
+
+  tasks:
+    - name: Install NFS server
+      ansible.builtin.apt:
+        name: nfs-kernel-server
+        state: present
+        update_cache: true
+        cache_valid_time: 86400 # 24h — skip refresh if cache is recent
+
+    - name: Write NFS exports table
+      ansible.builtin.template:
+        src: templates/exports.j2
+        dest: /etc/exports
+        mode: "0644"
+        owner: root
+        group: root
+        backup: true
+      notify: Reload NFS exports
+
+    - name: Enable and start the NFS server
+      ansible.builtin.systemd:
+        name: nfs-server
+        state: started
+        enabled: true
+
+- name: Install NFS client userspace on the Docker fleet
+  hosts: nfs_client
+  become: true
+
+  tasks:
+    # nfs-common provides /sbin/mount.nfs, which Docker's local volume driver
+    # shells out to when mounting a type=nfs volume. Without it, container start
+    # fails with a missing mount helper. No fstab entries are created — the
+    # mount is driven entirely by each container's volume definition.
+    - name: Install NFS client utilities
+      ansible.builtin.apt:
+        name: nfs-common
+        state: present
+        update_cache: true
+        cache_valid_time: 86400 # 24h — skip refresh if cache is recent
