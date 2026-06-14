@@ -64,7 +64,7 @@ services:
         condition: service_healthy
 
   # Periodic pg_dump → offsite Garage S3 (beelink at the barn, reached over WireGuard). Image tag must match the postgres major version above (16).
-  # To restore: docker compose run --rm pg-backup restore (see eeshugerman/postgres-backup-s3 README)
+  # Restore (destructive) on the running sidecar: docker compose exec pg-backup sh restore.sh — full guide + safe verification drill: docs/restore_postgres.md
   pg-backup:
     image: eeshugerman/postgres-backup-s3:16
     restart: unless-stopped

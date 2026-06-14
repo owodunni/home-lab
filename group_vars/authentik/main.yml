@@ -36,7 +36,8 @@ authentik_backup_schedule: "@daily"
 # Delete backups older than this many days from the bucket.
 authentik_backup_keep_days: 7
 
-# Path prefix inside the bucket — backups land at s3://<bucket>/<prefix>/<timestamp>.sql.gz
+# Path prefix inside the bucket — backups land at
+# s3://<bucket>/<prefix>/authentik_<ISO8601-timestamp>.dump (pg_dump custom format)
 authentik_backup_s3_prefix: pg
 
 # Garage S3 — region label must match garage_s3_region in group_vars/ingress/main.yml.
