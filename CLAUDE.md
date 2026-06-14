@@ -43,7 +43,7 @@ must be running before any service routing configs land), then `service-infra`
 needs ingress and storage but no OIDC, and it is the offsite target Authentik
 backs its database up to, so it must exist before `auth`), then `auth`
 (Authentik provisions its backup bucket/key on the now-live Garage, then deploys
-with the pg-backup sidecar), then `monitoring` (Traefik must be running for the
+with its restic backup sidecars), then `monitoring` (Traefik must be running for the
 Grafana routing config; Authentik must be live so Grafana SSO can be wired up),
 then `applications` (end-user services that depend on every platform layer
 below them — ingress, Docker, NFS, and a live Authentik for any SSO), then
@@ -103,9 +103,30 @@ work for **any** service, driven by a per-service manifest. No service-specific
 backup playbooks.
 
 ```bash
-make verify-backups  SERVICE=authentik   # non-destructive: exist + fresh?
-make restore-backups SERVICE=authentik   # DESTRUCTIVE: typed-confirm prompt
+make verify-backups  SERVICE=authentik   # non-destructive: exist + fresh? + list restore points
+make restore-backups SERVICE=authentik   # DESTRUCTIVE: typed-confirm prompt; restores latest
+make restore-backups SERVICE=authentik \
+  TARGETS='postgres=ab12cd34,volumes=ef56ab78'  # roll back to an OLDER restore point
 ```
+
+### Restic everywhere → one retention policy for DBs and volumes
+
+Every backup is a **restic** snapshot, so databases and file volumes get the
+*same* grandfather-father-son retention and the *same* restore semantics:
+
+- **File volumes** — a restic sidecar snapshots the bind-mounted dirs directly.
+- **Databases** — a small client sidecar writes a logical dump (`pg_dump -Fc`)
+  to a shared volume; a restic sidecar snapshots that dump. So the DB rides
+  restic's retention and per-snapshot restore exactly like the volumes, instead
+  of a flat "keep N days" that loses the only good copy after the window.
+
+Retention is GFS via `restic forget` (`--keep-daily/-weekly/-monthly/-yearly
+… --prune`) set per repo in `group_vars/<service>/main.yml`. Because every
+snapshot the policy keeps is independently restorable, `verify-backups` **lists
+every restore point** (snapshot ID + timestamp) and `restore-backups` accepts
+`TARGETS='<name>=<snapshot_id>,…'` to roll a specific backup back to an older
+good state — not just the newest. Omit a backup (or `TARGETS`) → its latest
+snapshot.
 
 ### How it fits together
 
@@ -119,7 +140,11 @@ Three pieces, separated by what changes when:
 2. **Type handlers (per engine)** — `roles/backup_verify/tasks/<type>.yml` and
    `roles/backup_restore/tasks/<type>.yml`. Each knows how to verify / restore
    *one* engine (`postgres`, `restic`, …). *Written once per engine, shared by
-   every service that uses it.*
+   every service that uses it.* Both current engines store snapshots in restic:
+   `restic` restores by copying paths back over the live volume, `postgres`
+   restores by `pg_restore` of the dump from the chosen snapshot — so `postgres`
+   *verifies* via the shared restic verifier (snapshot freshness) and only its
+   *restore* differs.
 3. **Playbooks (generic)** — `playbooks/verify-backups.yml` and
    `playbooks/restore-backups.yml`. They target `hosts: {{ backup_service }}`
    (so the service's group_vars load), then the role loops the manifest and
@@ -127,8 +152,8 @@ Three pieces, separated by what changes when:
    handler. *These never change.*
 
 This is dispatch **per backup type**, composed **per service**: a service with a
-Postgres dump *and* a restic snapshot *and* (later) a MySQL dump is handled by
-the same two commands, each entry routed to its engine.
+Postgres dump *and* a restic volume snapshot *and* (later) a MySQL dump is
+handled by the same two commands, each entry routed to its engine.
 
 ### How a restore works
 
@@ -137,9 +162,11 @@ the same two commands, each entry routed to its engine.
 interactive `vars_prompt` until the operator types the exact service name —
 deliberately *not* an `-e` flag, so it can't fire from shell history; (2) stops
 `backup_consumer_services` so nothing reads/writes mid-restore; (3) runs each
-per-type restore handler (e.g. `pg_restore --clean` via the sidecar; restic
-restore + copy-back over the live volume); (4) brings the whole stack up again.
-It is destructive and interactive by design — it cannot run unattended.
+per-type restore handler — each lists the available restore points, restic
+restores the snapshot named in `backup_targets[<name>]` (default `latest`), then
+the `restic` handler copies paths back over the live volume while the `postgres`
+handler `pg_restore`s the dump into the live DB; (4) brings the whole stack up
+again. It is destructive and interactive by design — it cannot run unattended.
 
 ### Adding a new backup type
 
@@ -149,7 +176,9 @@ To support a new engine (e.g. `mysql`, `mongodb`):
    manifest entry), **fail the play** if a usable, fresh backup is missing;
    otherwise stay green. Keep it non-destructive (read-only listing).
 2. Add `roles/backup_restore/tasks/<type>.yml` — given `backup`, restore the
-   latest backup over the live service. Assume consumers are already stopped.
+   snapshot named in `backup_targets[backup.name] | default('latest')` over the
+   live service (and list the available restore points first). Assume consumers
+   are already stopped.
 3. Document the manifest fields your handler reads (mirror the comments on the
    existing `postgres`/`restic` entries).
 

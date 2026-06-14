@@ -2,7 +2,8 @@
 
 The `volumes-backup` sidecar (`roles/authentik/templates/docker-compose.yml.j2`)
 backs up `media/`, `certs/`, and `custom-templates/` to Garage S3 via restic.
-Postgres is restored separately via the `pg-backup` sidecar — see
+Postgres is backed up the same way (a `pg_dump` captured in restic) and restored
+separately via the `db-backup`/`pg-dump` sidecars — see
 [`restore_postgres.md`](restore_postgres.md).
 
 > **Codified path:** `make restore-backups SERVICE=authentik` runs this
