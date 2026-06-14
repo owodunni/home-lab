@@ -96,6 +96,66 @@ that group). Never use infrastructure groups as service targets.
 - Targets: `make system`, `make security`, `make site`, plus per-function
   targets (`make upgrade`, etc.).
 
+## Backups: verify & restore
+
+Backup *verification* and *restore* are codified as two generic playbooks that
+work for **any** service, driven by a per-service manifest. No service-specific
+backup playbooks.
+
+```bash
+make verify-backups  SERVICE=authentik   # non-destructive: exist + fresh?
+make restore-backups SERVICE=authentik   # DESTRUCTIVE: typed-confirm prompt
+```
+
+### How it fits together
+
+Three pieces, separated by what changes when:
+
+1. **Manifest (per service)** — `backups:` in `group_vars/<service>/main.yml`. A
+   list with one entry per backup, each tagged with a `type` (engine) plus the
+   fields that engine needs. Also `backup_compose_dir` and
+   `backup_consumer_services` (the compose services to stop during a restore).
+   *This is the only thing that changes when a service gains/moves a backup.*
+2. **Type handlers (per engine)** — `roles/backup_verify/tasks/<type>.yml` and
+   `roles/backup_restore/tasks/<type>.yml`. Each knows how to verify / restore
+   *one* engine (`postgres`, `restic`, …). *Written once per engine, shared by
+   every service that uses it.*
+3. **Playbooks (generic)** — `playbooks/verify-backups.yml` and
+   `playbooks/restore-backups.yml`. They target `hosts: {{ backup_service }}`
+   (so the service's group_vars load), then the role loops the manifest and
+   `include_tasks: "{{ backup.type }}.yml"` to dispatch each entry to its
+   handler. *These never change.*
+
+This is dispatch **per backup type**, composed **per service**: a service with a
+Postgres dump *and* a restic snapshot *and* (later) a MySQL dump is handled by
+the same two commands, each entry routed to its engine.
+
+### How a restore works
+
+`restore-backups.yml` is the executable form of the
+[full DR drill](docs/backup-recovery-testing.md): it (1) halts on an
+interactive `vars_prompt` until the operator types the exact service name —
+deliberately *not* an `-e` flag, so it can't fire from shell history; (2) stops
+`backup_consumer_services` so nothing reads/writes mid-restore; (3) runs each
+per-type restore handler (e.g. `pg_restore --clean` via the sidecar; restic
+restore + copy-back over the live volume); (4) brings the whole stack up again.
+It is destructive and interactive by design — it cannot run unattended.
+
+### Adding a new backup type
+
+To support a new engine (e.g. `mysql`, `mongodb`):
+
+1. Add `roles/backup_verify/tasks/<type>.yml` — given the loop var `backup` (one
+   manifest entry), **fail the play** if a usable, fresh backup is missing;
+   otherwise stay green. Keep it non-destructive (read-only listing).
+2. Add `roles/backup_restore/tasks/<type>.yml` — given `backup`, restore the
+   latest backup over the live service. Assume consumers are already stopped.
+3. Document the manifest fields your handler reads (mirror the comments on the
+   existing `postgres`/`restic` entries).
+
+That's it — no playbook or Makefile edits. A service opts in by adding a
+manifest entry of that `type`.
+
 ## Documenting Config Changes
 
 **MANDATORY**: Every config change — especially during debug sessions — MUST include:
