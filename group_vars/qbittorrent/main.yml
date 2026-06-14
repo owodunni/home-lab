@@ -1,0 +1,74 @@
+---
+# qBittorrent service configuration
+# Secrets (ProtonVPN credentials, WebUI password) live in
+# group_vars/qbittorrent/vault.yml with the vault_ prefix.
+#
+# Shared media vars (media_data_root, media_puid/pgid, media_time_zone) come from
+# group_vars/media — valen is in both [qbittorrent] and [media].
+
+# ============================================================================
+# Images — pinned upstream tags (match the master/K8s deploy)
+# ============================================================================
+# qBittorrent (LinuxServer.io). Tags: https://hub.docker.com/r/linuxserver/qbittorrent
+qbittorrent_image: "lscr.io/linuxserver/qbittorrent:5.1.4"
+
+# Gluetun VPN client (qdm12). Owns the network namespace; qBittorrent routes all
+# traffic through it. Tags: https://github.com/qdm12/gluetun/releases
+qbittorrent_gluetun_image: "ghcr.io/qdm12/gluetun:v3.41.0"
+
+# Port-manager sidecar: reads gluetun's forwarded port and updates qBittorrent's
+# listen port via the WebUI API. https://github.com/SnoringDragon/gluetun-qbittorrent-port-manager
+qbittorrent_port_manager_image: "snoringdragon/gluetun-qbittorrent-port-manager:1.3"
+
+# ============================================================================
+# Placement and routing
+# ============================================================================
+# Directory on valen holding the compose stack + .env (not the app data).
+qbittorrent_dir: /opt/qbittorrent
+
+# qBittorrent's /config (settings DB) — a local bind, kept next to the stack.
+# Small and app-private; not on the media tree.
+qbittorrent_config_dir: "{{ qbittorrent_dir }}/config"
+
+# WebUI port. Published by the gluetun container (it owns the netns) on 127.0.0.1
+# only; Traefik on valen proxies to it. Also passed to qBittorrent as WEBUI_PORT
+# and to the port-manager as the API port.
+qbittorrent_port: 8080
+
+# Public hostname. Traefik terminates TLS (wildcard) and routes
+# Host(qbittorrent.jardoole.xyz) → 127.0.0.1:{{ qbittorrent_port }}, behind the
+# Authentik forward-auth middleware. DNS must resolve this name to valen.
+qbittorrent_hostname: "qbittorrent.{{ traefik_domain }}"
+
+# qBittorrent WebUI admin username. The matching password is vaulted
+# (vault_qbittorrent_password) and is what the port-manager authenticates with.
+qbittorrent_admin_user: "admin"
+
+# ============================================================================
+# VPN (gluetun → ProtonVPN, OpenVPN)
+# ============================================================================
+# OpenVPN (not WireGuard): ProtonVPN's NAT-PMP port forwarding is more reliable
+# over OpenVPN, and forwarding is required for healthy torrent connectivity.
+# The ProtonVPN OpenVPN username MUST carry the +pmp suffix for NAT-PMP — see
+# vault_protonvpn_username.
+qbittorrent_vpn_countries: "Sweden"
+
+# DNS used inside the tunnel (Quad9) — keeps lookups off the home resolver.
+qbittorrent_vpn_dns: "9.9.9.9"
+
+# Fixed subnet for the compose `media` network. Whitelisted in gluetun's firewall
+# (FIREWALL_OUTBOUND_SUBNETS) so the published WebUI port stays reachable from
+# Traefik/host while everything else is forced through the VPN (kill-switch).
+qbittorrent_docker_subnet: "172.28.0.0/16"
+
+# Subnets gluetun's firewall permits outside the tunnel: the docker network (the
+# WebUI reply path from the published 127.0.0.1 port arrives via the bridge
+# gateway) and the home LAN (direct access / future LAN clients). Everything else
+# is forced through the VPN.
+qbittorrent_vpn_outbound_subnets: "{{ qbittorrent_docker_subnet }},{{ home_lan_subnet }}"
+
+# ============================================================================
+# Logging
+# ============================================================================
+qbittorrent_log_max_size: "20m"
+qbittorrent_log_max_file: "3"

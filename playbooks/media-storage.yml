@@ -1,0 +1,29 @@
+---
+# Media stack shared storage layout
+#
+# What: Creates the shared media tree on valen's MergerFS pool that every media
+#       service bind-mounts at /data (downloads + library under one root).
+# Why:  qBittorrent saves into torrents/* and Radarr/Sonarr hardlink into
+#       media/* — hardlinks only work within a single filesystem, so the whole
+#       tree must live under one local mount, owned by the pool media account so
+#       the PUID/PGID 8000 containers can write.
+# Resolves: The storage prerequisite for the entire applications-layer media stack.
+#
+# Local (not NFS): the media services run ON valen, so they bind-mount these
+# paths directly — unlike Seafile (compute on a Pi reaching valen over NFS), no
+# export drop-in is needed here.
+
+- name: Provision the shared media data tree on the pool
+  hosts: media
+  become: true
+
+  tasks:
+    - name: Create the media data subdirectories
+      ansible.builtin.file:
+        path: "{{ media_data_root }}/{{ item }}"
+        state: directory
+        owner: "{{ media_puid }}"
+        group: "{{ media_pgid }}"
+        # setgid (2775) keeps files created by the containers in the media group.
+        mode: "2775"
+      loop: "{{ media_data_subdirs }}"

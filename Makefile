@@ -2,7 +2,7 @@
 # Fix macOS fork safety issue with Python 3.13 + Ansible multiprocessing
 ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
-.PHONY: help setup vault-edit site system networking storage ingress traefik auth authentik services garage monitoring node-exporter smartctl-exporter prometheus grafana security disk-encrypt snapraid-mergerfs nfs disk-spindown wireguard seafile applications
+.PHONY: help setup vault-edit site system networking storage ingress traefik auth authentik services service-infra docker garage monitoring node-exporter smartctl-exporter prometheus grafana security disk-encrypt snapraid-mergerfs nfs disk-spindown wireguard seafile applications gpu-drivers media-storage media-forward-auth qbittorrent
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -86,6 +86,14 @@ ingress: ## 🌍 Ingress layer: Traefik + ACME wildcard certificates
 	@echo "Running ingress layer..."
 	$(ANSIBLE_PLAYBOOK) playbooks/ingress.yml
 
+docker: ## 🐳 Install Docker + Compose on [services] hosts
+	@echo "Installing Docker on the service fleet..."
+	$(ANSIBLE_PLAYBOOK) playbooks/docker.yml
+
+service-infra: ## 🧩 Service-infra layer: Docker runtime for application services
+	@echo "Running service-infra layer..."
+	$(ANSIBLE_PLAYBOOK) playbooks/service-infra.yml
+
 authentik: ## 🔐 Install Authentik identity provider on [authentik] hosts
 	@echo "Configuring Authentik..."
 	$(ANSIBLE_PLAYBOOK) playbooks/authentik.yml
@@ -126,7 +134,23 @@ seafile: ## 🗂️ Install Seafile file sync/share on [seafile] hosts (data on 
 	@echo "Configuring Seafile..."
 	$(ANSIBLE_PLAYBOOK) playbooks/seafile.yml
 
-applications: ## 📂 Applications layer: end-user services (Seafile)
+gpu-drivers: ## 🎬 Install Intel GPU drivers (QuickSync/VA-API) on [media] hosts
+	@echo "Installing Intel GPU drivers on the media host..."
+	$(ANSIBLE_PLAYBOOK) playbooks/gpu-drivers.yml
+
+media-storage: ## 🎞️ Create the shared media data tree on the pool ([media] hosts)
+	@echo "Provisioning the media storage layout..."
+	$(ANSIBLE_PLAYBOOK) playbooks/media-storage.yml
+
+media-forward-auth: ## 🔐 Deploy the Authentik forward-auth middleware on [media] hosts
+	@echo "Deploying the media forward-auth middleware..."
+	$(ANSIBLE_PLAYBOOK) playbooks/media-forward-auth.yml
+
+qbittorrent: ## ⬇️ Deploy qBittorrent + Gluetun VPN on [qbittorrent] hosts
+	@echo "Deploying qBittorrent..."
+	$(ANSIBLE_PLAYBOOK) playbooks/qbittorrent.yml
+
+applications: ## 📂 Applications layer: end-user services (Seafile + media stack)
 	@echo "Running applications layer..."
 	$(ANSIBLE_PLAYBOOK) playbooks/applications.yml
 

@@ -1,0 +1,110 @@
+# qBittorrent + Gluetun (ProtonVPN) + port-manager — managed by Ansible, do not
+# edit manually.
+#
+# Architecture (ported from the master K8s pod's shared-netns model):
+#   - gluetun owns the network namespace and the VPN tunnel. It is the ONLY
+#     container that publishes ports / joins the docker network.
+#   - qbittorrent and port-manager run with network_mode: service:gluetun, so all
+#     their traffic egresses the VPN and they reach each other over localhost.
+#   - If the tunnel drops, gluetun's firewall blocks egress (kill-switch); only
+#     qbittorrent_vpn_outbound_subnets (the docker subnet, for the WebUI) is open.
+# Non-secret values come from group_vars (Jinja); secrets come from .env.
+
+services:
+  gluetun:
+    image: {{ qbittorrent_gluetun_image }}
+    container_name: gluetun
+    restart: unless-stopped
+    cap_add:
+      # Required to create/manage the tun device and the VPN routes/firewall.
+      # gluetun creates /dev/net/tun itself given NET_ADMIN, so no host device
+      # mapping is needed (avoids failing if the host tun module isn't present).
+      - NET_ADMIN
+    environment:
+      - VPN_SERVICE_PROVIDER=protonvpn
+      - VPN_TYPE=openvpn
+      - OPENVPN_USER=${OPENVPN_USER:?Variable is not set or empty}
+      - OPENVPN_PASSWORD=${OPENVPN_PASSWORD:?Variable is not set or empty}
+      - SERVER_COUNTRIES={{ qbittorrent_vpn_countries }}
+      - VPN_PORT_FORWARDING=on
+      - VPN_PORT_FORWARDING_PROVIDER=protonvpn
+      # Only accept inbound torrent traffic on the VPN-forwarded port.
+      - PORT_FORWARD_ONLY=on
+      - DOT=off
+      - DNS_ADDRESS={{ qbittorrent_vpn_dns }}
+      # Keep the WebUI reachable from Traefik/host (the docker subnet) while
+      # everything else is forced through the tunnel.
+      - FIREWALL_OUTBOUND_SUBNETS={{ qbittorrent_vpn_outbound_subnets }}
+      # Give the tunnel time to come up before health is considered failed.
+      - HEALTH_VPN_DURATION_INITIAL=120s
+      - TZ={{ media_time_zone }}
+    ports:
+      # qBittorrent WebUI, published on loopback only — Traefik (co-located on
+      # valen) proxies to it. Published here because gluetun owns the netns.
+      - "127.0.0.1:{{ qbittorrent_port }}:{{ qbittorrent_port }}"
+    volumes:
+      # Shared with port-manager: gluetun writes /tmp/gluetun/forwarded_port here.
+      - gluetun:/tmp/gluetun
+    networks:
+      - media
+    # gluetun ships its own HEALTHCHECK (gated by HEALTH_VPN_DURATION_INITIAL
+    # above), which drives the depends_on: service_healthy below — no override.
+
+  qbittorrent:
+    image: {{ qbittorrent_image }}
+    container_name: qbittorrent
+    restart: unless-stopped
+    # Share gluetun's network namespace: all traffic egresses the VPN, and the
+    # WebUI is published by gluetun above. No ports/networks here (not allowed
+    # alongside network_mode: service:*).
+    network_mode: "service:gluetun"
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    environment:
+      - PUID={{ media_puid }}
+      - PGID={{ media_pgid }}
+      - TZ={{ media_time_zone }}
+      - WEBUI_PORT={{ qbittorrent_port }}
+    volumes:
+      - {{ qbittorrent_config_dir }}:/config
+      # Whole media tree under one mount so downloads (torrents/*) and the *arr
+      # library (media/*) can be hardlinked.
+      - {{ media_data_root }}:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "{{ qbittorrent_log_max_size }}"
+        max-file: "{{ qbittorrent_log_max_file }}"
+
+  port-manager:
+    image: {{ qbittorrent_port_manager_image }}
+    container_name: qbittorrent-port-manager
+    restart: unless-stopped
+    network_mode: "service:gluetun"
+    depends_on:
+      qbittorrent:
+        condition: service_started
+    environment:
+      # qBittorrent is reachable over localhost (shared netns). "Bypass auth for
+      # localhost" must be enabled in qBittorrent so this call is unauthenticated;
+      # the credentials below are a fallback if that bypass is off.
+      - QBITTORRENT_SERVER=localhost
+      - QBITTORRENT_PORT={{ qbittorrent_port }}
+      - QBITTORRENT_USER={{ qbittorrent_admin_user }}
+      - QBITTORRENT_PASS=${QBITTORRENT_PASS:?Variable is not set or empty}
+      - PORT_FORWARDED=/tmp/gluetun/forwarded_port
+    volumes:
+      - gluetun:/tmp/gluetun
+
+networks:
+  media:
+    name: media
+    ipam:
+      config:
+        # Fixed subnet so it can be whitelisted in gluetun's firewall.
+        - subnet: "{{ qbittorrent_docker_subnet }}"
+
+volumes:
+  # Shares /tmp/gluetun/forwarded_port between gluetun and port-manager.
+  gluetun:

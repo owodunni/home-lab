@@ -1,0 +1,38 @@
+---
+# Deploy qBittorrent (+ Gluetun VPN + port-manager) and register its Traefik route
+#
+# What: Deploys the three-container qBittorrent stack on valen and registers the
+#       qbittorrent.jardoole.xyz route (behind Authentik forward-auth) with the
+#       co-located Traefik.
+# Why:  The download client is the most fundamental media service — Radarr/Sonarr
+#       depend on it. It routes all traffic through ProtonVPN (gluetun) with a
+#       kill-switch and NAT-PMP port forwarding.
+# Resolves: First service of the media-stack migration.
+#
+# Prerequisites:
+#   - Docker runtime on valen (service-infra layer; valen in [services]).
+#   - Traefik on valen with conf.d (ingress layer; valen in [ingress]).
+#   - Shared media tree on the pool (playbooks/media-storage.yml).
+#   - Forward-auth middleware deployed (playbooks/media-forward-auth.yml) and the
+#     Authentik provider/application created (see docs/media-stack-migration.md).
+#
+# Vault vars required in group_vars/qbittorrent/vault.yml:
+#   vault_protonvpn_username   — ProtonVPN OpenVPN username WITH the +pmp suffix
+#   vault_protonvpn_password   — ProtonVPN OpenVPN password
+#   vault_qbittorrent_password — WebUI admin password (also used by port-manager)
+
+- name: Deploy qBittorrent and register its Traefik route
+  hosts: qbittorrent
+  become: true
+
+  roles:
+    - role: qbittorrent
+
+  tasks:
+    - name: Deploy Traefik routing config for qBittorrent
+      ansible.builtin.template:
+        src: templates/traefik-qbittorrent.yml.j2
+        dest: /etc/traefik/conf.d/qbittorrent.yml
+        owner: traefik
+        group: traefik
+        mode: "0640"

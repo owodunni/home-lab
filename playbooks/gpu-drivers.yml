@@ -1,0 +1,106 @@
+---
+# Intel GPU drivers for hardware transcoding (Intel QuickSync / VA-API)
+#
+# What: Installs the Intel media driver + oneVPL runtime and validation tools on
+#       the media host, and asserts the render node exists. Captures the
+#       video/render group GIDs as facts for Jellyfin's compose `group_add`.
+# Why:  valen's Intel iGPU does H.264/HEVC/VP9/AV1 transcoding in hardware, which
+#       drops Jellyfin transcode CPU from 80%+ to <10%. The container needs the
+#       host driver stack present and access to /dev/dri.
+# Resolves: Jellyfin (applications layer) hardware transcoding on valen.
+#
+# Ported from master:playbooks/beelink/03-gpu-drivers-setup.yml, retargeted from
+# beelink to valen and de-Kubernetes-ified: the master playbook's tail printed
+# GIDs to paste into a Helm values.yml podSecurityContext — under Docker we pass
+# the same GIDs via `group_add` in roles/jellyfin, so we register them as facts
+# here instead of printing K8s instructions.
+#
+# References:
+# - Intel Media Driver: https://github.com/intel/media-driver
+# - VA-API: https://www.freedesktop.org/wiki/Software/vaapi/
+
+- name: Install Intel GPU drivers for hardware transcoding
+  hosts: media
+  become: true
+
+  tasks:
+    - name: Update apt package cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    # intel-media-va-driver — Intel iHD VA-API driver for modern GPUs (GEN8+)
+    # vainfo                 — validation tool (lists supported VA-API profiles)
+    # intel-gpu-tools        — intel_gpu_top for verifying GPU utilisation
+    # firmware-misc-nonfree  — Intel GPU firmware
+    # libvpl2                — Intel oneVPL runtime for QSV
+    # libmfx-gen1.2          — Intel VPL GPU runtime (required for QSV filters)
+    # Note: oneVPL libs must match the VA-API driver version for QSV to work.
+    - name: Install Intel media drivers and tools
+      ansible.builtin.apt:
+        name:
+          - intel-media-va-driver
+          - vainfo
+          - intel-gpu-tools
+          - firmware-misc-nonfree
+          - libvpl2
+          - libmfx-gen1.2
+        state: present
+
+    # Fail early (here) rather than discovering a missing iGPU when Jellyfin
+    # crash-loops. valen is asserted to have an Intel iGPU equivalent to the old
+    # beelink N150 — this is where that assumption is verified.
+    - name: Assert the Intel GPU render device exists
+      ansible.builtin.stat:
+        path: /dev/dri/renderD128
+      register: render_device
+      failed_when: not render_device.stat.exists
+
+    - name: Get the video group entry
+      ansible.builtin.command: getent group video
+      register: video_group_result
+      changed_when: false
+
+    - name: Get the render group entry
+      ansible.builtin.command: getent group render
+      register: render_group_result
+      changed_when: false
+
+    # Validate the driver actually talks to the GPU and decode/encode profiles
+    # are present (should list H.264/HEVC/VP9/AV1 for an Intel iGPU).
+    - name: Test VA-API driver functionality
+      ansible.builtin.command: vainfo --display drm --device /dev/dri/renderD128
+      register: vainfo_result
+      changed_when: false
+
+    # Persist the GIDs as host facts so roles/jellyfin can render them into the
+    # compose `group_add:` without a second getent. Written under
+    # /etc/ansible/facts.d so they survive as ansible_local.media_gpu.*.
+    - name: Ensure the local facts directory exists
+      ansible.builtin.file:
+        path: /etc/ansible/facts.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Record the video/render GIDs as a local fact for Jellyfin group_add
+      ansible.builtin.copy:
+        dest: /etc/ansible/facts.d/media_gpu.fact
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          {
+            "video_gid": "{{ video_group_result.stdout.split(':')[2] }}",
+            "render_gid": "{{ render_group_result.stdout.split(':')[2] }}"
+          }
+
+    - name: Show detected GPU groups and supported codecs
+      ansible.builtin.debug:
+        msg:
+          - "Intel GPU drivers installed; /dev/dri/renderD128 present."
+          - "video GID: {{ video_group_result.stdout.split(':')[2] }} | render GID: {{ render_group_result.stdout.split(':')[2] }}"
+          - "Jellyfin compose will group_add these GIDs for /dev/dri access."
+          - "VA-API profiles:"
+          - "{{ vainfo_result.stdout_lines | select('search', 'VAProfile') | list | join(', ') }}"

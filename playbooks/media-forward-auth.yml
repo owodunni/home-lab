@@ -1,0 +1,31 @@
+---
+# Authentik forward-auth middleware for the media stack
+#
+# What: Drops a reusable Traefik forwardAuth middleware on the media host's
+#       Traefik. Apps with no native OIDC (qBittorrent, Prowlarr, Radarr, Sonarr)
+#       reference it as `authentik-forward-auth@file` to gate their web UI behind
+#       Authentik SSO.
+# Why:  The *arr apps cannot do OIDC themselves; forward-auth puts Authentik in
+#       front of them at the proxy. rebuild had no forward-auth before this — it
+#       is net-new infra (master used a K8s outpost not ported here).
+# Resolves: Single source for the SSO middleware every media UI shares.
+#
+# Authentik side (manual UI, domain-level forward auth) is documented in
+# docs/media-stack-migration.md — provider + application + embedded-outpost
+# assignment + /api bypass policy. This play only handles the Traefik half.
+#
+# Prerequisite: Traefik running on the media host with conf.d watch (valen is in
+# [ingress]); Authentik live at auth.{{ traefik_domain }} (auth layer).
+
+- name: Deploy the Authentik forward-auth middleware on the media host
+  hosts: media
+  become: true
+
+  tasks:
+    - name: Deploy Traefik forward-auth middleware config
+      ansible.builtin.template:
+        src: templates/traefik-forward-auth.yml.j2
+        dest: /etc/traefik/conf.d/forward-auth.yml
+        owner: traefik
+        group: traefik
+        mode: "0640"

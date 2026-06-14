@@ -1,0 +1,38 @@
+---
+# Media host configuration — variables shared by every media-stack service.
+#
+# What: Common storage layout and runtime identity for the media stack. valen is
+#       in [media] (the media-host group) AND in each per-service group
+#       ([qbittorrent], [radarr], …), so Ansible merges these vars into every
+#       media service play even though the play targets the service group.
+# Why:  Single source of truth for the shared /data pool and the media account,
+#       so a path or UID change is one edit, not one-per-service.
+# Resolves: All media apps must agree on the same /data mount and UID/GID for
+#           hardlinks (one filesystem) and pool ownership to work.
+
+# ============================================================================
+# Shared media data pool (local on valen — bind-mounted, NOT NFS)
+# ============================================================================
+# Root of the media tree on valen's MergerFS pool. Every app bind-mounts this
+# whole tree at /data so qBittorrent's downloads and Radarr/Sonarr's library
+# live under one mount — required for hardlinks (cross-mount hardlinks fail).
+media_data_root: "{{ mergerfs_mount_point }}/media"
+
+# Subdirectories created under media_data_root by playbooks/media-storage.yml.
+# torrents/* are qBittorrent's save paths; media/* are the *arr root folders.
+media_data_subdirs:
+  - torrents/incomplete
+  - torrents/movies
+  - torrents/tv
+  - media/movies
+  - media/tv
+
+# Runtime identity for the LinuxServer.io containers (PUID/PGID). 8000 is the
+# pool media account that owns media_data_root (storage_media_uid/gid from
+# group_vars/storage), so files the containers write land with correct pool
+# ownership.
+media_puid: "{{ storage_media_uid }}"
+media_pgid: "{{ storage_media_gid }}"
+
+# IANA timezone for all media containers (scheduling, log timestamps).
+media_time_zone: "Etc/UTC"
