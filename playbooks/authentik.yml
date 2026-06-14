@@ -86,20 +86,42 @@
       no_log: true  # secret key is on the command line
       changed_when: true
 
-    - name: Grant key read/write access to its backup bucket
-      # Key ID is known ahead of time (we supplied it), so no output parsing.
-      # Bucket is a positional arg here (unlike `garage key import -n`, which
-      # takes a flag) — `garage bucket allow <bucket> --key <key> --read --write`.
-      when: item.bucket not in garage_key_list.stdout
+    - name: Read current grants on each backup bucket
+      # Drives the grant step below. `garage bucket info` lists the access key IDs
+      # that currently have permissions on the bucket under "KEYS FOR THIS BUCKET".
       ansible.builtin.command:
-        cmd: >
-          garage bucket allow
-          {{ item.bucket }}
-          --read --write
-          --key {{ item.access_key }}
+        cmd: garage bucket info {{ item.bucket }}
       loop: "{{ _garage_resources }}"
       loop_control:
         label: "{{ item.bucket }}"
+      register: garage_bucket_info
+      changed_when: false
+
+    - name: Grant key read/write access to its backup bucket
+      # WHAT: grant the key RW on its bucket whenever it is not already listed in
+      #   that bucket's grants.
+      # WHY: the grant MUST be decoupled from key existence. A prior version gated
+      #   this on `item.bucket not in garage_key_list.stdout` — the same guard as
+      #   the key import — so once the key existed the grant could never re-run. If
+      #   the grant ever failed (or an interrupted run imported the key before
+      #   granting), re-running the play skipped it forever, leaving a valid key
+      #   with no bucket access.
+      # RESOLVES: silent "Stat: Access Denied" / "create key in repository failed"
+      #   in the pg-backup and volumes-backup sidecars — backups appeared deployed
+      #   but never wrote a single object. Keying off the actual grant state makes
+      #   this idempotent and self-healing.
+      # Bucket is a positional arg here (unlike `garage key import -n`, which takes
+      # a flag) — `garage bucket allow <bucket> --read --write --key <key>`.
+      when: item.item.access_key not in item.stdout
+      ansible.builtin.command:
+        cmd: >
+          garage bucket allow
+          {{ item.item.bucket }}
+          --read --write
+          --key {{ item.item.access_key }}
+      loop: "{{ garage_bucket_info.results }}"
+      loop_control:
+        label: "{{ item.item.bucket }}"
       changed_when: true
 
 - name: Deploy Authentik identity provider
