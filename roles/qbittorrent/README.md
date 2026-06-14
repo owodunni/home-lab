@@ -37,9 +37,20 @@ start. After `playbooks/qbittorrent.yml` runs:
 
 1. `docker logs qbittorrent` on valen → copy the temporary password.
 2. Log in at `https://qbittorrent.jardoole.xyz` (through Authentik first).
-3. **Options → Web UI**: set the permanent password to `vault_qbittorrent_password`;
-   enable **Bypass authentication for clients on localhost** (lets port-manager
-   update the listen port without credentials).
+3. **Options → Web UI → Authentication**:
+   - Set the permanent password to `vault_qbittorrent_password`.
+   - Enable **Bypass authentication for clients on localhost** — lets the
+     port-manager sidecar (which reaches qBittorrent over `127.0.0.1` in the
+     shared netns) update the forwarded port without credentials.
+   - Enable **Bypass authentication for clients in whitelisted IP subnets** and
+     add **`172.28.0.0/16`** (the compose `media` network / `qbittorrent_docker_subnet`).
+     This skips qBittorrent's own login for the Traefik-proxied browser path:
+     Traefik reaches qBittorrent via the loopback-published port, and Docker's
+     proxy rewrites the source IP to the `media` bridge gateway (`172.28.0.1`),
+     **not** your LAN IP — so a `192.168.x` whitelist never matches. Authentik is
+     already the single auth layer in front, so this is safe (the port is
+     loopback-only). To find the exact IP, watch `docker logs -f qbittorrent`
+     while loading the page.
 4. **Options → Downloads**: set default save path `/data/torrents`, and add
    categories `movies` → `/data/torrents/movies`, `tv` → `/data/torrents/tv`,
    incomplete → `/data/torrents/incomplete`.
