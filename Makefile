@@ -2,7 +2,7 @@
 # Fix macOS fork safety issue with Python 3.13 + Ansible multiprocessing
 ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
-.PHONY: help setup vault-edit site system networking storage ingress traefik auth authentik services service-infra docker garage monitoring node-exporter smartctl-exporter prometheus grafana security disk-encrypt snapraid-mergerfs nfs disk-spindown wireguard seafile applications gpu-drivers media-storage media-forward-auth qbittorrent
+.PHONY: help setup vault-edit site system networking storage ingress traefik auth authentik services service-infra docker garage monitoring node-exporter smartctl-exporter prometheus grafana security disk-encrypt snapraid-mergerfs nfs disk-spindown wireguard seafile applications gpu-drivers media-storage media-forward-auth qbittorrent verify-backups restore-backups
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -161,3 +161,13 @@ security: ## 🔒 Security layer: unattended upgrades (firewall/SSH to come)
 site: ## 🏗️ Full provisioning: all layers in sequence (system → networking → storage → ingress → service-infra → services → auth → monitoring → applications → security)
 	@echo "Running full site provisioning..."
 	$(ANSIBLE_PLAYBOOK) site.yml
+
+verify-backups: ## ✅ Verify a service's backups exist and are fresh (SERVICE=<group>)
+	@test -n "$(SERVICE)" || { echo "Usage: make verify-backups SERVICE=<service-group>"; exit 1; }
+	@echo "Verifying backups for $(SERVICE)..."
+	$(ANSIBLE_PLAYBOOK) playbooks/verify-backups.yml -e backup_service=$(SERVICE)
+
+restore-backups: ## ♻️ DESTRUCTIVE restore of a service's backups, with a typed confirm prompt (SERVICE=<group>)
+	@test -n "$(SERVICE)" || { echo "Usage: make restore-backups SERVICE=<service-group>"; exit 1; }
+	@echo "Restoring backups for $(SERVICE) (interactive confirmation required)..."
+	$(ANSIBLE_PLAYBOOK) playbooks/restore-backups.yml -e backup_service=$(SERVICE)

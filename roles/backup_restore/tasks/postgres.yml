@@ -1,0 +1,27 @@
+---
+# Restore handler — type: postgres. DESTRUCTIVE: restore.sh runs
+# `pg_restore --clean --if-exists`, dropping and recreating every object in the
+# live database from the latest dump. The play has already stopped the consumer
+# services (server/worker); the postgres container itself stays up.
+
+- name: "Ensure the backup sidecar is running (needed for exec) for {{ backup.name }}"
+  community.docker.docker_compose_v2:
+    project_src: "{{ backup.compose_dir }}"
+    state: present
+    services:
+      - "{{ backup.compose_service }}"
+
+- name: "Restore latest dump into the live database for {{ backup.name }}"
+  # `exec` on the running sidecar, NOT `run`: the image entrypoint ignores args,
+  # so `run ... restore.sh` would take a NEW backup instead of restoring.
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - exec
+      - -T
+      - "{{ backup.compose_service }}"
+      - sh
+      - restore.sh
+    chdir: "{{ backup.compose_dir }}"
+  changed_when: true

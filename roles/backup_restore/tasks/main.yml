@@ -1,0 +1,24 @@
+---
+# Generic, DESTRUCTIVE restore. The caller (playbooks/restore-backups.yml) has
+# already confirmed intent interactively and stopped the consumer services, so
+# each handler can overwrite live data without racing the running app.
+#
+# Each manifest entry is routed to its per-type handler; adding an engine means
+# adding tasks/<type>.yml here, never editing this file.
+
+- name: Assert the service declares a backup manifest
+  ansible.builtin.assert:
+    that:
+      - backups is defined
+      - backups | length > 0
+    fail_msg: >-
+      No 'backups' manifest found for '{{ backup_service | default("?") }}'.
+      Declare it in group_vars/<service>/main.yml
+      (see CLAUDE.md → "Backups: verify & restore").
+
+- name: "Restore each declared backup"
+  ansible.builtin.include_tasks: "{{ backup.type }}.yml"
+  loop: "{{ backups }}"
+  loop_control:
+    loop_var: backup
+    label: "{{ backup.name }} ({{ backup.type }})"

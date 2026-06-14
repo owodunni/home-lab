@@ -1,0 +1,47 @@
+---
+# Verify handler — type: restic (lobaro/restic-backup-docker snapshots).
+#
+# Non-destructive: lists the newest snapshot through the sidecar and asserts it
+# is recent. `run --rm` spins a throwaway container that only reads the repo.
+
+- name: "List restic snapshots (JSON) for {{ backup.name }}"
+  # exec on the running sidecar (it runs cron in the foreground, so it is up):
+  # the lobaro entrypoint does not reliably pass args through `run`, and exec
+  # runs restic directly with the container's RESTIC_* env already set.
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - exec
+      - -T
+      - "{{ backup.compose_service }}"
+      - restic
+      - snapshots
+      - --json
+    chdir: "{{ backup.compose_dir }}"
+  register: backup_verify_restic_snaps
+  changed_when: false
+
+- name: "Assert a snapshot exists for {{ backup.name }}"
+  ansible.builtin.assert:
+    that:
+      - backup_verify_restic_snaps.stdout | trim | length > 0
+      - (backup_verify_restic_snaps.stdout | from_json | length) > 0
+    fail_msg: >-
+      No restic snapshot in {{ backup.bucket }} — the volume backup has
+      never succeeded.
+
+- name: "Assert newest snapshot is fresh for {{ backup.name }}"
+  vars:
+    _snap: "{{ (backup_verify_restic_snaps.stdout | from_json) | last }}"
+    # restic times carry fractional seconds and a tz offset; strip both, treat
+    # as UTC (max_age_hours slack absorbs skew).
+    _ts: "{{ _snap.time | regex_replace('\\.[0-9]+', '') | regex_replace('([+-][0-9]{2}:?[0-9]{2}|Z)$', '') }}"
+    _age_h: "{{ ((now(utc=true) - (_ts | to_datetime('%Y-%m-%dT%H:%M:%S'))).total_seconds() / 3600) | round(1) }}"
+  ansible.builtin.assert:
+    that:
+      - _age_h | float <= (backup.max_age_hours | float)
+    success_msg: "{{ backup.name }}: newest snapshot {{ _snap.short_id }} is {{ _age_h }}h old (OK)"
+    fail_msg: >-
+      {{ backup.name }}: newest snapshot is {{ _age_h }}h old, exceeds
+      {{ backup.max_age_hours }}h — backup is STALE.

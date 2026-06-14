@@ -1,0 +1,38 @@
+---
+# Restore handler — type: restic. Restores the latest snapshot into a scratch
+# dir, then copies each path back over the live volume. The play has already
+# stopped the consumer services that read these dirs.
+
+- name: "Restore latest snapshot into a scratch dir for {{ backup.name }}"
+  # The live volume mounts are read-only inside the sidecar, and a plain --rm
+  # container's filesystem is ephemeral, so restore into an explicitly
+  # bind-mounted host dir (.restore) we can read back from the host afterwards.
+  # restic recreates the original source paths, so files land under
+  # .restore/data/<path>.
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - run
+      - --rm
+      - -v
+      - "{{ backup.compose_dir }}/.restore:/restore"
+      - "{{ backup.compose_service }}"
+      - restic
+      - restore
+      - latest
+      - --target
+      - /restore
+    chdir: "{{ backup.compose_dir }}"
+  changed_when: true
+
+- name: "Copy each restored path back over the live volume for {{ backup.name }}"
+  ansible.builtin.command:
+    cmd: "cp -a {{ backup.compose_dir }}/.restore/data/{{ item }}/. {{ backup.compose_dir }}/{{ item }}/"
+  loop: "{{ backup.restore_paths }}"
+  changed_when: true
+
+- name: "Remove the scratch restore dir for {{ backup.name }}"
+  ansible.builtin.file:
+    path: "{{ backup.compose_dir }}/.restore"
+    state: absent

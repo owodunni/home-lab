@@ -94,3 +94,56 @@ authentik_volumes_backup_retention_args: "--keep-daily 7 --keep-weekly 4 --keep-
 # Separate bucket from authentik_backup_s3_bucket (Postgres dumps) so the two
 # backup types can have independent retention/lifecycle.
 authentik_volumes_backup_s3_bucket: "authentik-volumes-backup"
+
+# ============================================================================
+# Backup manifest — consumed by the generic verify/restore tooling
+# (roles/backup_verify, roles/backup_restore; playbooks verify-backups.yml and
+# restore-backups.yml). See CLAUDE.md → "Backups: verify & restore".
+#
+# WHAT: declares every backup this service produces, one entry per backup, each
+#   tagged with a `type` (engine). The tooling loops this list and dispatches
+#   each entry to the matching per-type handler (tasks/<type>.yml in the roles).
+# WHY: the verify/restore *method* is a property of the engine (postgres dump vs
+#   restic snapshot), but *which* backups a service has is a property of the
+#   service. Keeping the manifest here lets one generic playbook handle any
+#   service: `make verify-backups SERVICE=authentik`. Migrating Authentik to a
+#   new host carries this manifest with it — no playbook edits.
+# RESOLVES: backups that silently rot. Freshness is now an asserted, runnable
+#   check instead of a manual step in a doc.
+#
+# max_age_hours: a backup older than this fails verification. Set a little above
+#   the schedule interval so a normal run never trips it but a missed run does.
+# ============================================================================
+# Compose project dir the restore playbook stops/starts as a whole. All backup
+# entries below live in this same stack.
+backup_compose_dir: "{{ authentik_dir }}"
+
+backup_consumer_services:
+  # Compose services that read the DB / file volumes. The restore playbook stops
+  # these before restoring (so nothing writes mid-restore) and starts the whole
+  # stack again afterwards.
+  - server
+  - worker
+
+backups:
+  - name: postgres
+    type: postgres
+    compose_dir: "{{ authentik_dir }}"
+    compose_service: pg-backup
+    bucket: "{{ authentik_backup_s3_bucket }}"
+    prefix: "{{ authentik_backup_s3_prefix }}"
+    schedule: "{{ authentik_backup_schedule }}"   # @daily
+    max_age_hours: 26
+
+  - name: volumes
+    type: restic
+    compose_dir: "{{ authentik_dir }}"
+    compose_service: volumes-backup
+    bucket: "{{ authentik_volumes_backup_s3_bucket }}"
+    schedule: "{{ authentik_volumes_backup_schedule }}"   # 0 3 * * *
+    max_age_hours: 27
+    # Paths (relative to compose_dir) the restic restore copies back over.
+    restore_paths:
+      - media
+      - certs
+      - custom-templates

@@ -1,0 +1,60 @@
+---
+# DESTRUCTIVE restore of a service's backups over the live service.
+#
+# Usage:
+#   make restore-backups SERVICE=authentik
+#   # or directly:
+#   ansible-playbook playbooks/restore-backups.yml -e backup_service=authentik
+#
+# This overwrites the live database and file volumes from the latest backups.
+# It is the codified form of docs/backup-recovery-testing.md → "Full DR drill".
+#
+# Safety: an interactive prompt halts the run until the operator types the exact
+# service name. We deliberately use a typed prompt rather than an `-e confirm=…`
+# extra var so a destructive run cannot be fired from shell history or a stray
+# flag — it always requires a human at the keyboard. (This means restore cannot
+# run unattended/in CI, which is correct for a destructive operation.)
+#
+# Flow: confirm → stop the consumer services so nothing reads/writes mid-restore
+# → run each per-type restore handler → bring the whole stack back up.
+
+- name: Restore backups for a service (DESTRUCTIVE)
+  # Set at runtime via -e backup_service=<group> (see Makefile restore-backups).
+  # The default is a placeholder group that matches no host, so `--syntax-check`
+  # passes and a forgotten -e is a safe no-op rather than an error.
+  hosts: "{{ backup_service | default('undefined_service_group') }}"
+  become: true
+  gather_facts: false
+
+  vars_prompt:
+    - name: confirm_service
+      prompt: >-
+        DESTRUCTIVE restore of '{{ backup_service | default('undefined_service_group') }}':
+        this overwrites the live database and file volumes from the latest
+        backups. Type the service name to proceed
+      private: false
+
+  pre_tasks:
+    - name: Abort unless the typed confirmation matches the target service
+      ansible.builtin.assert:
+        that:
+          - confirm_service == backup_service
+        fail_msg: >-
+          Confirmation '{{ confirm_service }}' does not match
+          '{{ backup_service }}' — aborting, nothing changed.
+        success_msg: "Confirmed — restoring {{ backup_service }}."
+
+    - name: Stop consumer services so nothing reads/writes during restore
+      community.docker.docker_compose_v2:
+        project_src: "{{ backup_compose_dir }}"
+        state: stopped
+        services: "{{ backup_consumer_services }}"
+
+  roles:
+    - role: backup_restore
+
+  post_tasks:
+    - name: Bring the full stack back up
+      community.docker.docker_compose_v2:
+        project_src: "{{ backup_compose_dir }}"
+        state: present

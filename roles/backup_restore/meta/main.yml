@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  role_name: backup_restore
+  author: home-lab
+  description: >-
+    Generic, DESTRUCTIVE restore of a service's backups. Loops the service's
+    `backups` manifest and dispatches each entry to a per-type handler
+    (tasks/<type>.yml). Must only be invoked by playbooks/restore-backups.yml,
+    which gates it behind an interactive confirmation and quiesces consumers.
+  license: MIT
+  min_ansible_version: "2.15"
+dependencies: []

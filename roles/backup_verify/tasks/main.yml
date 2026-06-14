@@ -1,0 +1,23 @@
+---
+# Generic backup verification. Targets the service host (the play sets
+# `hosts: {{ backup_service }}`), so the service's group_vars — including its
+# `backups` manifest — are automatically in scope. Each manifest entry is
+# routed to a per-type handler; adding an engine means adding tasks/<type>.yml,
+# never touching this file.
+
+- name: Assert the service declares a backup manifest
+  ansible.builtin.assert:
+    that:
+      - backups is defined
+      - backups | length > 0
+    fail_msg: >-
+      No 'backups' manifest found for '{{ backup_service | default("?") }}'.
+      Declare it in group_vars/<service>/main.yml
+      (see CLAUDE.md → "Backups: verify & restore").
+
+- name: "Verify each declared backup"
+  ansible.builtin.include_tasks: "{{ backup.type }}.yml"
+  loop: "{{ backups }}"
+  loop_control:
+    loop_var: backup
+    label: "{{ backup.name }} ({{ backup.type }})"

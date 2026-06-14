@@ -1,0 +1,59 @@
+---
+# Verify handler — type: postgres (eeshugerman/postgres-backup-s3 dumps).
+#
+# Non-destructive: it only lists the bucket through the sidecar's own aws CLI
+# (which already carries the S3 endpoint/creds via env.sh) and asserts the
+# newest dump is recent. No restore, no writes.
+#
+# Contract a type handler must satisfy: given `backup` (one manifest entry),
+# fail the play if a usable, fresh backup is not present; otherwise stay green.
+
+- name: "Find newest dump (key + LastModified) for {{ backup.name }}"
+  ansible.builtin.command:
+    # s3api gives an ISO-8601 LastModified we can parse reliably (unlike the
+    # locale-formatted `s3 ls`). The JMESPath query returns the single newest
+    # object as "<key>\t<timestamp>", or "None" if the bucket is empty.
+    argv:
+      - docker
+      - compose
+      - exec
+      - -T
+      - "{{ backup.compose_service }}"
+      - sh
+      - -c
+      # Folded scalar: line breaks become spaces (safe — only between tokens).
+      - >-
+        . ./env.sh; aws $aws_args s3api list-objects-v2
+        --bucket "$S3_BUCKET" --prefix "$S3_PREFIX/"
+        --query "sort_by(Contents,&LastModified)[-1].[Key,LastModified]"
+        --output text
+    chdir: "{{ backup.compose_dir }}"
+  register: backup_verify_pg_newest
+  changed_when: false
+
+- name: "Assert a dump exists for {{ backup.name }}"
+  ansible.builtin.assert:
+    that:
+      - backup_verify_pg_newest.stdout | trim | length > 0
+      - "'None' not in backup_verify_pg_newest.stdout"
+    fail_msg: >-
+      No Postgres dump in s3://{{ backup.bucket }}/{{ backup.prefix }}/ —
+      the backup has never succeeded.
+
+- name: "Assert newest dump is fresh for {{ backup.name }}"
+  vars:
+    # Drop fractional seconds (S3 returns e.g. ...:00.487000+00:00) and the
+    # timezone suffix (always +00:00 from S3), then treat as UTC; the
+    # max_age_hours slack absorbs any minor clock skew.
+    _ts: >-
+      {{ backup_verify_pg_newest.stdout.split()[1]
+      | regex_replace('\.[0-9]+', '')
+      | regex_replace('([+-][0-9]{2}:?[0-9]{2}|Z)$', '') }}
+    _age_h: "{{ ((now(utc=true) - (_ts | to_datetime('%Y-%m-%dT%H:%M:%S'))).total_seconds() / 3600) | round(1) }}"
+  ansible.builtin.assert:
+    that:
+      - _age_h | float <= (backup.max_age_hours | float)
+    success_msg: "{{ backup.name }}: newest dump {{ backup_verify_pg_newest.stdout.split()[0] }} is {{ _age_h }}h old (OK)"
+    fail_msg: >-
+      {{ backup.name }}: newest dump is {{ _age_h }}h old, exceeds
+      {{ backup.max_age_hours }}h — backup is STALE.
