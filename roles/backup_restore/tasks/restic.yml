@@ -1,9 +1,40 @@
 ---
-# Restore handler — type: restic. Restores the latest snapshot into a scratch
-# dir, then copies each path back over the live volume. The play has already
-# stopped the consumer services that read these dirs.
+# Restore handler — type: restic. Restores a chosen snapshot (default: latest)
+# into a scratch dir, then copies each path back over the live volume. The play
+# has already stopped the consumer services that read these dirs.
+#
+# Snapshot selection: backup_targets[<backup.name>] picks an older snapshot ID
+# (from `make verify-backups` / the listing below); absent → "latest". This is
+# what lets the operator roll back to a good state from weeks ago, not just the
+# newest snapshot.
 
-- name: "Restore latest snapshot into a scratch dir for {{ backup.name }}"
+- name: "Resolve restore target for {{ backup.name }}"
+  ansible.builtin.set_fact:
+    backup_restore_target: "{{ (backup_targets | default({}))[backup.name] | default('latest') }}"
+
+- name: "List restic snapshots before restore for {{ backup.name }}"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - exec
+      - -T
+      - "{{ backup.compose_service }}"
+      - restic
+      - snapshots
+      - --json
+    chdir: "{{ backup.compose_dir }}"
+  register: backup_restore_restic_snaps
+  changed_when: false
+
+- name: "List available restore points (restoring backup_restore_target) for {{ backup.name }}"
+  ansible.builtin.debug:
+    msg: "{{ item.short_id }}  {{ item.time }}"
+  loop: "{{ backup_restore_restic_snaps.stdout | from_json }}"
+  loop_control:
+    label: "{{ item.short_id }}"
+
+- name: "Restore the selected snapshot into a scratch dir for {{ backup.name }}"
   # The live volume mounts are read-only inside the sidecar, and a plain --rm
   # container's filesystem is ephemeral, so restore into an explicitly
   # bind-mounted host dir (.restore) we can read back from the host afterwards.
@@ -20,7 +51,7 @@
       - "{{ backup.compose_service }}"
       - restic
       - restore
-      - latest
+      - "{{ backup_restore_target }}"
       - --target
       - /restore
     chdir: "{{ backup.compose_dir }}"

@@ -3,10 +3,21 @@
 #
 # Usage:
 #   make restore-backups SERVICE=authentik
+#   # roll specific backups back to an OLDER restore point (snapshot IDs from
+#   # `make verify-backups`); omitted backups restore their latest snapshot:
+#   make restore-backups SERVICE=authentik TARGETS='postgres=ab12cd34,volumes=ef56ab78'
 #   # or directly:
-#   ansible-playbook playbooks/restore-backups.yml -e backup_service=authentik
+#   ansible-playbook playbooks/restore-backups.yml -e backup_service=authentik \
+#     -e '{"backup_targets": {"postgres": "ab12cd34"}}'
 #
-# This overwrites the live database and file volumes from the latest backups.
+# Every backup is a restic snapshot (the DB is a pg_dump captured in restic, the
+# file volumes are restic of the bind mounts), so any snapshot kept by the GFS
+# retention policy is restorable — not just the newest. `backup_targets` is an
+# optional map of {backup name → snapshot ID}; each restore handler defaults to
+# "latest" when its name is absent. Each handler also prints the full list of
+# available restore points before it acts.
+#
+# This overwrites the live database and file volumes from the chosen snapshots.
 # It is the codified form of docs/backup-recovery-testing.md → "Full DR drill".
 #
 # Safety: an interactive prompt halts the run until the operator types the exact
@@ -16,7 +27,8 @@
 # run unattended/in CI, which is correct for a destructive operation.)
 #
 # Flow: confirm → stop the consumer services so nothing reads/writes mid-restore
-# → run each per-type restore handler → bring the whole stack back up.
+# → run each per-type restore handler (list restore points → restore the chosen
+# snapshot) → bring the whole stack back up.
 
 - name: Restore backups for a service (DESTRUCTIVE)
   # Set at runtime via -e backup_service=<group> (see Makefile restore-backups).

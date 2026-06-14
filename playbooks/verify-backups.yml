@@ -8,8 +8,11 @@
 #
 # Targets the host(s) in the named service group, so that service's group_vars
 # (including its `backups` manifest) are in scope. The backup_verify role loops
-# the manifest and asserts each backup is present and within its freshness
-# window; a stale or missing backup fails the play with a clear message.
+# the manifest and, for each backup, lists every available restore point
+# (snapshot ID + timestamp) and asserts the newest is present and within its
+# freshness window; a stale or missing backup fails the play with a clear
+# message. Use the listed snapshot IDs to target an older restore point in
+# `make restore-backups ... TARGETS=`.
 #
 # Safe to run anytime, including from cron before a risky change. See CLAUDE.md
 # → "Backups: verify & restore" and docs/backup-recovery-testing.md.

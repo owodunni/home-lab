@@ -14,17 +14,19 @@
 #   vault_authentik_secret_key
 #   vault_authentik_backup_s3_access_key  — Garage access key, "GK" + 24 hex chars
 #   vault_authentik_backup_s3_secret_key  — Garage secret, 64 hex chars
+#     (key for the authentik-backup bucket, which holds the DB restic repo)
 #   vault_authentik_volumes_backup_s3_access_key / _secret_key — same format,
 #     a separate key pair for the volumes-backup (restic) sidecar's bucket
-#   vault_authentik_restic_password — restic repo encryption password
-#     (openssl rand -base64 32); losing it makes existing snapshots unrecoverable
+#   vault_authentik_restic_password — restic repo encryption password, shared by
+#     BOTH restic repos (DB + volumes); openssl rand -base64 32. Losing it makes
+#     existing snapshots unrecoverable.
 #     Generate the two S3 key pairs yourself before first run (no copy-paste from
 #     a created key):
 #       scripts/garage-keygen.sh vault_authentik_backup_s3
 #       scripts/garage-keygen.sh vault_authentik_volumes_backup_s3
 #     The play below imports them into Garage; the deploy play feeds the same
-#     values to the pg-backup and volumes-backup sidecars. One source of truth,
-#     fully unattended.
+#     values to the db-backup and volumes-backup restic sidecars. One source of
+#     truth, fully unattended.
 
 - name: Provision Authentik backup buckets and keys on Garage
   # Runs on the Garage host (beelink) because the `garage` CLI lives there, and
@@ -107,7 +109,7 @@
       #   granting), re-running the play skipped it forever, leaving a valid key
       #   with no bucket access.
       # RESOLVES: silent "Stat: Access Denied" / "create key in repository failed"
-      #   in the pg-backup and volumes-backup sidecars — backups appeared deployed
+      #   in the db-backup and volumes-backup sidecars — backups appeared deployed
       #   but never wrote a single object. Keying off the actual grant state makes
       #   this idempotent and self-healing.
       # Bucket is a positional arg here (unlike `garage key import -n`, which takes

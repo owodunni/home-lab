@@ -1,13 +1,14 @@
 ---
 # Verify handler — type: restic (lobaro/restic-backup-docker snapshots).
+# Also the verifier for type: postgres, which is a pg_dump captured in a restic
+# repo (see tasks/postgres.yml — it delegates here).
 #
-# Non-destructive: lists the newest snapshot through the sidecar and asserts it
-# is recent. `run --rm` spins a throwaway container that only reads the repo.
+# Non-destructive: lists every snapshot through the sidecar, prints them as the
+# available restore points, then asserts the newest is recent. `exec` on the
+# running sidecar (it runs cron in the foreground, so it is up) runs restic
+# directly with the container's RESTIC_* env already set.
 
 - name: "List restic snapshots (JSON) for {{ backup.name }}"
-  # exec on the running sidecar (it runs cron in the foreground, so it is up):
-  # the lobaro entrypoint does not reliably pass args through `run`, and exec
-  # runs restic directly with the container's RESTIC_* env already set.
   ansible.builtin.command:
     argv:
       - docker
@@ -22,14 +23,23 @@
   register: backup_verify_restic_snaps
   changed_when: false
 
+# Surface every restore point (not just the newest) so the operator can pick an
+# older snapshot ID to feed back into `make restore-backups ... TARGETS=`.
+- name: "List available restore points (snapshot_id | timestamp) for {{ backup.name }}"
+  ansible.builtin.debug:
+    msg: "{{ item.short_id }}  {{ item.time }}"
+  loop: "{{ backup_verify_restic_snaps.stdout | from_json }}"
+  loop_control:
+    label: "{{ item.short_id }}"
+
 - name: "Assert a snapshot exists for {{ backup.name }}"
   ansible.builtin.assert:
     that:
       - backup_verify_restic_snaps.stdout | trim | length > 0
       - (backup_verify_restic_snaps.stdout | from_json | length) > 0
     fail_msg: >-
-      No restic snapshot in {{ backup.bucket }} — the volume backup has
-      never succeeded.
+      No restic snapshot in {{ backup.bucket }} — the backup has never
+      succeeded.
 
 - name: "Assert newest snapshot is fresh for {{ backup.name }}"
   vars:

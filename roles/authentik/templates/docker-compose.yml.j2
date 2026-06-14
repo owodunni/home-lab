@@ -63,37 +63,67 @@ services:
       postgresql:
         condition: service_healthy
 
-  # Periodic pg_dump → offsite Garage S3 (beelink at the barn, reached over WireGuard). Image tag must match the postgres major version above (16).
-  # Restore (destructive) on the running sidecar: docker compose exec pg-backup sh restore.sh — full guide + safe verification drill: docs/restore_postgres.md
-  pg-backup:
-    image: eeshugerman/postgres-backup-s3:16
+  # DB backup, half 1 of 2: produce a logical dump on a schedule.
+  # Writes pg_dump custom-format output to the shared db-dump volume; the
+  # db-backup restic sidecar below snapshots that volume to Garage S3. Splitting
+  # "make the dump" from "snapshot it" lets the DB ride restic's GFS retention
+  # and per-snapshot restore, exactly like the file volumes. Image tag must
+  # match the postgres major version above (16) so pg_dump/pg_restore are
+  # wire-compatible with the server.
+  # Restore is driven by the generic tooling: make restore-backups SERVICE=authentik
+  #   (full guide + safe verification drill: docs/restore_postgres.md)
+  pg-dump:
+    image: docker.io/library/postgres:16-alpine
     restart: unless-stopped
     environment:
-      SCHEDULE: "{{ authentik_backup_schedule }}"
-      BACKUP_KEEP_DAYS: "{{ authentik_backup_keep_days }}"
-      S3_REGION: "{{ authentik_backup_s3_region }}"
-      S3_BUCKET: "{{ authentik_backup_s3_bucket }}"
-      S3_PREFIX: "{{ authentik_backup_s3_prefix }}"
-      # Custom S3 endpoint — Garage, reached via Traefik (not AWS)
-      S3_ENDPOINT: "{{ authentik_backup_s3_endpoint }}"
-      POSTGRES_HOST: postgresql
-      POSTGRES_DATABASE: authentik
-      POSTGRES_USER: authentik
-      POSTGRES_PASSWORD: ${PG_PASS}
-      S3_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID}
-      S3_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY}
-{% if authentik_backup_passphrase_enabled %}
-      # GPG passphrase for at-rest encryption of backup files
-      PASSPHRASE: ${BACKUP_PASSPHRASE}
-{% endif %}
-    env_file:
-      - .env
+      PGHOST: postgresql
+      PGDATABASE: authentik
+      PGUSER: authentik
+      PGPASSWORD: ${PG_PASS}
+    volumes:
+      - db-dump:/dump
+    # Dump immediately on start, then every interval. Write to a temp file and
+    # atomically rename so the restic sidecar never snapshots a half-written
+    # dump. -Fc (custom format) so restore can pg_restore --clean --if-exists.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        while true; do
+          pg_dump -Fc -f /dump/authentik.dump.tmp \
+            && mv -f /dump/authentik.dump.tmp /dump/authentik.dump \
+            && echo "pg-dump: wrote /dump/authentik.dump at $$(date -Is)"
+          sleep {{ authentik_db_dump_interval_seconds }}
+        done
     depends_on:
       postgresql:
         condition: service_healthy
 
+  # DB backup, half 2 of 2: restic snapshot of the dump → offsite Garage S3
+  # (beelink at the barn, over WireGuard). Repo lives under the restic/ subpath
+  # of the authentik-backup bucket; reuses the bucket's existing S3 key. The
+  # mount is read-only — restic only ever reads the dump.
+  db-backup:
+    image: ghcr.io/lobaro/restic-backup-docker:{{ authentik_volumes_backup_image_version }}
+    restart: unless-stopped
+    environment:
+      RESTIC_REPOSITORY: "s3:{{ authentik_backup_s3_endpoint }}/{{ authentik_backup_s3_bucket }}/restic"
+      RESTIC_PASSWORD: ${DB_BACKUP_RESTIC_PASSWORD}
+      AWS_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: "{{ authentik_backup_s3_region }}"
+      RESTIC_TAG: authentik-db
+      BACKUP_CRON: "{{ authentik_db_backup_schedule }}"
+      RESTIC_FORGET_ARGS: "{{ authentik_db_backup_retention_args }}"
+    volumes:
+      - db-dump:/data:ro
+    env_file:
+      - .env
+    depends_on:
+      - pg-dump
+
   # Periodic restic backup of file-based volumes (media, certs,
-  # custom-templates) → offsite Garage S3, alongside the pg-backup dump above.
+  # custom-templates) → offsite Garage S3, alongside the db-backup snapshot above.
   # Mounts are read-only: restic only ever reads the live data.
   # Restore procedure: docs/restore_volumes.md
   volumes-backup:
@@ -117,4 +147,7 @@ services:
 
 volumes:
   database:
+    driver: local
+  # Shared between pg-dump (writes the dump) and db-backup (reads it for restic).
+  db-dump:
     driver: local

@@ -1,19 +1,19 @@
 ---
-# Restore handler — type: postgres. DESTRUCTIVE: restore.sh runs
-# `pg_restore --clean --if-exists`, dropping and recreating every object in the
-# live database from the latest dump. The play has already stopped the consumer
-# services (server/worker); the postgres container itself stays up.
+# Restore handler — type: postgres (a pg_dump captured in a restic repo).
+# DESTRUCTIVE: restores the chosen snapshot's dump, then `pg_restore --clean
+# --if-exists` drops and recreates every object in the live database. The play
+# has already stopped the consumer services (server/worker); the postgres
+# container itself stays up.
+#
+# Snapshot selection: backup_targets[<backup.name>] picks an older snapshot ID
+# (from `make verify-backups` / the listing below); absent → "latest". This is
+# what lets the operator roll the DB back to a good state from weeks ago.
 
-- name: "Ensure the backup sidecar is running (needed for exec) for {{ backup.name }}"
-  community.docker.docker_compose_v2:
-    project_src: "{{ backup.compose_dir }}"
-    state: present
-    services:
-      - "{{ backup.compose_service }}"
+- name: "Resolve restore target for {{ backup.name }}"
+  ansible.builtin.set_fact:
+    backup_restore_target: "{{ (backup_targets | default({}))[backup.name] | default('latest') }}"
 
-- name: "Restore latest dump into the live database for {{ backup.name }}"
-  # `exec` on the running sidecar, NOT `run`: the image entrypoint ignores args,
-  # so `run ... restore.sh` would take a NEW backup instead of restoring.
+- name: "List DB restic snapshots before restore for {{ backup.name }}"
   ansible.builtin.command:
     argv:
       - docker
@@ -21,7 +21,67 @@
       - exec
       - -T
       - "{{ backup.compose_service }}"
-      - sh
-      - restore.sh
+      - restic
+      - snapshots
+      - --json
+    chdir: "{{ backup.compose_dir }}"
+  register: backup_restore_pg_snaps
+  changed_when: false
+
+- name: "List available restore points (restoring backup_restore_target) for {{ backup.name }}"
+  ansible.builtin.debug:
+    msg: "{{ item.short_id }}  {{ item.time }}"
+  loop: "{{ backup_restore_pg_snaps.stdout | from_json }}"
+  loop_control:
+    label: "{{ item.short_id }}"
+
+- name: "Restore the selected snapshot's dump into a scratch dir for {{ backup.name }}"
+  # restic recreates the original source path, so the dump lands at
+  # .restore/data/<dump_file>. The sidecar's volume mount is read-only, so we
+  # bind-mount a writable scratch dir (.restore) to read back from afterwards.
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - run
+      - --rm
+      - -v
+      - "{{ backup.compose_dir }}/.restore:/restore"
+      - "{{ backup.compose_service }}"
+      - restic
+      - restore
+      - "{{ backup_restore_target }}"
+      - --target
+      - /restore
     chdir: "{{ backup.compose_dir }}"
   changed_when: true
+
+- name: "Run pg_restore of the restored dump into the live database for {{ backup.name }}"
+  # Run pg_restore in the postgres-client sidecar (pg_restore_service): it
+  # already carries PGHOST/PGUSER/PGDATABASE/PGPASSWORD and network reach to the
+  # live DB. Override its entrypoint to sh and mount the scratch dir. --clean
+  # --if-exists drops existing objects first; --no-owner avoids role-ownership
+  # mismatches on restore. --no-deps so it doesn't restart the DB.
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - run
+      - --rm
+      - --no-deps
+      - -v
+      - "{{ backup.compose_dir }}/.restore:/restore"
+      - --entrypoint
+      - sh
+      - "{{ backup.pg_restore_service }}"
+      - -c
+      - >-
+        pg_restore --clean --if-exists --no-owner
+        -d "$PGDATABASE" "/restore/data/{{ backup.dump_file }}"
+    chdir: "{{ backup.compose_dir }}"
+  changed_when: true
+
+- name: "Remove the scratch restore dir for {{ backup.name }}"
+  ansible.builtin.file:
+    path: "{{ backup.compose_dir }}/.restore"
+    state: absent

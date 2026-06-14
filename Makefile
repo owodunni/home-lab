@@ -162,12 +162,21 @@ site: ## 🏗️ Full provisioning: all layers in sequence (system → networkin
 	@echo "Running full site provisioning..."
 	$(ANSIBLE_PLAYBOOK) site.yml
 
-verify-backups: ## ✅ Verify a service's backups exist and are fresh (SERVICE=<group>)
+verify-backups: ## ✅ Verify a service's backups exist and are fresh, and list every restore point (SERVICE=<group>)
 	@test -n "$(SERVICE)" || { echo "Usage: make verify-backups SERVICE=<service-group>"; exit 1; }
 	@echo "Verifying backups for $(SERVICE)..."
 	$(ANSIBLE_PLAYBOOK) playbooks/verify-backups.yml -e backup_service=$(SERVICE)
 
-restore-backups: ## ♻️ DESTRUCTIVE restore of a service's backups, with a typed confirm prompt (SERVICE=<group>)
-	@test -n "$(SERVICE)" || { echo "Usage: make restore-backups SERVICE=<service-group>"; exit 1; }
+restore-backups: ## ♻️ DESTRUCTIVE restore of a service's backups, typed confirm prompt (SERVICE=<group> [TARGETS='name=snap_id,...'])
+	@test -n "$(SERVICE)" || { echo "Usage: make restore-backups SERVICE=<service-group> [TARGETS='name=snap_id,...']"; exit 1; }
 	@echo "Restoring backups for $(SERVICE) (interactive confirmation required)..."
-	$(ANSIBLE_PLAYBOOK) playbooks/restore-backups.yml -e backup_service=$(SERVICE)
+	@# TARGETS lets you roll back to an OLDER restore point per backup: pick
+	@# snapshot IDs from `make verify-backups`, e.g. TARGETS='postgres=ab12cd34,volumes=ef56ab78'.
+	@# Omit a backup (or TARGETS entirely) to restore its latest snapshot.
+	@extra=""; \
+	if [ -n "$(TARGETS)" ]; then \
+	  map=$$(printf '%s' "$(TARGETS)" | tr ',' '\n' | sed '/^$$/d' | \
+	    awk -F= 'BEGIN{printf "{"} {printf "%s\"%s\":\"%s\"",(NR>1?",":""),$$1,$$2} END{printf "}"}'); \
+	  extra="-e {\"backup_targets\":$$map}"; \
+	fi; \
+	$(ANSIBLE_PLAYBOOK) playbooks/restore-backups.yml -e backup_service=$(SERVICE) $$extra
