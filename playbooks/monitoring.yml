@@ -5,17 +5,19 @@
 #       host, smartctl_exporter on the [storage] hosts (SMART drive health), and
 #       Prometheus + Alertmanager + Grafana on the [monitoring] group (pi-cm5-1).
 #       Grafana is exposed at grafana.jardoole.xyz via Traefik.
-# Why:  Monitoring is a distinct concern from services and security. A separate
-#       layer keeps observability independently runnable (make monitoring) and
-#       clearly ordered: metrics are collected before hardening locks down
-#       network access.
+# Why:  Monitoring is a distinct concern from the services it watches and from
+#       security. A separate layer keeps observability independently runnable
+#       (make monitoring) and clearly ordered: it comes after the applications
+#       so every service it scrapes already exists, and before hardening locks
+#       down network access.
 # Resolves: An ordered composition layer for the monitoring function playbooks:
 #           the exporters first (node_exporter + smartctl_exporter data sources),
 #           then Prometheus + Alertmanager (collection + routing), then Grafana
 #           (visualization).
 #
-# Order: After services (Traefik must be running before the Grafana routing
-#        config takes effect). Before security (hardening runs last).
+# Order: After applications (it monitors the services they deploy; Traefik must
+#        also be running before the Grafana routing config takes effect, and
+#        Authentik live for Grafana SSO). Before security (hardening runs last).
 
 - name: Monitoring | node_exporter on all fleet hosts
   ansible.builtin.import_playbook: node-exporter.yml

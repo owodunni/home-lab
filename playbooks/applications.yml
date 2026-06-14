@@ -2,14 +2,17 @@
 # Applications layer
 #
 # What: Deploys end-user application services that sit on top of the full
-#       platform (ingress, Docker, storage/NFS, and identity). Currently:
-#       Seafile file sync/share.
+#       platform (ingress, Docker, storage/NFS, and identity): Seafile file
+#       sync/share, and the media (arr) stack on valen.
 # Why:  These services depend on everything below them — Traefik for ingress,
-#       Docker for runtime, the NFS pool for bulk data, and (for SSO) Authentik.
-#       They are sequenced after `auth` so any OIDC integration can target a
-#       live identity provider, per the architecture note in CLAUDE.md.
-# Resolves: A place for user-facing apps that must run after auth, keeping them
-#           out of the pre-auth `services` layer.
+#       Docker for runtime, the storage pool/NFS for bulk data, and (for SSO)
+#       Authentik. They are sequenced after `auth` so any OIDC integration can
+#       target a live identity provider, per the architecture note in CLAUDE.md.
+#       Their non-service foundations live in earlier layers: the media data
+#       tree is provisioned in `storage`, the Intel GPU drivers in `system`.
+# Resolves: A place for user-facing apps that must run after auth, holding only
+#           actual services (and their auth middleware) — host hardware and
+#           storage layout are split out into the layers that own them.
 #
 # Pure orchestration: no logic here, only imports of standalone function
 # playbooks.
@@ -17,16 +20,11 @@
   ansible.builtin.import_playbook: seafile.yml
 
 # --- Media stack (on valen) -------------------------------------------------
-# Foundation first (shared storage, GPU drivers, SSO middleware), then services
-# in dependency order — one at a time, each validated before the next is added.
+# Storage tree (storage layer) and GPU drivers (system layer) are already in
+# place; here we deploy the SSO middleware, then the services in dependency
+# order — one at a time, each validated before the next is added.
 # See docs/media-stack-migration.md.
-- name: Media foundation — shared storage tree on the pool
-  ansible.builtin.import_playbook: media-storage.yml
-
-- name: Media foundation — Intel GPU drivers for transcoding
-  ansible.builtin.import_playbook: gpu-drivers.yml
-
-- name: Media foundation — Authentik forward-auth middleware
+- name: Media — Authentik forward-auth middleware
   ansible.builtin.import_playbook: media-forward-auth.yml
 
 - name: Media — qBittorrent (+ Gluetun VPN) download client

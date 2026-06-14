@@ -8,7 +8,7 @@
 #       runnable for targeted changes.
 # Resolves: The need for a reproducible bootstrap that fixes layer ordering in one
 #           place — system → networking → storage → ingress → service-infra →
-#           services → auth → monitoring → applications → security.
+#           auth → applications → monitoring → security.
 #
 # Order is significant: each layer assumes the previous one has completed.
 - name: System layer — base OS and hardware configuration
@@ -17,26 +17,23 @@
 - name: Networking layer — WireGuard peers for cross-site connectivity
   ansible.builtin.import_playbook: playbooks/networking.yml
 
-- name: Storage layer — encrypted drives, MergerFS pool, SnapRAID parity
+- name: Storage layer — encrypted drives, MergerFS pool, SnapRAID parity, media tree
   ansible.builtin.import_playbook: playbooks/storage.yml
 
 - name: Ingress layer — Traefik reverse proxy with ACME
   ansible.builtin.import_playbook: playbooks/ingress.yml
 
-- name: Service Infrastructure layer — Docker and other service dependencies
+- name: Service Infrastructure layer — Docker runtime and Garage S3 backend
   ansible.builtin.import_playbook: playbooks/service-infra.yml
-
-- name: Services layer — object storage backend (Garage S3)
-  ansible.builtin.import_playbook: playbooks/services.yml
 
 - name: Auth layer — Authentik identity provider (SSO/OIDC for all services)
   ansible.builtin.import_playbook: playbooks/auth.yml
 
+- name: Applications layer — end-user services (Seafile, media stack)
+  ansible.builtin.import_playbook: playbooks/applications.yml
+
 - name: Monitoring layer — node_exporter, Prometheus, Alertmanager, Grafana
   ansible.builtin.import_playbook: playbooks/monitoring.yml
-
-- name: Applications layer — end-user services (Seafile)
-  ansible.builtin.import_playbook: playbooks/applications.yml
 
 - name: Security layer — hardening
   ansible.builtin.import_playbook: playbooks/security.yml

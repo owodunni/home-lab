@@ -85,7 +85,7 @@ docker compose start server worker
 
 On a rebuilt host the Postgres volume starts empty, so:
 
-1. Deploy the auth layer as normal (`make authentik` is blocked here — the
+1. Deploy the auth layer as normal (`make auth` is blocked here — the
    operator runs it). Postgres comes up and auto-creates the empty `authentik`
    DB + role from `POSTGRES_DB`/`POSTGRES_USER`.
 2. Run the production restore steps above (or `make restore-backups`) to load the

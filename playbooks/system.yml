@@ -2,17 +2,25 @@
 # System layer
 #
 # What: Establishes the base OS state for every host — applies all pending
-#       package updates, then applies Pi CM5 firmware/hardware/power settings.
+#       package updates, then per-host hardware enablement: Pi CM5
+#       firmware/hardware/power settings, and Intel GPU drivers on the media
+#       host (QuickSync/VA-API for transcoding).
 # Why:  These are the foundational steps every other layer assumes are already
 #       in place: a fully patched OS and correct hardware configuration. Updates
-#       run before firmware config so a single reboot can settle both.
+#       run before hardware config so a single reboot can settle both. GPU
+#       drivers live here, not with the media services that use them: they are
+#       host-level hardware state (like the Pi firmware config), present whatever
+#       runs on top, so they are provisioned once at the base layer.
 # Resolves: The need to bring a fresh host to a known, current base state in one
 #           ordered step, without callers needing to remember the sub-steps.
 #
 # Pure orchestration: this playbook adds no logic of its own. The function
-# playbooks it imports remain runnable standalone (e.g. `make upgrade`).
+# playbooks it imports remain runnable standalone.
 - name: Apply pending package updates
   ansible.builtin.import_playbook: upgrade.yml
 
 - name: Configure Pi CM5 firmware and power settings
   ansible.builtin.import_playbook: pi-base-config.yml
+
+- name: Install Intel GPU drivers for transcoding on the media host
+  ansible.builtin.import_playbook: gpu-drivers.yml

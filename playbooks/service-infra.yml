@@ -1,11 +1,22 @@
 ---
 # Service Infrastructure layer
 #
-# What: Groups foundational infrastructure playbooks for application services.
-# Why:  Provides a standardized, modular layer for service dependencies
-#       before the services themselves are deployed.
-# Order: After Ingress (Traefik ready for routing), before Services (apps depend
-#        on this infrastructure).
-
-- name: Service Infra | Docker
+# What: Foundational infrastructure that application services depend on but
+#       which is not itself an end-user service: the Docker runtime, and Garage
+#       S3-compatible object storage (a shared storage backend / backup target).
+# Why:  These are dependencies of the services above them, so they belong in a
+#       layer below — splitting a dependency into its own earlier layer is the
+#       core layering rule (see CLAUDE.md). Garage lives here, not in a
+#       services layer, precisely because other services consume it: Authentik
+#       backs its database up to a Garage bucket, and future services may use it
+#       for object storage. It must therefore exist before auth and the apps.
+# Order: After ingress (Traefik must be running before Garage's routing config
+#        lands), before auth (Authentik provisions its backup bucket on Garage).
+#
+# Pure orchestration: no logic here, only imports of standalone function
+# playbooks.
+- name: Service Infra | Docker runtime
   ansible.builtin.import_playbook: docker.yml
+
+- name: Service Infra | Garage S3 object storage backend
+  ansible.builtin.import_playbook: garage.yml

@@ -23,36 +23,40 @@ the entire site.
 
 | Layer | Purpose | Function playbooks | Hosts |
 |---|---|---|---|
-| **system** | Base OS state: apply all package updates, then Pi CM5 firmware/hardware/power settings. | `upgrade.yml`, `pi-base-config.yml` | `all` / `pi_cm5` |
+| **system** | Base OS state and per-host hardware enablement: apply all package updates, then Pi CM5 firmware/hardware/power settings and Intel GPU drivers (QuickSync/VA-API) on the media host. GPU drivers live here, not with the media apps, because they are host hardware state present whatever runs on top. | `upgrade.yml`, `pi-base-config.yml`, `gpu-drivers.yml` | `all` / `pi_cm5` / `media` |
 | **networking** | WireGuard peers for cross-site connectivity. Tunnels offsite hosts into the home LAN; skips hosts until their UniFi peer values are filled in. | `wireguard.yml` | `wireguard` |
-| **storage** | Encrypted drives, MergerFS pool, SnapRAID parity, NFS export of the pool, HDD spin-down. Runs on `[storage]`; the NFS client step runs on `[nfs_client]` (the Docker fleet). | `disk-encrypt.yml`, `snapraid-mergerfs.yml`, `nfs.yml`, `disk-spindown.yml` | `storage` / `nfs_server` / `nfs_client` |
+| **storage** | Encrypted drives, MergerFS pool, SnapRAID parity, the media data tree on the pool, NFS export of the pool, HDD spin-down. The media tree lives here (storage layout, owned by the media account) rather than with the media apps that bind-mount it. Runs on `[storage]`; the NFS client step runs on `[nfs_client]` (the Docker fleet). | `disk-encrypt.yml`, `snapraid-mergerfs.yml`, `media-storage.yml`, `nfs.yml`, `disk-spindown.yml` | `storage` / `media` / `nfs_server` / `nfs_client` |
 | ingress | Traefik reverse proxy with ACME wildcard certificates via Cloudflare DNS-01. | `traefik.yml` | `ingress` |
-| **service-infra** | Foundational infrastructure for application services (e.g., Docker runtime). | `docker.yml` | `services` |
-| **services** | Storage-backend services that depend on ingress but not on auth. Currently: Garage S3 object storage (the offsite target for Authentik's DB backups). | `garage.yml` | `garage` |
-| **auth** | Identity provider (Authentik SSO/OIDC). Must be live before any service configures OIDC integration against it. Provisions its backup bucket/key on Garage, so `services` runs first. | `authentik.yml` | `authentik` |
-| **monitoring** | Observability stack: node_exporter on every host; smartctl_exporter (SMART drive health) on `[storage]`; Prometheus, Alertmanager, and Grafana on `[monitoring]`. Alert rules cover host and drive faults (failed SMART status, reallocated/pending sectors, temperature, NVMe wearout) and route to email via Alertmanager. Grafana exposed at `grafana.jardoole.xyz` via Traefik. | `node-exporter.yml`, `smartctl-exporter.yml`, `prometheus.yml`, `grafana.yml` | `all` / `storage` / `monitoring` |
-| **applications** | End-user app services that sit on the full platform (ingress + Docker + NFS, and auth for SSO). Seafile file sync/share — compute on a Pi, bulk file data on valen's pool over NFS, behind a co-located Traefik. Plus the **media (arr) stack** on valen (compute + storage + Intel iGPU transcoding co-located, local bind mounts): foundation (`media-storage.yml`, `gpu-drivers.yml`, `media-forward-auth.yml`) then services starting with qBittorrent+VPN — see `docs/media-stack-migration.md`. | `seafile.yml`, `media-storage.yml`, `gpu-drivers.yml`, `media-forward-auth.yml`, `qbittorrent.yml` | `seafile` / `media` / `qbittorrent` |
+| **service-infra** | Foundational infrastructure that application services depend on: the Docker runtime, and Garage S3 object storage (a shared storage backend — the target for Authentik's DB backups, and available to future services). Garage lives here, below auth, because other services consume it. | `docker.yml`, `garage.yml` | `services` / `garage` |
+| **auth** | Identity provider (Authentik SSO/OIDC). Must be live before any service configures OIDC integration against it. Provisions its backup bucket/key on Garage, so `service-infra` runs first. | `authentik.yml` | `authentik` |
+| **applications** | End-user app services that sit on the full platform (ingress + Docker + NFS, and auth for SSO). Seafile file sync/share — compute on a Pi, bulk file data on valen's pool over NFS, behind a co-located Traefik. Plus the **media (arr) stack** on valen (compute + storage + Intel iGPU transcoding co-located, local bind mounts): the SSO middleware (`media-forward-auth.yml`) then services starting with qBittorrent+VPN — see `docs/media-stack-migration.md`. Its hardware (GPU drivers) and storage layout (media tree) foundations live in the `system` and `storage` layers respectively. | `seafile.yml`, `media-forward-auth.yml`, `qbittorrent.yml` | `seafile` / `media` / `qbittorrent` |
+| **monitoring** | Observability stack: node_exporter on every host; smartctl_exporter (SMART drive health) on `[storage]`; Prometheus, Alertmanager, and Grafana on `[monitoring]`. Alert rules cover host and drive faults (failed SMART status, reallocated/pending sectors, temperature, NVMe wearout) and route to email via Alertmanager. Grafana exposed at `grafana.jardoole.xyz` via Traefik. Runs after `applications` so every service it scrapes already exists. | `node-exporter.yml`, `smartctl-exporter.yml`, `prometheus.yml`, `grafana.yml` | `all` / `storage` / `monitoring` |
 | **security** | Hardening: automatic security updates (firewall, SSH hardening to come). | `unattended-upgrades.yml` | `all` |
 
-**Order matters:** `system` first (patched OS before anything else), then
-`networking` (establish cross-site reachability so later layers can manage
-offsite hosts), then `storage` (functional setup before security rules can
-interfere with package downloads and drive operations), then `ingress` (Traefik
-must be running before any service routing configs land), then `service-infra`
-(container runtime ready for app deployment), then `services` (Garage S3 — it
-needs ingress and storage but no OIDC, and it is the offsite target Authentik
-backs its database up to, so it must exist before `auth`), then `auth`
+**Order matters:** `system` first (patched OS and host hardware before anything
+else), then `networking` (establish cross-site reachability so later layers can
+manage offsite hosts), then `storage` (functional setup before security rules
+can interfere with package downloads and drive operations), then `ingress`
+(Traefik must be running before any service routing configs land), then
+`service-infra` (the Docker runtime and Garage S3 — both are dependencies of the
+layers above: Docker runs the app containers, and Garage is the backend
+Authentik backs its database up to, so it must exist before `auth`), then `auth`
 (Authentik provisions its backup bucket/key on the now-live Garage, then deploys
-with its restic backup sidecars), then `monitoring` (Traefik must be running for the
-Grafana routing config; Authentik must be live so Grafana SSO can be wired up),
-then `applications` (end-user services that depend on every platform layer
-below them — ingress, Docker, NFS, and a live Authentik for any SSO), then
+with its restic backup sidecars), then `applications` (end-user services that
+depend on every platform layer below them — ingress, Docker, NFS, and a live
+Authentik for any SSO), then `monitoring` (it scrapes the services the
+`applications` layer deploys, so it runs after them; Traefik must also be running
+for the Grafana routing config and Authentik live for Grafana SSO), then
 `security` last. Hardening is the most likely step to lock an operator out, so
 it always runs after the host is fully configured.
 
-The `applications` layer is where a service that consumes OIDC belongs: it would
-not fit the `services` layer (which runs before `auth`), so it is sequenced
-after `auth` (and after `monitoring`), before `security`.
+A dependency belongs in a layer *below* the things that consume it. That is why
+Garage sits in `service-infra` (other services use it as a backend) rather than
+in a leaf services layer, and why the media stack's GPU drivers and data tree
+live in `system` and `storage` rather than alongside the media apps. The
+`applications` layer holds only the actual services (and their auth middleware):
+it is where a service that consumes OIDC belongs, sequenced after `auth` and
+before `monitoring`.
 
 ### Service host targeting
 
@@ -93,8 +97,10 @@ that group). Never use infrastructure groups as service targets.
 - Keep layer and `site.yml` files logic-free — they only compose. Put real
   tasks in roles or function playbooks.
 - `import_playbook` entries need a `name:` (ansible-lint `name[play]`).
-- Targets: `make system`, `make security`, `make site`, plus per-function
-  targets (`make upgrade`, etc.).
+- Targets: one per layer (`make system`, `make storage`, `make service-infra`,
+  …, `make security`) plus `make site`. There are **no** per-function targets —
+  `make` is layer-and-site granularity only. To run a single function playbook,
+  invoke it directly: `uv run ansible-playbook playbooks/<function>.yml`.
 
 ## Backups: verify & restore
 

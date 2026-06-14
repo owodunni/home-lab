@@ -5,9 +5,9 @@
 # Prerequisites:
 #   - Docker runtime (service-infra layer)
 #   - Traefik running with conf.d at /etc/traefik/conf.d (ingress layer)
-#   - Garage installed and running on the [garage] host (services layer, which
-#     site.yml runs before auth — see CLAUDE.md ordering). The first play below
-#     needs the `garage` CLI to provision the backup bucket/key.
+#   - Garage installed and running on the [garage] host (service-infra layer,
+#     which site.yml runs before auth — see CLAUDE.md ordering). The first play
+#     below needs the `garage` CLI to provision the backup bucket/key.
 #
 # Vault vars required in group_vars/authentik/vault.yml:
 #   vault_authentik_pg_pass
@@ -30,9 +30,10 @@
 
 - name: Provision Authentik backup buckets and keys on Garage
   # Runs on the Garage host (beelink) because the `garage` CLI lives there, and
-  # in the auth layer (not the services/garage layer) so backup provisioning and
-  # consumption travel with the Authentik service. Garage is already up by now
-  # (services layer precedes auth). All checks short-circuit on subsequent runs.
+  # in the auth layer (not the service-infra/garage layer) so backup
+  # provisioning and consumption travel with the Authentik service. Garage is
+  # already up by now (service-infra layer precedes auth). All checks
+  # short-circuit on subsequent runs.
   hosts: garage
   become: true
   vars:
