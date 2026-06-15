@@ -1,0 +1,25 @@
+# Traefik dynamic config for Jellyfin — managed by Ansible, do not edit.
+#
+# The wildcard cert (*.{{ traefik_domain }}) is managed by traefik-wildcard-tls.yml.j2
+# (ingress layer); this router selects it via certResolver. Traefik is co-located
+# with Jellyfin on valen, so the upstream is loopback.
+#
+# NOTE: NO forward-auth middleware here (unlike the *arr routers). Jellyfin's
+# native clients (Android/iOS/TV/Kodi) cannot follow a browser SSO redirect, so
+# wrapping it in Authentik forward-auth would break them. Jellyfin uses its own
+# user system (plus an optional in-app OIDC/SSO plugin). This mirrors the
+# master/K8s deploy, whose Jellyfin ingress also omitted forward-auth.
+
+http:
+  routers:
+    jellyfin:
+      rule: "Host(`{{ jellyfin_hostname }}`)"
+      service: jellyfin
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    jellyfin:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:{{ jellyfin_port }}"

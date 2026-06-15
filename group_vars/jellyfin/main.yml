@@ -1,0 +1,166 @@
+---
+# Jellyfin service configuration — media streaming server with Intel QuickSync
+# hardware transcoding (service 5 of the media-stack migration). Reads the *arr
+# library and transcodes on valen's Intel iGPU.
+# Secrets (backup S3 key, restic password) live in group_vars/jellyfin/vault.yml
+# with the vault_ prefix.
+#
+# Shared media vars (media_data_root, media_puid/pgid, media_time_zone) come from
+# group_vars/media — valen is in both [jellyfin] and [media].
+
+# ============================================================================
+# Image — pinned upstream tag (matches the master/K8s deploy)
+# ============================================================================
+# Jellyfin (LinuxServer.io — chosen over the official image because its bundled
+# jellyfin-ffmpeg/VA-API stack tracks newer Intel drivers, which matters for
+# QuickSync on recent iGPUs). Tags: https://hub.docker.com/r/linuxserver/jellyfin
+jellyfin_image: "lscr.io/linuxserver/jellyfin:10.11.2"
+
+# ============================================================================
+# Placement and routing
+# ============================================================================
+# Directory on valen holding the compose stack + .env (not the app data).
+jellyfin_dir: /opt/jellyfin
+
+# Jellyfin's /config (settings DB, users, library definitions, plugins, metadata
+# and image cache) — a local bind. The hand-tuned settings live here; the cache
+# subdirs are re-fetchable but ride along in the same dir.
+jellyfin_config_dir: "{{ jellyfin_dir }}/config"
+
+# Media library mounted read-only at /media. Only the *arr library subtree
+# (media/movies, media/tv) — Jellyfin never needs the torrents/incomplete dirs,
+# and it never writes to the library (metadata goes to /config), so the mount is
+# read-only.
+jellyfin_media_dir: "{{ media_data_root }}/media"
+
+# HTTP port. Published on 127.0.0.1 only; Traefik on valen proxies to it.
+jellyfin_port: 8096
+
+# Public hostname. Traefik terminates TLS (wildcard) and routes
+# Host(jellyfin.jardoole.xyz) → 127.0.0.1:{{ jellyfin_port }}. DNS must resolve
+# this name to valen.
+#
+# NOTE: Jellyfin is deliberately NOT behind the Authentik forward-auth middleware
+# (unlike the *arr apps). Forward-auth intercepts every request with a browser
+# SSO redirect, which native Jellyfin clients (Android/iOS/TV/Kodi) cannot follow
+# — it breaks them. Jellyfin authenticates with its own user system (optionally an
+# OIDC/SSO plugin configured in-app); the router below carries no auth middleware.
+# This mirrors the master/K8s deploy, where Jellyfin's ingress also omitted the
+# forward-auth annotation that Radarr/Sonarr carried.
+jellyfin_hostname: "jellyfin.{{ traefik_domain }}"
+
+# ============================================================================
+# Hardware transcoding (Intel QuickSync / VA-API)
+# ============================================================================
+# Base passthrough is always on: the /dev/dri render node is mapped into the
+# container, and the host's video/render GIDs are added to the container user so
+# it can open the device. Those GIDs are discovered by playbooks/gpu-drivers.yml
+# (system layer) and stored as the local fact ansible_local.media_gpu.* — the
+# compose template reads them from there (no hardcoded GID).
+
+# Host-driver override mounts — DEFAULT OFF.
+# WHAT: bind the host's VA-API driver, oneVPL runtime, libmfx-gen and libigdgmm
+#   over the container's bundled copies (the four mounts the master values.yml
+#   used).
+# WHY it exists: on the OLD beelink (Intel N150), the LinuxServer container's
+#   bundled jellyfin-ffmpeg drivers (Nov 2023) predated N150 support, so the
+#   newer host drivers (May 2024) had to be mounted over them for QSV to work.
+# WHY default OFF: the pinned image here (10.11.2, 2025) bundles a much newer
+#   driver stack, so the override is usually unnecessary — and binding absolute
+#   host paths that do not match valen's installed driver version would BREAK
+#   container startup (a missing file source becomes an empty dir mount). Leave
+#   off, validate QSV (vainfo + a transcode), and only flip on if hardware
+#   encoding fails with a driver/version mismatch.
+# HOW: set true here; verify the four jellyfin_va_*_host paths below exist on
+#   valen first (they are Debian x86_64 multiarch lib paths).
+jellyfin_mount_host_va_drivers: false
+
+# Host paths for the override mounts (only used when the toggle above is true).
+# Confirm these exist on valen (`ls`) before enabling — versions/filenames drift.
+jellyfin_va_dri_host: "/usr/lib/x86_64-linux-gnu/dri"
+jellyfin_va_libdir_host: "/usr/lib/x86_64-linux-gnu"
+jellyfin_va_libmfxgen_host: "/usr/lib/x86_64-linux-gnu/libmfx-gen"
+jellyfin_va_igdgmm_host: "/usr/lib/x86_64-linux-gnu/libigdgmm.so.12"
+
+# ============================================================================
+# Logging
+# ============================================================================
+jellyfin_log_max_size: "20m"
+jellyfin_log_max_file: "3"
+
+# ============================================================================
+# Config backup — restic snapshot of /config → Garage S3 (offsite, beelink)
+# ============================================================================
+# WHAT: a lobaro/restic-backup-docker sidecar snapshots Jellyfin's /config dir on
+#   a schedule to a dedicated Garage S3 bucket. /config holds the users, library
+#   definitions, transcoding settings, installed plugins and API keys — all
+#   configured by hand.
+# WHY: rebuilding users/libraries/playback settings from scratch is tedious. An
+#   offsite restic copy captures it once and makes it restore-any-snapshot.
+# RESOLVES: re-setting-up Jellyfin from scratch after a host/disk loss.
+# NOTE: /config also contains the metadata/image cache (re-fetchable). restic
+#   dedupes, so after the first snapshot incrementals are small, but the initial
+#   snapshot reflects the whole dir. Watching playback during a backup run is fine
+#   (read-only mount).
+#
+# Bring-your-own credentials (vaulted, generated before first run):
+#   vault_jellyfin_backup_s3_access_key / _secret_key
+#     scripts/garage-keygen.sh vault_jellyfin_backup_s3
+#   vault_jellyfin_restic_password — openssl rand -base64 32.
+#     LOSING IT MAKES EVERY EXISTING SNAPSHOT UNRECOVERABLE.
+# The jellyfin.yml Garage play imports the key into the bucket; the deploy feeds
+# the same values to the config-backup sidecar. One source of truth.
+
+# lobaro/restic-backup-docker — runs restic on the BACKUP_CRON schedule.
+# Releases: https://github.com/lobaro/restic-backup-docker/releases
+jellyfin_backup_image_version: "v1.4.2"
+
+# Garage exposes its S3 API at s3.jardoole.xyz via Traefik on beelink; region
+# label must match garage_s3_region in group_vars/ingress/main.yml.
+jellyfin_backup_s3_endpoint: "https://s3.jardoole.xyz"
+jellyfin_backup_s3_region: "garage"
+
+# Dedicated bucket — created by the jellyfin.yml Garage play, isolated from the
+# other services' backup buckets so retention/keys are independent per service.
+jellyfin_backup_s3_bucket: "jellyfin-backup"
+
+# 5-field crond syntax. Offset to 08:00 so it does not contend for upload
+# bandwidth with the earlier media-stack backup runs (qBittorrent 04:00 … Sonarr
+# 07:00).
+jellyfin_backup_schedule: "0 8 * * *"
+
+# Passed to `restic forget` after each run. GFS policy kept identical to the other
+# services so every snapshot ages out the same way; --prune reclaims the space.
+jellyfin_backup_retention_args: "--keep-daily 7 --keep-weekly 4 --keep-monthly 4 --keep-yearly 1 --prune"
+
+# ----------------------------------------------------------------------------
+# Backup manifest — consumed by the generic verify/restore tooling
+# (roles/backup_verify, roles/backup_restore; playbooks verify-backups.yml and
+# restore-backups.yml). See CLAUDE.md → "Backups: verify & restore".
+# ----------------------------------------------------------------------------
+# Compose project dir the restore playbook stops/starts as a whole.
+backup_compose_dir: "{{ jellyfin_dir }}"
+
+# Compose services that hold /config open. The restore playbook stops these before
+# copying the restored config back (so Jellyfin is not writing its DB mid-restore),
+# then brings the whole stack up again. The config-backup sidecar is intentionally
+# left running.
+backup_consumer_services:
+  - jellyfin
+
+backups:
+  - name: config
+    type: restic
+    compose_dir: "{{ jellyfin_dir }}"
+    # The restic sidecar that owns the repo (list/verify/restore run through it).
+    compose_service: config-backup
+    bucket: "{{ jellyfin_backup_s3_bucket }}"
+    schedule: "{{ jellyfin_backup_schedule }}"
+    # A backup older than this fails verification. Set just above the 24h cron
+    # interval to absorb run-time skew without flagging a healthy daily backup.
+    max_age_hours: 27
+    # Paths (relative to compose_dir) the restic restore copies back over. The
+    # sidecar mounts the config dir at /data/config, so restic stores it under
+    # data/config and the handler restores it to {{ jellyfin_dir }}/config.
+    restore_paths:
+      - config

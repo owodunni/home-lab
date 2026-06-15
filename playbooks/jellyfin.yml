@@ -1,0 +1,114 @@
+---
+# Deploy Jellyfin (media server, Intel QuickSync transcoding) + Traefik route
+#
+# What: Deploys the Jellyfin stack on valen with /dev/dri GPU passthrough and
+#       registers the jellyfin.jardoole.xyz route with the co-located Traefik.
+# Why:  Jellyfin streams the *arr library and transcodes on valen's Intel iGPU
+#       (QuickSync), dropping transcode CPU from 80%+ to single digits. Service 5
+#       of the media-stack migration (see docs/media-stack-migration.md).
+# Resolves: GPU-accelerated streaming on the Docker/Ansible platform.
+#
+# Prerequisites:
+#   - Docker runtime on valen (service-infra layer; valen in [services]).
+#   - Traefik on valen with conf.d (ingress layer; valen in [ingress]).
+#   - Intel GPU drivers + the recorded video/render GIDs fact on valen — run the
+#     system layer (playbooks/gpu-drivers.yml) first; the role asserts the fact.
+#   - The media library on valen's pool (storage layer; media-storage.yml).
+#   - Garage up on the [garage] host (service-infra layer) — the first play below
+#     provisions the config-backup bucket/key with the `garage` CLI there.
+#
+# Vault vars required in group_vars/jellyfin/vault.yml:
+#   vault_jellyfin_backup_s3_access_key / _secret_key — Garage key (GK+24 hex /
+#     64 hex) for the config-backup bucket; generate before first run with
+#       scripts/garage-keygen.sh vault_jellyfin_backup_s3
+#   vault_jellyfin_restic_password — restic repo password (openssl rand -base64
+#     32). Losing it makes existing config snapshots unrecoverable.
+#
+# Auth note: Jellyfin is intentionally NOT behind forward-auth (it breaks native
+# clients) — it uses its own login / an optional in-app OIDC plugin. See the
+# jellyfin_hostname comment in group_vars/jellyfin/main.yml.
+
+- name: Provision the Jellyfin config-backup bucket and key on Garage
+  # Runs on the Garage host (beelink) because the `garage` CLI lives there. Kept in
+  # this service playbook (not the garage layer) so backup provisioning travels
+  # with the Jellyfin service. Garage is already up (service-infra precedes
+  # applications). Every check short-circuits on re-runs.
+  hosts: garage
+  become: true
+  vars:
+    # Single source of truth: the bucket name and credentials live with the service
+    # in group_vars/jellyfin, pulled here via the [jellyfin] group so this play
+    # needs no edit when Jellyfin moves hosts.
+    _jellyfin_host: "{{ groups['jellyfin'][0] }}"
+    _bucket: "{{ hostvars[_jellyfin_host]['jellyfin_backup_s3_bucket'] }}"
+    _access_key: "{{ hostvars[_jellyfin_host]['vault_jellyfin_backup_s3_access_key'] }}"
+    _secret_key: "{{ hostvars[_jellyfin_host]['vault_jellyfin_backup_s3_secret_key'] }}"
+  tasks:
+    - name: List existing Garage buckets
+      ansible.builtin.command:
+        cmd: garage bucket list
+      register: garage_bucket_list
+      changed_when: false
+
+    - name: Create the Jellyfin backup bucket
+      # Idempotent: only runs when the bucket does not yet exist.
+      when: _bucket not in garage_bucket_list.stdout
+      ansible.builtin.command:
+        cmd: garage bucket create {{ _bucket }}
+      changed_when: true
+
+    - name: List existing Garage API keys
+      ansible.builtin.command:
+        cmd: garage key list
+      register: garage_key_list
+      changed_when: false
+
+    - name: Import the vaulted backup API key
+      # Idempotent: only runs when the key (matched by name) does not yet exist.
+      # Bring-your-own creds so a rebuilt Garage accepts the same key with no
+      # manual step. Garage validates the format; --yes bypasses the confirm guard.
+      when: _bucket not in garage_key_list.stdout
+      ansible.builtin.command:
+        cmd: >
+          garage key import --yes
+          -n {{ _bucket }}
+          {{ _access_key }}
+          {{ _secret_key }}
+      no_log: true  # secret key is on the command line
+      changed_when: true
+
+    - name: Read current grants on the backup bucket
+      ansible.builtin.command:
+        cmd: garage bucket info {{ _bucket }}
+      register: garage_bucket_info
+      changed_when: false
+
+    - name: Grant the key read/write access to its backup bucket
+      # Decoupled from key existence on purpose: gating this on the key import guard
+      # would mean a failed/interrupted grant could never re-run, leaving a valid
+      # key with no bucket access (silent "Access Denied" in the sidecar). Keying
+      # off the actual grant state makes it idempotent and self-healing.
+      when: _access_key not in garage_bucket_info.stdout
+      ansible.builtin.command:
+        cmd: >
+          garage bucket allow
+          {{ _bucket }}
+          --read --write
+          --key {{ _access_key }}
+      changed_when: true
+
+- name: Deploy Jellyfin and register its Traefik route
+  hosts: jellyfin
+  become: true
+
+  roles:
+    - role: jellyfin
+
+  tasks:
+    - name: Deploy Traefik routing config for Jellyfin
+      ansible.builtin.template:
+        src: templates/traefik-jellyfin.yml.j2
+        dest: /etc/traefik/conf.d/jellyfin.yml
+        owner: traefik
+        group: traefik
+        mode: "0640"

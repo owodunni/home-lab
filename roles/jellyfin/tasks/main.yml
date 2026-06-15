@@ -1,0 +1,58 @@
+---
+- name: Assert the GPU GIDs fact is present
+  # roles/jellyfin needs the video/render GIDs (set by playbooks/gpu-drivers.yml in
+  # the system layer) to grant the container /dev/dri access via group_add. Fail
+  # early with a clear message rather than templating an empty group_add that
+  # silently loses hardware transcoding.
+  ansible.builtin.assert:
+    that:
+      - ansible_local.media_gpu.video_gid is defined
+      - ansible_local.media_gpu.render_gid is defined
+    fail_msg: >-
+      Missing ansible_local.media_gpu.{video,render}_gid. Run the system layer
+      (playbooks/gpu-drivers.yml) on this host first — it installs the Intel
+      drivers and records the GPU GIDs that Jellyfin's group_add needs.
+
+- name: Create Jellyfin stack directory
+  # Holds only the compose file + .env. App settings live in the config bind below.
+  ansible.builtin.file:
+    path: "{{ jellyfin_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Create Jellyfin config directory
+  # Jellyfin's /config (settings DB, users, libraries, plugins, cache). Owned by
+  # the media account (PUID/PGID 8000) so the LinuxServer.io container can write it
+  # without a root chown.
+  ansible.builtin.file:
+    path: "{{ jellyfin_config_dir }}"
+    state: directory
+    owner: "{{ media_puid }}"
+    group: "{{ media_pgid }}"
+    mode: "0750"
+
+- name: Template docker-compose.yml
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ jellyfin_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0640"
+
+- name: Template .env file
+  # Mode 0600: contains vault secrets (backup S3 key, restic password).
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ jellyfin_dir }}/.env"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Start Jellyfin stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ jellyfin_dir }}"
+    state: present
+    pull: always
+    remove_orphans: true
