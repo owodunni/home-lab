@@ -1,0 +1,112 @@
+---
+# Prowlarr service configuration — indexer/tracker manager that syncs indexers to
+# Radarr and Sonarr (service 2 of the media-stack migration).
+# Secrets (backup S3 key, restic password) live in group_vars/prowlarr/vault.yml
+# with the vault_ prefix.
+#
+# Shared media vars (media_puid/pgid, media_time_zone) come from group_vars/media
+# — valen is in both [prowlarr] and [media]. Prowlarr is config-only (no /data
+# media mount); it just needs the media account UID/GID and timezone.
+
+# ============================================================================
+# Image — pinned upstream tag (matches the master/K8s deploy)
+# ============================================================================
+# Prowlarr (LinuxServer.io). Tags: https://hub.docker.com/r/linuxserver/prowlarr
+prowlarr_image: "lscr.io/linuxserver/prowlarr:2.1.5"
+
+# ============================================================================
+# Placement and routing
+# ============================================================================
+# Directory on valen holding the compose stack + .env (not the app data).
+prowlarr_dir: /opt/prowlarr
+
+# Prowlarr's /config (settings DB, indexer definitions, API key) — a local bind.
+# Small and app-private; the only state Prowlarr has.
+prowlarr_config_dir: "{{ prowlarr_dir }}/config"
+
+# WebUI/API port. Published on 127.0.0.1 only; Traefik on valen proxies to it.
+prowlarr_port: 9696
+
+# Public hostname. Traefik terminates TLS (wildcard) and routes
+# Host(prowlarr.jardoole.xyz) → 127.0.0.1:{{ prowlarr_port }}, behind the Authentik
+# forward-auth middleware. DNS must resolve this name to valen.
+prowlarr_hostname: "prowlarr.{{ traefik_domain }}"
+
+# ============================================================================
+# Logging
+# ============================================================================
+prowlarr_log_max_size: "20m"
+prowlarr_log_max_file: "3"
+
+# ============================================================================
+# Config backup — restic snapshot of /config → Garage S3 (offsite, beelink)
+# ============================================================================
+# WHAT: a lobaro/restic-backup-docker sidecar snapshots Prowlarr's /config dir on
+#   a schedule to a dedicated Garage S3 bucket. /config holds the indexer set,
+#   their settings/credentials, the app connections to Radarr/Sonarr, and the
+#   Prowlarr API key — all configured by hand.
+# WHY: that setup is tedious to rebuild (each indexer added and tested
+#   individually). An offsite restic copy captures it once and makes it
+#   restore-any-snapshot, through the same generic tooling as the other services.
+# RESOLVES: re-adding every indexer from scratch after a host rebuild.
+#
+# Bring-your-own credentials (vaulted, generated before first run):
+#   vault_prowlarr_backup_s3_access_key / _secret_key
+#     scripts/garage-keygen.sh vault_prowlarr_backup_s3
+#   vault_prowlarr_restic_password — openssl rand -base64 32.
+#     LOSING IT MAKES EVERY EXISTING SNAPSHOT UNRECOVERABLE.
+# The prowlarr.yml Garage play imports the key into the bucket; the deploy feeds
+# the same values to the config-backup sidecar. One source of truth.
+
+# lobaro/restic-backup-docker — runs restic on the BACKUP_CRON schedule.
+# Releases: https://github.com/lobaro/restic-backup-docker/releases
+prowlarr_backup_image_version: "v1.4.2"
+
+# Garage exposes its S3 API at s3.jardoole.xyz via Traefik on beelink; region
+# label must match garage_s3_region in group_vars/ingress/main.yml.
+prowlarr_backup_s3_endpoint: "https://s3.jardoole.xyz"
+prowlarr_backup_s3_region: "garage"
+
+# Dedicated bucket — created by the prowlarr.yml Garage play, isolated from the
+# other services' backup buckets so retention/keys are independent per service.
+prowlarr_backup_s3_bucket: "prowlarr-backup"
+
+# 5-field crond syntax. Offset to 05:00 so it does not contend for upload
+# bandwidth with the qBittorrent (04:00) or Authentik (02:00/03:00) backup runs.
+prowlarr_backup_schedule: "0 5 * * *"
+
+# Passed to `restic forget` after each run. GFS policy kept identical to the other
+# services so every snapshot ages out the same way; --prune reclaims the space.
+prowlarr_backup_retention_args: "--keep-daily 7 --keep-weekly 4 --keep-monthly 4 --keep-yearly 1 --prune"
+
+# ----------------------------------------------------------------------------
+# Backup manifest — consumed by the generic verify/restore tooling
+# (roles/backup_verify, roles/backup_restore; playbooks verify-backups.yml and
+# restore-backups.yml). See CLAUDE.md → "Backups: verify & restore".
+# ----------------------------------------------------------------------------
+# Compose project dir the restore playbook stops/starts as a whole.
+backup_compose_dir: "{{ prowlarr_dir }}"
+
+# Compose services that hold /config open. The restore playbook stops these before
+# copying the restored config back (so Prowlarr is not writing its settings DB
+# mid-restore), then brings the whole stack up again. The config-backup sidecar is
+# intentionally left running.
+backup_consumer_services:
+  - prowlarr
+
+backups:
+  - name: config
+    type: restic
+    compose_dir: "{{ prowlarr_dir }}"
+    # The restic sidecar that owns the repo (list/verify/restore run through it).
+    compose_service: config-backup
+    bucket: "{{ prowlarr_backup_s3_bucket }}"
+    schedule: "{{ prowlarr_backup_schedule }}"
+    # A backup older than this fails verification. Set just above the 24h cron
+    # interval to absorb run-time skew without flagging a healthy daily backup.
+    max_age_hours: 27
+    # Paths (relative to compose_dir) the restic restore copies back over. The
+    # sidecar mounts the config dir at /data/config, so restic stores it under
+    # data/config and the handler restores it to {{ prowlarr_dir }}/config.
+    restore_paths:
+      - config

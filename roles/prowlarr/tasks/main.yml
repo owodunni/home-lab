@@ -1,0 +1,43 @@
+---
+- name: Create Prowlarr stack directory
+  # Holds only the compose file + .env. App settings live in the config bind below.
+  ansible.builtin.file:
+    path: "{{ prowlarr_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Create Prowlarr config directory
+  # Prowlarr's /config (settings DB). Owned by the media account (PUID/PGID 8000)
+  # so the LinuxServer.io container can write it without a root chown.
+  ansible.builtin.file:
+    path: "{{ prowlarr_config_dir }}"
+    state: directory
+    owner: "{{ media_puid }}"
+    group: "{{ media_pgid }}"
+    mode: "0750"
+
+- name: Template docker-compose.yml
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ prowlarr_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0640"
+
+- name: Template .env file
+  # Mode 0600: contains vault secrets (backup S3 key, restic password).
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ prowlarr_dir }}/.env"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Start Prowlarr stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ prowlarr_dir }}"
+    state: present
+    pull: always
+    remove_orphans: true

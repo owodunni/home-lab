@@ -29,3 +29,6 @@
 
 - name: Media — qBittorrent (+ Gluetun VPN) download client
   ansible.builtin.import_playbook: qbittorrent.yml
+
+- name: Media — Prowlarr indexer/tracker manager
+  ansible.builtin.import_playbook: prowlarr.yml

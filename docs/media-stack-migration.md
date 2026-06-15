@@ -137,7 +137,7 @@ config a local bind (`/opt/<svc>/config:/config`); `PUID/PGID=8000`; ports bind
 | — | Phase 0 — media storage | — | — | ☐ | `playbooks/media-storage.yml` |
 | — | Phase 0 — forward-auth infra | — | — | ☐ | middleware + Authentik provider |
 | 1 | qBittorrent + gluetun + port-manager | `qbittorrent:5.1.4` / `gluetun:v3.41.0` / `port-manager:1.3` | forward-auth | ☐ | VPN egress + port-forward + hardlink-ready `/data`; `/config` restic-backed up to Garage |
-| 2 | Prowlarr | `prowlarr:2.1.5` | forward-auth (`/api` bypass) | ☐ | indexer source |
+| 2 | Prowlarr | `prowlarr:2.1.5` | forward-auth (`/api` bypass) | ☐ | indexer source; `/config` restic-backed up to Garage |
 | 3 | Radarr | `radarr:5.3.6` | forward-auth (`/api` bypass) | ☐ | wire Prowlarr + qBittorrent; hardlinks on |
 | 4 | Sonarr | `sonarr:4.0.2` | forward-auth (`/api` bypass) | ☐ | same as Radarr, TV |
 | 5 | Jellyfin | `jellyfin:10.11.2` | native/forward-auth | ☐ | `/dev/dri` + `group_add`; QSV transcode |
