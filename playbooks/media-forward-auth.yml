@@ -10,9 +10,7 @@
 #       is net-new infra (master used a K8s outpost not ported here).
 # Resolves: Single source for the SSO middleware every media UI shares.
 #
-# Authentik side (manual UI, single-application forward auth — one Proxy Provider
-# per app so each enforces its own group policy and redirects back to the app
-# rather than the Authentik dashboard) is documented in
+# Authentik side (manual UI, domain-level forward auth) is documented in
 # docs/media-stack-migration.md — provider + application + embedded-outpost
 # assignment + /api bypass policy. This play only handles the Traefik half.
 #

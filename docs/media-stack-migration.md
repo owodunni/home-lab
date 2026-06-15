@@ -97,39 +97,29 @@ Ansible side (`playbooks/media-forward-auth.yml`): drops
 `authentik-forward-auth`. Each protected router references it as
 `authentik-forward-auth@file`.
 
-Authentik side (manual UI — `authentik-app` skill), **single-application**
-forward auth — one Proxy Provider + Application **per *arr service**:
+Authentik side (manual UI — `authentik-app` skill), **domain-level** forward auth
+so one provider covers every `*.jardoole.xyz` app:
 
-> **Why single-application, not domain-level.** Domain-level forward auth uses
-> one provider for the whole domain and, per the
-> [Authentik docs](https://docs.goauthentik.io/add-secure-apps/providers/proxy/forward_auth),
-> **cannot restrict individual applications to different sets of users** — which
-> breaks our deny-by-default, per-group model. It also has no per-app redirect
-> target, so after login the outpost dumps the user on the Authentik **My
-> Applications** dashboard (where they must click the app tile) instead of
-> returning them to the app. Single-application mode fixes both: each provider's
-> **External host** is the app's own URL (clean redirect back), and each
-> Application carries its own group policy (real access control).
-
-1. **Providers → Create → Proxy Provider** — **one per *arr app**
-   (`qbittorrent`, `prowlarr`, `radarr`, `sonarr`):
-   - Name: `<svc>-forward-auth` (e.g. `radarr-forward-auth`)
+1. **Providers → Create → Proxy Provider**
+   - Name: `media-forward-auth`
    - Authorization flow: `default-provider-authorization-implicit-consent`
-   - Forward auth mode: **Forward auth (single application)**
-   - External host: the app's own URL, e.g. `https://radarr.jardoole.xyz`
-     (this is the per-app redirect target that returns the user to the app
-     instead of the dashboard).
+   - Forward auth mode: **Forward auth (domain level)**
+   - External host: `https://auth.jardoole.xyz`
+   - Cookie domain: `jardoole.xyz` — **critical, easy to get wrong.** The proxy
+     session cookie must be scoped to the parent domain so it is sent to every
+     `*.jardoole.xyz` app. If this is blank or set to `auth.jardoole.xyz`, an
+     already-signed-in user is treated as unauthenticated at each app, bounced to
+     Authentik, and (their core session being live) dumped on the **My
+     Applications** dashboard instead of landing in the app — see Troubleshooting.
    - Token validity / signing key: set the **authentik Self-signed Certificate**
      (without a signing key the OIDC/outpost endpoints 404).
 2. **Applications → Create** one app per *arr service (`qBittorrent`/`qbittorrent`,
-   `Prowlarr`/`prowlarr`, `Radarr`/`radarr`, `Sonarr`/`sonarr`), each bound to
-   **its own** provider from step 1. On each, bind the **admin-gate + API-bypass
-   Expression Policy** below.
-3. **Outposts → embedded outpost → edit → add all four providers** so the
-   embedded outpost (on the Authentik host, pi-cm5-1) serves them. The shared
-   Traefik middleware sends every app's auth check to this one outpost; it
-   disambiguates by the forwarded `Host` header and matches the provider whose
-   External host fits — so **one middleware still covers all apps**.
+   `Prowlarr`/`prowlarr`, `Radarr`/`radarr`, `Sonarr`/`sonarr`) bound to the
+   provider above. Per-app (not catch-all) is what lets each carry its own
+   access policy. On each, bind the **admin-gate + API-bypass Expression Policy**
+   below.
+3. **Outposts → embedded outpost → edit → add the provider(s)** so the embedded
+   outpost (on the Authentik host, pi-cm5-1) serves them.
 4. **Admin gate + API bypass** — one **Expression Policy** bound to each *arr
    application's authorization. It allows only `media-admins` members (so the
    *arr UIs are admin-only and **deny-by-default** for everyone else), while
@@ -146,10 +136,18 @@ The middleware `forwardAuth.address` targets `https://auth.jardoole.xyz/outpost.
 which valen reaches over the network (DNS → the Authentik host's Traefik →
 loopback to Authentik:9000). No change to Authentik's loopback binding is needed.
 
-> Troubleshooting: in single-application mode `/outpost.goauthentik.io/` is
-> served on **each app's own domain**, so if it 404s (or a redirect loops), add a
-> Traefik router on valen forwarding `PathPrefix(/outpost.goauthentik.io/)` for
-> that host to the same outpost upstream.
+> Troubleshooting:
+> - **Signed in, but landed on the Authentik "My Applications" dashboard and had
+>   to click the app to proceed** → the provider's **Cookie domain** is not
+>   `jardoole.xyz`. Fix it on the provider; the shared session cookie then reaches
+>   each app subdomain and the user passes straight through.
+> - **Authentik-branded 404 (`Not Found`) instead of a login** → the provider is
+>   not assigned to the **embedded outpost** (Outposts → embedded outpost → edit →
+>   add it). The outpost has no provider matching the request, so it 404s.
+> - **Redirect loop or `/outpost.goauthentik.io/` 404 on an app domain** → add a
+>   Traefik router on valen forwarding `PathPrefix(/outpost.goauthentik.io/)` for
+>   that host to the same upstream. Domain-level usually avoids this (its browser
+>   endpoints live on `auth.jardoole.xyz`), but note it here if hit.
 
 ### Jellyfin SSO setup (in-app OIDC plugin)
 
