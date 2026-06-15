@@ -138,12 +138,32 @@ config a local bind (`/opt/<svc>/config:/config`); `PUID/PGID=8000`; ports bind
 | — | Phase 0 — forward-auth infra | — | — | ☐ | middleware + Authentik provider |
 | 1 | qBittorrent + gluetun + port-manager | `qbittorrent:5.1.4` / `gluetun:v3.41.0` / `port-manager:1.3` | forward-auth | ☐ | VPN egress + port-forward + hardlink-ready `/data`; `/config` restic-backed up to Garage |
 | 2 | Prowlarr | `prowlarr:2.1.5` | forward-auth (`/api` bypass) | ☐ | indexer source; `/config` restic-backed up to Garage |
-| 3 | Radarr | `radarr:5.3.6` | forward-auth (`/api` bypass) | ☐ | wire Prowlarr + qBittorrent; hardlinks on |
-| 4 | Sonarr | `sonarr:4.0.2` | forward-auth (`/api` bypass) | ☐ | same as Radarr, TV |
-| 5 | Jellyfin | `jellyfin:10.11.2` | native/forward-auth | ☐ | `/dev/dri` + `group_add`; QSV transcode |
-| 6 | Jellyseerr | `jellyseerr:2.7.3` | native OIDC | ☐ | wire Jellyfin + Radarr + Sonarr |
+| 3 | Radarr | `radarr:5.3.6` | forward-auth (`/api` bypass) | ☐ built, awaiting deploy/validate | wire Prowlarr + qBittorrent; hardlinks on; `/config` restic-backed up to Garage |
+| 4 | Sonarr | `sonarr:4.0.2` | forward-auth (`/api` bypass) | ☐ built, awaiting deploy/validate | same as Radarr, TV; `/config` restic-backed up to Garage |
+| 5 | Jellyfin | `jellyfin:10.11.2` | **none** (native clients) | ☐ built, awaiting deploy/validate | `/dev/dri` + `group_add`; QSV transcode; host-driver override mounts default OFF; `/config` restic-backed up to Garage |
+| 6 | Jellyseerr | `jellyseerr:2.7.3` | native OIDC (in-app) | ☐ built, awaiting deploy/validate | wire Jellyfin + Radarr + Sonarr; `/config` restic-backed up to Garage |
 
 Order is fundamental → up the stack. **Do not advance until the current gate passes.**
+
+> **Auth correction (this session):** Jellyfin and Jellyseerr are **not** behind
+> the Traefik forward-auth middleware. Forward-auth's browser SSO redirect breaks
+> Jellyfin's native clients (Android/iOS/TV/Kodi) and double-authenticates
+> Jellyseerr's own login/OIDC. Both use their own auth (Jellyfin: user system +
+> optional OIDC plugin; Jellyseerr: native OIDC configured in-app), matching the
+> master/K8s deploy, where only the *arr ingresses carried forward-auth. Only
+> qBittorrent, Prowlarr, Radarr and Sonarr sit behind forward-auth.
+
+> **Build note (this session):** services 3–6 are implemented (roles, playbooks,
+> Traefik routes, `group_vars`, backup manifests, inventory groups, applications
+> imports) but **not yet deployed or validated**. They are to be deployed and
+> gated **one at a time, in order**, each with: its three vault vars in
+> `group_vars/<svc>/vault.yml` (`scripts/garage-keygen.sh vault_<svc>_backup_s3`
+> + `openssl rand -base64 32` for `vault_<svc>_restic_password`), the *arr
+> Authentik forward-auth app (with the `/api` Expression Policy) for Radarr/Sonarr,
+> then `make app service=<svc>` and `make verify-backups SERVICE=<svc>`. Jellyfin
+> additionally needs the system-layer `gpu-drivers.yml` to have recorded the
+> video/render GID fact (the role asserts it). After each *arr first run, vault its
+> API key as `vault_<svc>_api_key` for Prowlarr/Jellyseerr to consume.
 
 ## Validation gates (summary)
 

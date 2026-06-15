@@ -32,3 +32,15 @@
 
 - name: Media — Prowlarr indexer/tracker manager
   ansible.builtin.import_playbook: prowlarr.yml
+
+- name: Media — Radarr movie collection manager
+  ansible.builtin.import_playbook: radarr.yml
+
+- name: Media — Sonarr TV series manager
+  ansible.builtin.import_playbook: sonarr.yml
+
+- name: Media — Jellyfin media server (QuickSync transcoding)
+  ansible.builtin.import_playbook: jellyfin.yml
+
+- name: Media — Jellyseerr request/discovery UI
+  ansible.builtin.import_playbook: jellyseerr.yml
