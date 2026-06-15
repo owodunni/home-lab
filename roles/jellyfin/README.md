@@ -78,7 +78,11 @@ After `make app service=jellyfin` runs and you reach
 3. **Dashboard → Playback → Transcoding**: Hardware acceleration **Intel
    QuickSync (QSV)**, QSV device `/dev/dri/renderD128`; enable HW decoding for
    H264/HEVC/VP9/AV1 and the Low-Power H.264/HEVC encoders.
-4. (Optional SSO) install an OIDC plugin and configure it against Authentik.
+4. **SSO (recommended):** install the 9p4 SSO-Auth plugin and wire it to
+   Authentik for a "Sign in with SSO" button — **not** forward-auth, which would
+   break native clients. Full step-by-step (Authentik provider/app + plugin
+   fields + login button) is in `docs/media-stack-migration.md` → "Jellyfin SSO
+   setup".
 
 ## Config backup (configure once, restore anywhere)
 

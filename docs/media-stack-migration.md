@@ -51,12 +51,20 @@ Created by `playbooks/media-storage.yml`. UID/GID 8000 is the pool media account
 
 ## Auth model
 
-- **Native OIDC** for apps that support it: Jellyseerr (and Jellyfin where
-  practical). Pattern = Grafana's `auth.generic_oauth` block in
-  `group_vars/monitoring/main.yml`.
-- **Forward-auth** for the no-native-OIDC apps (qBittorrent, Prowlarr, Radarr,
-  Sonarr): a single reusable Traefik `forwardAuth` middleware on valen's Traefik
-  pointing at Authentik's embedded outpost. See "Forward-auth setup" below.
+Three distinct mechanisms — the right one per app, **not** forward-auth for
+everything:
+
+- **Forward-auth** (Traefik `forwardAuth` middleware → Authentik embedded
+  outpost) for the no-native-auth apps: **qBittorrent, Prowlarr, Radarr,
+  Sonarr**. One reusable middleware on valen's Traefik. See "Forward-auth setup".
+- **In-app OIDC plugin** for **Jellyfin**: the [9p4 `jellyfin-plugin-sso`](https://github.com/9p4/jellyfin-plugin-sso)
+  authenticates *inside* Jellyfin against an Authentik OAuth2/OpenID provider.
+  Forward-auth is deliberately **not** used here — its browser redirect breaks
+  Jellyfin's native clients (Android/iOS/TV/Kodi). See "Jellyfin SSO setup".
+- **Native OIDC** for **Jellyseerr**: built-in OpenID Connect, configured in the
+  Jellyseerr UI against an Authentik OAuth2/OpenID provider (Grafana's
+  `auth.generic_oauth` block in `group_vars/monitoring/main.yml` is the
+  conceptual pattern; Jellyseerr's is in-app, not Ansible-managed).
 
 ### Forward-auth setup (one-time, Phase 0)
 
@@ -101,6 +109,83 @@ loopback to Authentik:9000). No change to Authentik's loopback binding is needed
 > for that host to the same upstream — domain-level usually avoids this, but
 > note it here if hit.
 
+### Jellyfin SSO setup (in-app OIDC plugin)
+
+Jellyfin SSO is the [9p4 `jellyfin-plugin-sso`](https://github.com/9p4/jellyfin-plugin-sso)
+talking OIDC to Authentik — a "Sign in with SSO" button on Jellyfin's own login
+page that maps Authentik users/groups to Jellyfin accounts. Native apps keep
+using normal Jellyfin logins; the browser uses SSO. All manual (Authentik UI +
+Jellyfin UI); nothing here is Ansible-managed. Based on the
+[Authentik Jellyfin integration guide](https://docs.goauthentik.io/integrations/services/jellyfin/).
+
+**Naming gotcha:** the provider name suffix in Authentik's redirect URI, the
+plugin's "OID Provider name", and the `/sso/OID/...redirect/<name>` /
+`/sso/OID/start/<name>` paths must **all** be the identical string. This guide
+uses `authentik` for that name throughout.
+
+**1. Authentik — create an OAuth2/OpenID Provider** (Providers → Create →
+OAuth2/OpenID Provider):
+
+- Name: `jellyfin`
+- Authorization flow: `default-provider-authorization-implicit-consent` (or
+  explicit, your choice)
+- Client type: **Confidential**
+- Redirect URI — mode **Strict**, value:
+  `https://jellyfin.jardoole.xyz/sso/OID/redirect/authentik`
+- Signing key: the **authentik Self-signed Certificate** (without it the
+  `.well-known`/JWKS endpoints don't serve — same caveat as the forward-auth
+  provider).
+- Scopes: leave the defaults (`openid`, `email`, `profile`). Authentik's
+  `profile` scope emits a `groups` claim, which the plugin reads for role
+  mapping.
+- **Record the generated Client ID and Client secret.**
+
+**2. Authentik — create the Application** (Applications → Create):
+
+- Name: `Jellyfin`, Slug: `jellyfin` (the slug fixes the OID endpoint URL below —
+  keep it `jellyfin`).
+- Provider: `jellyfin` (from step 1).
+- Launch URL: `https://jellyfin.jardoole.xyz/sso/OID/start/authentik`
+- Restrict access with a policy/group binding as desired (e.g. the `media`
+  group).
+
+**3. Jellyfin — install the plugin** (Dashboard → Plugins → Repositories):
+
+- Add repository **SSO-Auth** =
+  `https://raw.githubusercontent.com/9p4/jellyfin-plugin-sso/manifest-release/manifest.json`
+- Catalog tab → install **SSO-Auth** → **restart Jellyfin**.
+
+**4. Jellyfin — configure the plugin** (Dashboard → Plugins → SSO-Auth → Add new
+provider):
+
+- Name of OID Provider: `authentik` (must match the redirect-URI suffix)
+- OID Endpoint:
+  `https://auth.jardoole.xyz/application/o/jellyfin/.well-known/openid-configuration`
+- OpenID Client ID: *(Client ID from step 1)*
+- OID Secret: *(Client secret from step 1)*
+- **Enabled**: checked
+- **Enable Authorization by Plugin**: checked (so Roles/Admin Roles below gate
+  access)
+- Role Claim: `groups`
+- Roles: the Authentik group allowed to log in — e.g. `media`
+- Admin Roles: the Authentik group that should be Jellyfin admins — e.g.
+  `jellyfin-admins` (create it in Authentik and add yourself), or reuse
+  `authentik Admins`
+- Save.
+
+**5. Jellyfin — add the login button** (Dashboard → General → Branding → Login
+Disclaimer, as raw HTML):
+
+```html
+<form action="https://jellyfin.jardoole.xyz/sso/OID/start/authentik">
+  <button class="raised block emby-button button-submit">Sign in with SSO</button>
+</form>
+```
+
+Save and reload. **Validate:** the button redirects to Authentik, login returns
+to Jellyfin authenticated; a user in the admin group lands as a Jellyfin admin; a
+native mobile/TV client still logs in with a normal Jellyfin account.
+
 ## Repeatable porting recipe (per service `<svc>`)
 
 Template = `playbooks/seafile.yml` + `roles/seafile/`. For each service:
@@ -140,7 +225,7 @@ config a local bind (`/opt/<svc>/config:/config`); `PUID/PGID=8000`; ports bind
 | 2 | Prowlarr | `prowlarr:2.1.5` | forward-auth (`/api` bypass) | ☐ | indexer source; `/config` restic-backed up to Garage |
 | 3 | Radarr | `radarr:5.3.6` | forward-auth (`/api` bypass) | ☐ built, awaiting deploy/validate | wire Prowlarr + qBittorrent; hardlinks on; `/config` restic-backed up to Garage |
 | 4 | Sonarr | `sonarr:4.0.2` | forward-auth (`/api` bypass) | ☐ built, awaiting deploy/validate | same as Radarr, TV; `/config` restic-backed up to Garage |
-| 5 | Jellyfin | `jellyfin:10.11.2` | **none** (native clients) | ☐ built, awaiting deploy/validate | `/dev/dri` + `group_add`; QSV transcode; host-driver override mounts default OFF; `/config` restic-backed up to Garage |
+| 5 | Jellyfin | `jellyfin:10.11.2` | in-app OIDC (SSO-Auth plugin) | ☐ built, awaiting deploy/validate | `/dev/dri` + `group_add`; QSV transcode; host-driver override mounts default OFF; SSO via 9p4 plugin (not forward-auth — see "Jellyfin SSO setup"); `/config` restic-backed up to Garage |
 | 6 | Jellyseerr | `jellyseerr:2.7.3` | native OIDC (in-app) | ☐ built, awaiting deploy/validate | wire Jellyfin + Radarr + Sonarr; `/config` restic-backed up to Garage |
 
 Order is fundamental → up the stack. **Do not advance until the current gate passes.**
