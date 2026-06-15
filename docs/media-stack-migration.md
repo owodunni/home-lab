@@ -138,9 +138,18 @@ loopback to Authentik:9000). No change to Authentik's loopback binding is needed
 
 > Troubleshooting:
 > - **Signed in, but landed on the Authentik "My Applications" dashboard and had
->   to click the app to proceed** → the provider's **Cookie domain** is not
->   `jardoole.xyz`. Fix it on the provider; the shared session cookie then reaches
->   each app subdomain and the user passes straight through.
+>   to click the app to proceed** → two independent causes, both needed:
+>   1. The Authentik host's Traefik (pi-cm5-1) **scrubs the `X-Forwarded-Host`**
+>      valen sends on the forward-auth check, because valen isn't a trusted
+>      forwarder. The outpost then builds the post-login redirect (`rd`) for
+>      `auth.jardoole.xyz` and dumps the user on the dashboard. Fixed by
+>      `traefik_forwarded_trusted_ips` (trusts the LAN on the `websecure`
+>      entrypoint so the real origin host survives the valen→pi-cm5-1 hop) —
+>      redeploy Traefik on pi-cm5-1 after changing it. **This was the actual
+>      blocker.**
+>   2. The provider's **Cookie domain** must be `jardoole.xyz` so the shared
+>      session cookie reaches each app subdomain. A prerequisite, not sufficient
+>      on its own.
 > - **Authentik-branded 404 (`Not Found`) instead of a login** → the provider is
 >   not assigned to the **embedded outpost** (Outposts → embedded outpost → edit →
 >   add it). The outpost has no provider matching the request, so it 404s.

@@ -13,6 +13,21 @@ traefik_domain: "jardoole.xyz"
 # Email registered with Let's Encrypt for expiry notifications
 letsencrypt_email: "alex.o.poole@gmail.com"
 
+# IPs whose X-Forwarded-* headers Traefik trusts on the websecure entrypoint.
+# What:  CIDRs Traefik will preserve (not scrub) forwarded headers from.
+# Why:   A co-located app Traefik (valen) forwards its Authentik forward-auth
+#        check to the Authentik host's Traefik (pi-cm5-1) at auth.jardoole.xyz,
+#        passing X-Forwarded-Host: <app>.jardoole.xyz. Without trusting the
+#        forwarder, the receiving entrypoint sanitizes that header to
+#        auth.jardoole.xyz, so the outpost builds the post-login redirect (rd)
+#        for the auth host and the user lands on the Authentik dashboard instead
+#        of the app. Trusting the LAN lets the real origin host survive the hop.
+# Resolves: domain-level forward auth dumping signed-in users on the Authentik
+#           "My Applications" dashboard rather than returning them to the app.
+traefik_forwarded_trusted_ips:
+  - "127.0.0.1/32"
+  - "192.168.1.0/24"
+
 # Cloudflare API token (DNS:Edit permission for jardoole.xyz) — from vault
 cloudflare_api_token: "{{ vault_cloudflare_api_token }}"
 

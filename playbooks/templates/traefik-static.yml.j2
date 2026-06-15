@@ -26,6 +26,15 @@ entryPoints:
           permanent: true
   websecure:
     address: ":443"
+    # Preserve X-Forwarded-* from trusted LAN peers (e.g. valen's co-located
+    # Traefik forwarding an Authentik forward-auth check) instead of scrubbing
+    # them. Without this the X-Forwarded-Host is rewritten to this host, breaking
+    # the forward-auth post-login redirect. See traefik_forwarded_trusted_ips.
+    forwardedHeaders:
+      trustedIPs:
+{% for ip in traefik_forwarded_trusted_ips %}
+        - "{{ ip }}"
+{% endfor %}
 
 # Dynamic config directory — each application drops a .yml file here
 providers:
