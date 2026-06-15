@@ -1,0 +1,54 @@
+# Sonarr — TV series manager. Managed by Ansible, do not edit manually.
+# Non-secret values come from group_vars (Jinja); secrets come from .env.
+
+services:
+  sonarr:
+    image: {{ sonarr_image }}
+    container_name: sonarr
+    restart: unless-stopped
+    environment:
+      - PUID={{ media_puid }}
+      - PGID={{ media_pgid }}
+      - TZ={{ media_time_zone }}
+    volumes:
+      - {{ sonarr_config_dir }}:/config
+      # Whole media tree under one mount so qBittorrent's downloads (torrents/*)
+      # and Sonarr's library (media/tv) sit on one filesystem — required for
+      # import-by-hardlink (no copy, seed + library share inodes).
+      - {{ media_data_root }}:/data
+    ports:
+      # WebUI/API published on loopback only — Traefik (co-located on valen)
+      # proxies to it. No VPN: Sonarr talks to Prowlarr/qBittorrent on the LAN.
+      - "127.0.0.1:{{ sonarr_port }}:{{ sonarr_port }}"
+    logging:
+      driver: json-file
+      options:
+        max-size: "{{ sonarr_log_max_size }}"
+        max-file: "{{ sonarr_log_max_file }}"
+
+  # Offsite backup of Sonarr's /config — the settings DB holding the quality and
+  # release-profile tuning, root-folder/naming settings, the Prowlarr and
+  # qBittorrent connections, and the API key: all configured by hand. A restic
+  # snapshot of it on a schedule → Garage S3 on beelink (offsite, over WireGuard),
+  # so that tuning is captured ONCE and survives a host/disk loss (restore-any-
+  # snapshot via the generic tooling: make verify-backups / restore-backups
+  # SERVICE=sonarr). Read-only mount — restic only ever reads config.
+  config-backup:
+    image: ghcr.io/lobaro/restic-backup-docker:{{ sonarr_backup_image_version }}
+    container_name: sonarr-config-backup
+    restart: unless-stopped
+    environment:
+      RESTIC_REPOSITORY: "s3:{{ sonarr_backup_s3_endpoint }}/{{ sonarr_backup_s3_bucket }}"
+      RESTIC_PASSWORD: ${BACKUP_RESTIC_PASSWORD:?Variable is not set or empty}
+      AWS_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID:?Variable is not set or empty}
+      AWS_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY:?Variable is not set or empty}
+      AWS_DEFAULT_REGION: "{{ sonarr_backup_s3_region }}"
+      RESTIC_TAG: sonarr-config
+      BACKUP_CRON: "{{ sonarr_backup_schedule }}"
+      RESTIC_FORGET_ARGS: "{{ sonarr_backup_retention_args }}"
+    volumes:
+      # restic stores this as source path /data/config; the restore handler copies
+      # .restore/data/config back over {{ sonarr_config_dir }} (restore_paths).
+      - {{ sonarr_config_dir }}:/data/config:ro
+    env_file:
+      - .env

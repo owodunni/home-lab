@@ -1,0 +1,25 @@
+# Traefik dynamic config for Sonarr — managed by Ansible, do not edit.
+#
+# The wildcard cert (*.{{ traefik_domain }}) is managed by traefik-wildcard-tls.yml.j2
+# (ingress layer); this router selects it via certResolver. Traefik is co-located
+# with Sonarr on valen, so the upstream is loopback. The router is gated by the
+# shared Authentik forward-auth middleware (deployed by playbooks/media-forward-auth.yml)
+# since Sonarr has no OIDC. NOTE: the Authentik-side Expression Policy must bypass
+# /api so Prowlarr (indexer sync) and Jellyseerr (requests) can reach Sonarr's API
+# behind the same auth.
+
+http:
+  routers:
+    sonarr:
+      rule: "Host(`{{ sonarr_hostname }}`)"
+      service: sonarr
+      middlewares:
+        - authentik-forward-auth@file
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    sonarr:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:{{ sonarr_port }}"
