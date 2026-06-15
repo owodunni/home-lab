@@ -66,6 +66,30 @@ everything:
   `auth.generic_oauth` block in `group_vars/monitoring/main.yml` is the
   conceptual pattern; Jellyseerr's is in-app, not Ansible-managed).
 
+### Authentik groups & access model
+
+**Two groups cover the whole stack** (create both in Authentik → Directory →
+Groups). Access is **deny-by-default**: every Authentik application binds a group
+policy, so a logged-in user in *neither* group gets nothing.
+
+- **`media-admins`** — operators. Full access to everything: the four management
+  UIs (qBittorrent, Prowlarr, Radarr, Sonarr) **and** admin rights in Jellyfin
+  and Jellyseerr. This is the single admin group the *arr apps gate on.
+- **`media-users`** — consumers. Access to **Jellyfin and Jellyseerr only**
+  (watch media, make requests). No access to any *arr/download UI.
+
+| App | `media-admins` | `media-users` | How it's enforced |
+|-----|:--:|:--:|---|
+| qBittorrent | ✅ | ❌ | forward-auth app bound to `media-admins` |
+| Prowlarr | ✅ | ❌ | forward-auth, `media-admins` (+ `/api` bypass) |
+| Radarr | ✅ | ❌ | forward-auth, `media-admins` (+ `/api` bypass) |
+| Sonarr | ✅ | ❌ | forward-auth, `media-admins` (+ `/api` bypass) |
+| Jellyfin | ✅ admin | ✅ user | SSO plugin: **Roles** = both groups, **Admin Roles** = `media-admins` |
+| Jellyseerr | ✅ admin | ✅ user | native OIDC: app bound to both groups; admins promoted by group |
+
+So the *arr apps reference exactly one group (`media-admins`) and deny everyone
+else; only Jellyfin and Jellyseerr use the two-tier admin/user split.
+
 ### Forward-auth setup (one-time, Phase 0)
 
 Ansible side (`playbooks/media-forward-auth.yml`): drops
@@ -84,21 +108,24 @@ so one provider covers every `*.jardoole.xyz` app:
    - Cookie domain: `jardoole.xyz`
    - Token validity / signing key: set the **authentik Self-signed Certificate**
      (without a signing key the OIDC/outpost endpoints 404).
-2. **Applications → Create** one app per service (e.g. `qBittorrent`, slug
-   `qbittorrent`) bound to the provider above, OR a single catch-all app — but
-   per-app gives per-service access policies. Bind an **API-bypass policy** (see
-   next) where app-to-app API calls must skip auth.
+2. **Applications → Create** one app per *arr service (`qBittorrent`/`qbittorrent`,
+   `Prowlarr`/`prowlarr`, `Radarr`/`radarr`, `Sonarr`/`sonarr`) bound to the
+   provider above. Per-app (not catch-all) is what lets each carry its own
+   access policy. On each, bind the **admin-gate + API-bypass Expression Policy**
+   below.
 3. **Outposts → embedded outpost → edit → add the provider(s)** so the embedded
    outpost (on the Authentik host, pi-cm5-1) serves them.
-4. **API bypass** for *arr↔*arr calls: add an **Expression Policy** on the
-   application's authorization binding that returns `True` (allow without auth)
-   when the request path starts with `/api`:
+4. **Admin gate + API bypass** — one **Expression Policy** bound to each *arr
+   application's authorization. It allows only `media-admins` members (so the
+   *arr UIs are admin-only and **deny-by-default** for everyone else), while
+   still letting unauthenticated `/api` calls through for app-to-app traffic
+   (Prowlarr ↔ Radarr/Sonarr, download-client calls):
    ```python
-   return ak_is_group_member(request.user, name="media") or \
+   return ak_is_group_member(request.user, name="media-admins") or \
           request.context.get("http_request", {}).get("path", "").startswith("/api")
    ```
-   (Adjust to your access model; the key part is allowing `/api` so Prowlarr ↔
-   Radarr/Sonarr and download-client calls work.)
+   These four apps reference **only** `media-admins` — `media-users` deliberately
+   has no path to them.
 
 The middleware `forwardAuth.address` targets `https://auth.jardoole.xyz/outpost.goauthentik.io/auth/traefik`,
 which valen reaches over the network (DNS → the Authentik host's Traefik →
@@ -146,8 +173,9 @@ OAuth2/OpenID Provider):
   keep it `jellyfin`).
 - Provider: `jellyfin` (from step 1).
 - Launch URL: `https://jellyfin.jardoole.xyz/sso/OID/start/authentik`
-- Restrict access with a policy/group binding as desired (e.g. the `media`
-  group).
+- Restrict who can obtain a token: bind a policy allowing **`media-admins` OR
+  `media-users`** (deny-by-default — randoms with neither group get nothing).
+  The admin/user split itself is applied inside the plugin in step 4.
 
 **3. Jellyfin — install the plugin** (Dashboard → Plugins → Repositories):
 
@@ -167,10 +195,8 @@ provider):
 - **Enable Authorization by Plugin**: checked (so Roles/Admin Roles below gate
   access)
 - Role Claim: `groups`
-- Roles: the Authentik group allowed to log in — e.g. `media`
-- Admin Roles: the Authentik group that should be Jellyfin admins — e.g.
-  `jellyfin-admins` (create it in Authentik and add yourself), or reuse
-  `authentik Admins`
+- Roles: groups allowed to log in — `media-admins` and `media-users` (both)
+- Admin Roles: the group that should be Jellyfin admins — `media-admins`
 - Save.
 
 **5. Jellyfin — add the login button** (Dashboard → General → Branding → Login

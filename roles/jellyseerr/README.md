@@ -57,7 +57,10 @@ After `make app service=jellyseerr` runs and you reach
    `vault_radarr_api_key`), set the movies root folder and quality profile.
 3. **Settings → Services → Sonarr**: same with `http://192.168.1.197:8989` +
    `vault_sonarr_api_key`.
-4. **Settings → Users → OpenID Connect**: wire SSO against Authentik (optional).
+4. **Settings → Users → OpenID Connect**: wire SSO against Authentik. Restrict
+   the Authentik application to the `media-admins` and `media-users` groups
+   (deny-by-default); promote `media-admins` members to Jellyseerr admins. See
+   `docs/media-stack-migration.md` → "Authentik groups & access model".
 
 ## Config backup (configure once, restore anywhere)
 
