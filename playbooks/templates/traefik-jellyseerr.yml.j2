@@ -1,0 +1,24 @@
+# Traefik dynamic config for Jellyseerr — managed by Ansible, do not edit.
+#
+# The wildcard cert (*.{{ traefik_domain }}) is managed by traefik-wildcard-tls.yml.j2
+# (ingress layer); this router selects it via certResolver. Traefik is co-located
+# with Jellyseerr on valen, so the upstream is loopback.
+#
+# NOTE: NO forward-auth middleware (like Jellyfin, unlike the *arr routers).
+# Jellyseerr has its own user system and native OIDC against Authentik, configured
+# in-app. Wrapping it in forward-auth would double-authenticate and break its own
+# login/OIDC flow. This mirrors the master/K8s deploy.
+
+http:
+  routers:
+    jellyseerr:
+      rule: "Host(`{{ jellyseerr_hostname }}`)"
+      service: jellyseerr
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    jellyseerr:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:{{ jellyseerr_port }}"

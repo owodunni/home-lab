@@ -1,0 +1,116 @@
+---
+# Deploy Jellyseerr (media request UI) and register its Traefik route
+#
+# What: Deploys the Jellyseerr stack on valen and registers the
+#       jellyseerr.jardoole.xyz route with the co-located Traefik.
+# Why:  Jellyseerr is the user-facing request/discovery layer at the top of the
+#       stack: users request titles, it routes them to Radarr/Sonarr and reflects
+#       what is already in Jellyfin. Service 6 (final) of the media-stack
+#       migration (see docs/media-stack-migration.md) — depends on Jellyfin,
+#       Radarr and Sonarr being live to wire against.
+# Resolves: A single request portal over the whole automated media stack.
+#
+# Prerequisites:
+#   - Docker runtime on valen (service-infra layer; valen in [services]).
+#   - Traefik on valen with conf.d (ingress layer; valen in [ingress]).
+#   - Jellyfin, Radarr and Sonarr deployed — wire their API connections into
+#     Jellyseerr on first run (see roles/jellyseerr/README.md).
+#   - Authentik live (auth layer) for native OIDC, configured in-app.
+#   - Garage up on the [garage] host (service-infra layer) — the first play below
+#     provisions the config-backup bucket/key with the `garage` CLI there.
+#
+# Vault vars required in group_vars/jellyseerr/vault.yml:
+#   vault_jellyseerr_backup_s3_access_key / _secret_key — Garage key (GK+24 hex /
+#     64 hex) for the config-backup bucket; generate before first run with
+#       scripts/garage-keygen.sh vault_jellyseerr_backup_s3
+#   vault_jellyseerr_restic_password — restic repo password (openssl rand -base64
+#     32). Losing it makes existing config snapshots unrecoverable.
+#
+# Auth note: Jellyseerr is NOT behind forward-auth — it has its own login and
+# native OIDC against Authentik (Settings → Users → OpenID Connect in-app). See
+# the jellyseerr_hostname comment in group_vars/jellyseerr/main.yml.
+
+- name: Provision the Jellyseerr config-backup bucket and key on Garage
+  # Runs on the Garage host (beelink) because the `garage` CLI lives there. Kept in
+  # this service playbook (not the garage layer) so backup provisioning travels
+  # with the Jellyseerr service. Garage is already up (service-infra precedes
+  # applications). Every check short-circuits on re-runs.
+  hosts: garage
+  become: true
+  vars:
+    # Single source of truth: the bucket name and credentials live with the service
+    # in group_vars/jellyseerr, pulled here via the [jellyseerr] group so this play
+    # needs no edit when Jellyseerr moves hosts.
+    _jellyseerr_host: "{{ groups['jellyseerr'][0] }}"
+    _bucket: "{{ hostvars[_jellyseerr_host]['jellyseerr_backup_s3_bucket'] }}"
+    _access_key: "{{ hostvars[_jellyseerr_host]['vault_jellyseerr_backup_s3_access_key'] }}"
+    _secret_key: "{{ hostvars[_jellyseerr_host]['vault_jellyseerr_backup_s3_secret_key'] }}"
+  tasks:
+    - name: List existing Garage buckets
+      ansible.builtin.command:
+        cmd: garage bucket list
+      register: garage_bucket_list
+      changed_when: false
+
+    - name: Create the Jellyseerr backup bucket
+      # Idempotent: only runs when the bucket does not yet exist.
+      when: _bucket not in garage_bucket_list.stdout
+      ansible.builtin.command:
+        cmd: garage bucket create {{ _bucket }}
+      changed_when: true
+
+    - name: List existing Garage API keys
+      ansible.builtin.command:
+        cmd: garage key list
+      register: garage_key_list
+      changed_when: false
+
+    - name: Import the vaulted backup API key
+      # Idempotent: only runs when the key (matched by name) does not yet exist.
+      # Bring-your-own creds so a rebuilt Garage accepts the same key with no
+      # manual step. Garage validates the format; --yes bypasses the confirm guard.
+      when: _bucket not in garage_key_list.stdout
+      ansible.builtin.command:
+        cmd: >
+          garage key import --yes
+          -n {{ _bucket }}
+          {{ _access_key }}
+          {{ _secret_key }}
+      no_log: true  # secret key is on the command line
+      changed_when: true
+
+    - name: Read current grants on the backup bucket
+      ansible.builtin.command:
+        cmd: garage bucket info {{ _bucket }}
+      register: garage_bucket_info
+      changed_when: false
+
+    - name: Grant the key read/write access to its backup bucket
+      # Decoupled from key existence on purpose: gating this on the key import guard
+      # would mean a failed/interrupted grant could never re-run, leaving a valid
+      # key with no bucket access (silent "Access Denied" in the sidecar). Keying
+      # off the actual grant state makes it idempotent and self-healing.
+      when: _access_key not in garage_bucket_info.stdout
+      ansible.builtin.command:
+        cmd: >
+          garage bucket allow
+          {{ _bucket }}
+          --read --write
+          --key {{ _access_key }}
+      changed_when: true
+
+- name: Deploy Jellyseerr and register its Traefik route
+  hosts: jellyseerr
+  become: true
+
+  roles:
+    - role: jellyseerr
+
+  tasks:
+    - name: Deploy Traefik routing config for Jellyseerr
+      ansible.builtin.template:
+        src: templates/traefik-jellyseerr.yml.j2
+        dest: /etc/traefik/conf.d/jellyseerr.yml
+        owner: traefik
+        group: traefik
+        mode: "0640"

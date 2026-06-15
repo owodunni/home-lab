@@ -1,0 +1,123 @@
+---
+# Jellyseerr service configuration — media request/discovery UI (service 6, top of
+# the media-stack migration). Users request titles; Jellyseerr routes them to
+# Radarr/Sonarr and surfaces what is already in Jellyfin.
+# Secrets (backup S3 key, restic password) live in group_vars/jellyseerr/vault.yml
+# with the vault_ prefix.
+#
+# Shared media vars (media_time_zone) come from group_vars/media — valen is in both
+# [jellyseerr] and [media]. Jellyseerr is config-only (no media mount; it talks to
+# the *arr/Jellyfin APIs over the LAN).
+
+# ============================================================================
+# Image — pinned upstream tag (matches the master/K8s deploy)
+# ============================================================================
+# Jellyseerr (fallenbagel — NOT a LinuxServer.io image, so no PUID/PGID; it
+# manages /app/config itself). Tags: https://github.com/fallenbagel/jellyseerr/releases
+jellyseerr_image: "fallenbagel/jellyseerr:2.7.3"
+
+# ============================================================================
+# Placement and routing
+# ============================================================================
+# Directory on valen holding the compose stack + .env (not the app data).
+jellyseerr_dir: /opt/jellyseerr
+
+# Jellyseerr's /app/config (settings DB, the Jellyfin/Radarr/Sonarr connections,
+# users, request history, OIDC config) — a local bind. The only state it has.
+jellyseerr_config_dir: "{{ jellyseerr_dir }}/config"
+
+# HTTP port. Published on 127.0.0.1 only; Traefik on valen proxies to it.
+jellyseerr_port: 5055
+
+# Log verbosity (info|debug). info in normal operation.
+jellyseerr_log_level: "info"
+
+# Public hostname. Traefik terminates TLS (wildcard) and routes
+# Host(jellyseerr.jardoole.xyz) → 127.0.0.1:{{ jellyseerr_port }}. DNS must
+# resolve this name to valen.
+#
+# NOTE: NO forward-auth middleware (like Jellyfin, unlike the *arr apps).
+# Jellyseerr has its own user system and native OIDC, configured in-app against
+# Authentik (Settings → Users → Enable OpenID Connect). Wrapping it in
+# forward-auth would double-authenticate and break its own login/OIDC flow. This
+# mirrors the master/K8s deploy.
+jellyseerr_hostname: "jellyseerr.{{ traefik_domain }}"
+
+# ============================================================================
+# Logging
+# ============================================================================
+jellyseerr_log_max_size: "20m"
+jellyseerr_log_max_file: "3"
+
+# ============================================================================
+# Config backup — restic snapshot of /config → Garage S3 (offsite, beelink)
+# ============================================================================
+# WHAT: a lobaro/restic-backup-docker sidecar snapshots Jellyseerr's config dir on
+#   a schedule to a dedicated Garage S3 bucket. It holds the Jellyfin/Radarr/Sonarr
+#   service connections, the user accounts and permissions, the request history,
+#   and the OIDC settings — all configured by hand.
+# WHY: rebuilding the integrations, users and OIDC wiring from scratch is tedious.
+#   An offsite restic copy captures it once and makes it restore-any-snapshot.
+# RESOLVES: re-wiring Jellyseerr from scratch after a host/disk loss.
+#
+# Bring-your-own credentials (vaulted, generated before first run):
+#   vault_jellyseerr_backup_s3_access_key / _secret_key
+#     scripts/garage-keygen.sh vault_jellyseerr_backup_s3
+#   vault_jellyseerr_restic_password — openssl rand -base64 32.
+#     LOSING IT MAKES EVERY EXISTING SNAPSHOT UNRECOVERABLE.
+# The jellyseerr.yml Garage play imports the key into the bucket; the deploy feeds
+# the same values to the config-backup sidecar. One source of truth.
+
+# lobaro/restic-backup-docker — runs restic on the BACKUP_CRON schedule.
+# Releases: https://github.com/lobaro/restic-backup-docker/releases
+jellyseerr_backup_image_version: "v1.4.2"
+
+# Garage exposes its S3 API at s3.jardoole.xyz via Traefik on beelink; region
+# label must match garage_s3_region in group_vars/ingress/main.yml.
+jellyseerr_backup_s3_endpoint: "https://s3.jardoole.xyz"
+jellyseerr_backup_s3_region: "garage"
+
+# Dedicated bucket — created by the jellyseerr.yml Garage play, isolated from the
+# other services' backup buckets so retention/keys are independent per service.
+jellyseerr_backup_s3_bucket: "jellyseerr-backup"
+
+# 5-field crond syntax. Offset to 09:00 so it does not contend for upload
+# bandwidth with the earlier media-stack backup runs (qBittorrent 04:00 …
+# Jellyfin 08:00).
+jellyseerr_backup_schedule: "0 9 * * *"
+
+# Passed to `restic forget` after each run. GFS policy kept identical to the other
+# services so every snapshot ages out the same way; --prune reclaims the space.
+jellyseerr_backup_retention_args: "--keep-daily 7 --keep-weekly 4 --keep-monthly 4 --keep-yearly 1 --prune"
+
+# ----------------------------------------------------------------------------
+# Backup manifest — consumed by the generic verify/restore tooling
+# (roles/backup_verify, roles/backup_restore; playbooks verify-backups.yml and
+# restore-backups.yml). See CLAUDE.md → "Backups: verify & restore".
+# ----------------------------------------------------------------------------
+# Compose project dir the restore playbook stops/starts as a whole.
+backup_compose_dir: "{{ jellyseerr_dir }}"
+
+# Compose services that hold the config open. The restore playbook stops these
+# before copying the restored config back (so Jellyseerr is not writing its DB
+# mid-restore), then brings the whole stack up again. The config-backup sidecar is
+# intentionally left running.
+backup_consumer_services:
+  - jellyseerr
+
+backups:
+  - name: config
+    type: restic
+    compose_dir: "{{ jellyseerr_dir }}"
+    # The restic sidecar that owns the repo (list/verify/restore run through it).
+    compose_service: config-backup
+    bucket: "{{ jellyseerr_backup_s3_bucket }}"
+    schedule: "{{ jellyseerr_backup_schedule }}"
+    # A backup older than this fails verification. Set just above the 24h cron
+    # interval to absorb run-time skew without flagging a healthy daily backup.
+    max_age_hours: 27
+    # Paths (relative to compose_dir) the restic restore copies back over. The
+    # sidecar mounts the config dir at /data/config, so restic stores it under
+    # data/config and the handler restores it to {{ jellyseerr_dir }}/config.
+    restore_paths:
+      - config
