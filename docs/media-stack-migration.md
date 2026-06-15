@@ -4,9 +4,11 @@ This is the **durable tracking doc** for porting the media stack from the
 Kubernetes/Helm setup on `master` to the Docker Compose + Ansible layered
 architecture on `rebuild`. It records the decisions, per-service status, and the
 repeatable porting recipe so the migration survives across sessions. Per-service
-operational notes live in each role's `README.md`; the master
-`docs/media-stack-complete-guide.md` is K8s reference only and is **not** ported
-wholesale.
+operational notes live in each role's `README.md`, and the day-to-day operational
+overview (data flow, end-to-end validation, troubleshooting, maintenance) lives in
+[`docs/media-stack-complete-guide.md`](media-stack-complete-guide.md), ported to
+this Docker Compose stack — this doc keeps the migration decisions, auth setup,
+and status.
 
 ## Why this migration
 
