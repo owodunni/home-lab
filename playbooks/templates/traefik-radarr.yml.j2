@@ -1,0 +1,25 @@
+# Traefik dynamic config for Radarr — managed by Ansible, do not edit.
+#
+# The wildcard cert (*.{{ traefik_domain }}) is managed by traefik-wildcard-tls.yml.j2
+# (ingress layer); this router selects it via certResolver. Traefik is co-located
+# with Radarr on valen, so the upstream is loopback. The router is gated by the
+# shared Authentik forward-auth middleware (deployed by playbooks/media-forward-auth.yml)
+# since Radarr has no OIDC. NOTE: the Authentik-side Expression Policy must bypass
+# /api so Prowlarr (indexer sync) and Jellyseerr (requests) can reach Radarr's API
+# behind the same auth.
+
+http:
+  routers:
+    radarr:
+      rule: "Host(`{{ radarr_hostname }}`)"
+      service: radarr
+      middlewares:
+        - authentik-forward-auth@file
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    radarr:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:{{ radarr_port }}"

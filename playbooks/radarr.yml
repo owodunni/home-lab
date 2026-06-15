@@ -1,0 +1,116 @@
+---
+# Deploy Radarr (movie collection manager) and register its Traefik route
+#
+# What: Deploys the Radarr stack on valen and registers the radarr.jardoole.xyz
+#       route (behind Authentik forward-auth) with the co-located Traefik.
+# Why:  Radarr automates movie acquisition: it pulls indexers from Prowlarr,
+#       sends grabs to qBittorrent, and imports finished downloads into the
+#       library by hardlink. Service 3 of the media-stack migration (see
+#       docs/media-stack-migration.md) — depends on Prowlarr + qBittorrent.
+# Resolves: Hands-off movie management on the Docker/Ansible platform.
+#
+# Prerequisites:
+#   - Docker runtime on valen (service-infra layer; valen in [services]).
+#   - Traefik on valen with conf.d (ingress layer; valen in [ingress]).
+#   - Forward-auth middleware deployed (playbooks/media-forward-auth.yml) and the
+#     Authentik provider/application created, with an Expression Policy bypassing
+#     /api so Prowlarr can push indexers and Jellyseerr can send requests behind
+#     the same auth (see docs/media-stack-migration.md).
+#   - Prowlarr (indexers) and qBittorrent (download client) deployed — wire both
+#     into Radarr on first run (see roles/radarr/README.md).
+#   - The media data tree on valen's pool (storage layer; media-storage.yml), so
+#     /data/torrents and /data/media share one filesystem for hardlink imports.
+#   - Garage up on the [garage] host (service-infra layer) — the first play below
+#     provisions the config-backup bucket/key with the `garage` CLI there.
+#
+# Vault vars required in group_vars/radarr/vault.yml:
+#   vault_radarr_backup_s3_access_key / _secret_key — Garage key (GK+24 hex /
+#     64 hex) for the config-backup bucket; generate before first run with
+#       scripts/garage-keygen.sh vault_radarr_backup_s3
+#   vault_radarr_restic_password — restic repo password (openssl rand -base64
+#     32). Losing it makes existing config snapshots unrecoverable.
+
+- name: Provision the Radarr config-backup bucket and key on Garage
+  # Runs on the Garage host (beelink) because the `garage` CLI lives there. Kept in
+  # this service playbook (not the garage layer) so backup provisioning travels
+  # with the Radarr service. Garage is already up (service-infra precedes
+  # applications). Every check short-circuits on re-runs.
+  hosts: garage
+  become: true
+  vars:
+    # Single source of truth: the bucket name and credentials live with the service
+    # in group_vars/radarr, pulled here via the [radarr] group so this play needs
+    # no edit when Radarr moves hosts.
+    _radarr_host: "{{ groups['radarr'][0] }}"
+    _bucket: "{{ hostvars[_radarr_host]['radarr_backup_s3_bucket'] }}"
+    _access_key: "{{ hostvars[_radarr_host]['vault_radarr_backup_s3_access_key'] }}"
+    _secret_key: "{{ hostvars[_radarr_host]['vault_radarr_backup_s3_secret_key'] }}"
+  tasks:
+    - name: List existing Garage buckets
+      ansible.builtin.command:
+        cmd: garage bucket list
+      register: garage_bucket_list
+      changed_when: false
+
+    - name: Create the Radarr backup bucket
+      # Idempotent: only runs when the bucket does not yet exist.
+      when: _bucket not in garage_bucket_list.stdout
+      ansible.builtin.command:
+        cmd: garage bucket create {{ _bucket }}
+      changed_when: true
+
+    - name: List existing Garage API keys
+      ansible.builtin.command:
+        cmd: garage key list
+      register: garage_key_list
+      changed_when: false
+
+    - name: Import the vaulted backup API key
+      # Idempotent: only runs when the key (matched by name) does not yet exist.
+      # Bring-your-own creds so a rebuilt Garage accepts the same key with no
+      # manual step. Garage validates the format; --yes bypasses the confirm guard.
+      when: _bucket not in garage_key_list.stdout
+      ansible.builtin.command:
+        cmd: >
+          garage key import --yes
+          -n {{ _bucket }}
+          {{ _access_key }}
+          {{ _secret_key }}
+      no_log: true  # secret key is on the command line
+      changed_when: true
+
+    - name: Read current grants on the backup bucket
+      ansible.builtin.command:
+        cmd: garage bucket info {{ _bucket }}
+      register: garage_bucket_info
+      changed_when: false
+
+    - name: Grant the key read/write access to its backup bucket
+      # Decoupled from key existence on purpose: gating this on the key import guard
+      # would mean a failed/interrupted grant could never re-run, leaving a valid
+      # key with no bucket access (silent "Access Denied" in the sidecar). Keying
+      # off the actual grant state makes it idempotent and self-healing.
+      when: _access_key not in garage_bucket_info.stdout
+      ansible.builtin.command:
+        cmd: >
+          garage bucket allow
+          {{ _bucket }}
+          --read --write
+          --key {{ _access_key }}
+      changed_when: true
+
+- name: Deploy Radarr and register its Traefik route
+  hosts: radarr
+  become: true
+
+  roles:
+    - role: radarr
+
+  tasks:
+    - name: Deploy Traefik routing config for Radarr
+      ansible.builtin.template:
+        src: templates/traefik-radarr.yml.j2
+        dest: /etc/traefik/conf.d/radarr.yml
+        owner: traefik
+        group: traefik
+        mode: "0640"

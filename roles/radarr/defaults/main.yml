@@ -1,0 +1,27 @@
+---
+# Fallback defaults for the radarr role. Production values are set in
+# group_vars/radarr/main.yml and group_vars/media; these keep the role runnable
+# standalone and document every variable it consumes.
+
+radarr_image: "lscr.io/linuxserver/radarr:5.3.6"
+
+radarr_dir: /opt/radarr
+radarr_config_dir: "{{ radarr_dir }}/config"
+radarr_port: 7878
+
+radarr_log_max_size: "20m"
+radarr_log_max_file: "3"
+
+# Config backup (restic → Garage S3). See group_vars/radarr/main.yml for the
+# rationale and the vault credentials the sidecar needs.
+radarr_backup_image_version: "v1.4.2"
+radarr_backup_s3_endpoint: "https://s3.jardoole.xyz"
+radarr_backup_s3_region: "garage"
+radarr_backup_s3_bucket: "radarr-backup"
+radarr_backup_schedule: "0 6 * * *"
+radarr_backup_retention_args: "--keep-daily 7 --keep-weekly 4 --keep-monthly 4 --keep-yearly 1 --prune"
+
+# Note: the shared media_data_root / media_puid / media_pgid / media_time_zone
+# vars consumed by this role's templates are provided by group_vars/media (valen
+# is in [media]). They are intentionally NOT redefined here — role defaults must
+# carry the radarr_ prefix, and these are fleet-shared, not role-private.

@@ -1,0 +1,54 @@
+# Radarr — movie collection manager. Managed by Ansible, do not edit manually.
+# Non-secret values come from group_vars (Jinja); secrets come from .env.
+
+services:
+  radarr:
+    image: {{ radarr_image }}
+    container_name: radarr
+    restart: unless-stopped
+    environment:
+      - PUID={{ media_puid }}
+      - PGID={{ media_pgid }}
+      - TZ={{ media_time_zone }}
+    volumes:
+      - {{ radarr_config_dir }}:/config
+      # Whole media tree under one mount so qBittorrent's downloads (torrents/*)
+      # and Radarr's library (media/movies) sit on one filesystem — required for
+      # import-by-hardlink (no copy, seed + library share inodes).
+      - {{ media_data_root }}:/data
+    ports:
+      # WebUI/API published on loopback only — Traefik (co-located on valen)
+      # proxies to it. No VPN: Radarr talks to Prowlarr/qBittorrent on the LAN.
+      - "127.0.0.1:{{ radarr_port }}:{{ radarr_port }}"
+    logging:
+      driver: json-file
+      options:
+        max-size: "{{ radarr_log_max_size }}"
+        max-file: "{{ radarr_log_max_file }}"
+
+  # Offsite backup of Radarr's /config — the settings DB holding the quality and
+  # custom-format profiles, root-folder/naming settings, the Prowlarr and
+  # qBittorrent connections, and the API key: all configured by hand. A restic
+  # snapshot of it on a schedule → Garage S3 on beelink (offsite, over WireGuard),
+  # so that tuning is captured ONCE and survives a host/disk loss (restore-any-
+  # snapshot via the generic tooling: make verify-backups / restore-backups
+  # SERVICE=radarr). Read-only mount — restic only ever reads config.
+  config-backup:
+    image: ghcr.io/lobaro/restic-backup-docker:{{ radarr_backup_image_version }}
+    container_name: radarr-config-backup
+    restart: unless-stopped
+    environment:
+      RESTIC_REPOSITORY: "s3:{{ radarr_backup_s3_endpoint }}/{{ radarr_backup_s3_bucket }}"
+      RESTIC_PASSWORD: ${BACKUP_RESTIC_PASSWORD:?Variable is not set or empty}
+      AWS_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID:?Variable is not set or empty}
+      AWS_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY:?Variable is not set or empty}
+      AWS_DEFAULT_REGION: "{{ radarr_backup_s3_region }}"
+      RESTIC_TAG: radarr-config
+      BACKUP_CRON: "{{ radarr_backup_schedule }}"
+      RESTIC_FORGET_ARGS: "{{ radarr_backup_retention_args }}"
+    volumes:
+      # restic stores this as source path /data/config; the restore handler copies
+      # .restore/data/config back over {{ radarr_config_dir }} (restore_paths).
+      - {{ radarr_config_dir }}:/data/config:ro
+    env_file:
+      - .env

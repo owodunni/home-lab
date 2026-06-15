@@ -1,0 +1,113 @@
+---
+# Radarr service configuration — movie collection manager (service 3 of the
+# media-stack migration). Pulls indexers from Prowlarr and sends downloads to
+# qBittorrent, then imports finished movies into the library by hardlink.
+# Secrets (backup S3 key, restic password) live in group_vars/radarr/vault.yml
+# with the vault_ prefix.
+#
+# Shared media vars (media_data_root, media_puid/pgid, media_time_zone) come from
+# group_vars/media — valen is in both [radarr] and [media].
+
+# ============================================================================
+# Image — pinned upstream tag (matches the master/K8s deploy)
+# ============================================================================
+# Radarr (LinuxServer.io). Tags: https://hub.docker.com/r/linuxserver/radarr
+radarr_image: "lscr.io/linuxserver/radarr:5.3.6"
+
+# ============================================================================
+# Placement and routing
+# ============================================================================
+# Directory on valen holding the compose stack + .env (not the app data).
+radarr_dir: /opt/radarr
+
+# Radarr's /config (settings DB, quality profiles, app connections, API key) —
+# a local bind. Small and app-private. NOT on the media tree (which is the
+# bulk library, mounted separately at /data below).
+radarr_config_dir: "{{ radarr_dir }}/config"
+
+# WebUI/API port. Published on 127.0.0.1 only; Traefik on valen proxies to it.
+radarr_port: 7878
+
+# Public hostname. Traefik terminates TLS (wildcard) and routes
+# Host(radarr.jardoole.xyz) → 127.0.0.1:{{ radarr_port }}, behind the Authentik
+# forward-auth middleware. DNS must resolve this name to valen.
+radarr_hostname: "radarr.{{ traefik_domain }}"
+
+# ============================================================================
+# Logging
+# ============================================================================
+radarr_log_max_size: "20m"
+radarr_log_max_file: "3"
+
+# ============================================================================
+# Config backup — restic snapshot of /config → Garage S3 (offsite, beelink)
+# ============================================================================
+# WHAT: a lobaro/restic-backup-docker sidecar snapshots Radarr's /config dir on a
+#   schedule to a dedicated Garage S3 bucket. /config holds the quality/custom-
+#   format profiles, root-folder and naming settings, the Prowlarr/qBittorrent
+#   connections, and the API key — all configured by hand.
+# WHY: rebuilding that tuning from scratch is tedious and error-prone. An offsite
+#   restic copy captures it once and makes it restore-any-snapshot, through the
+#   same generic tooling as every other service.
+# RESOLVES: re-tuning Radarr from scratch after a host/disk loss.
+#
+# Bring-your-own credentials (vaulted, generated before first run):
+#   vault_radarr_backup_s3_access_key / _secret_key
+#     scripts/garage-keygen.sh vault_radarr_backup_s3
+#   vault_radarr_restic_password — openssl rand -base64 32.
+#     LOSING IT MAKES EVERY EXISTING SNAPSHOT UNRECOVERABLE.
+# The radarr.yml Garage play imports the key into the bucket; the deploy feeds the
+# same values to the config-backup sidecar. One source of truth.
+
+# lobaro/restic-backup-docker — runs restic on the BACKUP_CRON schedule.
+# Releases: https://github.com/lobaro/restic-backup-docker/releases
+radarr_backup_image_version: "v1.4.2"
+
+# Garage exposes its S3 API at s3.jardoole.xyz via Traefik on beelink; region
+# label must match garage_s3_region in group_vars/ingress/main.yml.
+radarr_backup_s3_endpoint: "https://s3.jardoole.xyz"
+radarr_backup_s3_region: "garage"
+
+# Dedicated bucket — created by the radarr.yml Garage play, isolated from the
+# other services' backup buckets so retention/keys are independent per service.
+radarr_backup_s3_bucket: "radarr-backup"
+
+# 5-field crond syntax. Offset to 06:00 so it does not contend for upload
+# bandwidth with the qBittorrent (04:00) / Prowlarr (05:00) backup runs.
+radarr_backup_schedule: "0 6 * * *"
+
+# Passed to `restic forget` after each run. GFS policy kept identical to the other
+# services so every snapshot ages out the same way; --prune reclaims the space.
+radarr_backup_retention_args: "--keep-daily 7 --keep-weekly 4 --keep-monthly 4 --keep-yearly 1 --prune"
+
+# ----------------------------------------------------------------------------
+# Backup manifest — consumed by the generic verify/restore tooling
+# (roles/backup_verify, roles/backup_restore; playbooks verify-backups.yml and
+# restore-backups.yml). See CLAUDE.md → "Backups: verify & restore".
+# ----------------------------------------------------------------------------
+# Compose project dir the restore playbook stops/starts as a whole.
+backup_compose_dir: "{{ radarr_dir }}"
+
+# Compose services that hold /config open. The restore playbook stops these before
+# copying the restored config back (so Radarr is not writing its settings DB
+# mid-restore), then brings the whole stack up again. The config-backup sidecar is
+# intentionally left running.
+backup_consumer_services:
+  - radarr
+
+backups:
+  - name: config
+    type: restic
+    compose_dir: "{{ radarr_dir }}"
+    # The restic sidecar that owns the repo (list/verify/restore run through it).
+    compose_service: config-backup
+    bucket: "{{ radarr_backup_s3_bucket }}"
+    schedule: "{{ radarr_backup_schedule }}"
+    # A backup older than this fails verification. Set just above the 24h cron
+    # interval to absorb run-time skew without flagging a healthy daily backup.
+    max_age_hours: 27
+    # Paths (relative to compose_dir) the restic restore copies back over. The
+    # sidecar mounts the config dir at /data/config, so restic stores it under
+    # data/config and the handler restores it to {{ radarr_dir }}/config.
+    restore_paths:
+      - config
