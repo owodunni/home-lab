@@ -4,7 +4,7 @@ ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(
 
 .PHONY: help setup lint precommit vault-edit \
         system networking storage ingress service-infra auth applications monitoring security site \
-        verify-backups restore-backups
+        app verify-backups restore-backups
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -78,6 +78,19 @@ security: ## 🔒 Security layer: unattended upgrades (firewall/SSH to come)
 site: ## 🏗️ Full provisioning: all layers in sequence (system → networking → storage → ingress → service-infra → auth → applications → monitoring → security)
 	@echo "Running full site provisioning..."
 	$(ANSIBLE_PLAYBOOK) site.yml
+
+# ── Single application service ───────────────────────────────────────────────
+# Deploy one service's function playbook by name, without running the whole
+# applications layer. Convention: the inventory group, the function playbook
+# filename, and the group_vars dir all share the service name, so the name is the
+# only argument: `make app service=qbittorrent` runs playbooks/qbittorrent.yml.
+# Accepts SERVICE= too (the case used by the backup targets), so either works.
+app: ## 🚀 Deploy a single app service by name (service=<group>, e.g. service=qbittorrent)
+	@svc="$(service)$(SERVICE)"; \
+	test -n "$$svc" || { echo "Usage: make app service=<service-group>  (e.g. service=qbittorrent)"; exit 1; }; \
+	test -f "playbooks/$$svc.yml" || { echo "No playbooks/$$svc.yml — '$$svc' is not a deployable service."; exit 1; }; \
+	echo "Deploying $$svc..."; \
+	$(ANSIBLE_PLAYBOOK) playbooks/$$svc.yml
 
 # ── Backups ────────────────────────────────────────────────────────────────
 verify-backups: ## ✅ Verify a service's backups exist and are fresh, and list every restore point (SERVICE=<group>)

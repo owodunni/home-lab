@@ -98,8 +98,11 @@ that group). Never use infrastructure groups as service targets.
   tasks in roles or function playbooks.
 - `import_playbook` entries need a `name:` (ansible-lint `name[play]`).
 - Targets: one per layer (`make system`, `make storage`, `make service-infra`,
-  …, `make security`) plus `make site`. There are **no** per-function targets —
-  `make` is layer-and-site granularity only. To run a single function playbook,
+  …, `make security`) plus `make site`. There are **no** per-function targets at
+  layer granularity. The one exception is `make app service=<name>`, which
+  deploys a single application service whose playbook filename, inventory group,
+  and `group_vars/` dir all share `<name>` (e.g. `make app service=qbittorrent`
+  runs `playbooks/qbittorrent.yml`). For any other one-off function playbook,
   invoke it directly: `uv run ansible-playbook playbooks/<function>.yml`.
 
 ## Backups: verify & restore
