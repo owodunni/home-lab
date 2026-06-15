@@ -97,6 +97,40 @@ services:
     volumes:
       - gluetun:/tmp/gluetun
 
+  # Offsite backup of qBittorrent's /config — the settings DB that holds
+  # everything configured by hand on first run: WebUI password, the auth-bypass
+  # subnet, default save path, and the movies/tv categories. A restic snapshot of
+  # it on a schedule → Garage S3 on beelink (offsite, over WireGuard), so that
+  # manual setup is captured ONCE and survives a host/disk loss (restore-any-
+  # snapshot via the generic tooling: make verify-backups / restore-backups
+  # SERVICE=qbittorrent). The mount is read-only — restic only ever reads config.
+  #
+  # NOT in gluetun's netns (no network_mode: service:gluetun): it joins the media
+  # bridge for normal host egress to Garage. Routing backups through the VPN would
+  # be pointless and would break if the tunnel drops; this traffic is unrelated to
+  # torrents and must keep flowing regardless of VPN state.
+  config-backup:
+    image: ghcr.io/lobaro/restic-backup-docker:{{ qbittorrent_backup_image_version }}
+    container_name: qbittorrent-config-backup
+    restart: unless-stopped
+    environment:
+      RESTIC_REPOSITORY: "s3:{{ qbittorrent_backup_s3_endpoint }}/{{ qbittorrent_backup_s3_bucket }}"
+      RESTIC_PASSWORD: ${BACKUP_RESTIC_PASSWORD:?Variable is not set or empty}
+      AWS_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID:?Variable is not set or empty}
+      AWS_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY:?Variable is not set or empty}
+      AWS_DEFAULT_REGION: "{{ qbittorrent_backup_s3_region }}"
+      RESTIC_TAG: qbittorrent-config
+      BACKUP_CRON: "{{ qbittorrent_backup_schedule }}"
+      RESTIC_FORGET_ARGS: "{{ qbittorrent_backup_retention_args }}"
+    volumes:
+      # restic stores this as source path /data/config; the restore handler copies
+      # .restore/data/config back over {{ qbittorrent_config_dir }} (restore_paths).
+      - {{ qbittorrent_config_dir }}:/data/config:ro
+    env_file:
+      - .env
+    networks:
+      - media
+
 networks:
   media:
     name: media

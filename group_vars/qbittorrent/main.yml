@@ -72,3 +72,82 @@ qbittorrent_vpn_outbound_subnets: "{{ qbittorrent_docker_subnet }},{{ home_lan_s
 # ============================================================================
 qbittorrent_log_max_size: "20m"
 qbittorrent_log_max_file: "3"
+
+# ============================================================================
+# Config backup — restic snapshot of /config → Garage S3 (offsite, beelink)
+# ============================================================================
+# WHAT: a lobaro/restic-backup-docker sidecar snapshots qBittorrent's /config dir
+#   on a schedule to a Garage S3 bucket. /config is the settings DB holding every
+#   value set by hand on first run (WebUI password, auth-bypass subnet, default
+#   save path, movies/tv categories).
+# WHY: that one-time manual setup is the whole point — without an offsite copy a
+#   disk loss means reconfiguring the WebUI from scratch. restic gives GFS
+#   retention + restore-any-snapshot, identical to the Authentik backups, through
+#   the same generic tooling (make verify-backups / restore-backups).
+# RESOLVES: the operator having to redo the qBittorrent WebUI config after any
+#   host rebuild — now it is captured once and restorable.
+#
+# Bring-your-own credentials (vaulted, generated before first run — no copy-paste
+# from a created key, so a rebuilt Garage accepts the same key unattended):
+#   vault_qbittorrent_backup_s3_access_key / _secret_key
+#     scripts/garage-keygen.sh vault_qbittorrent_backup_s3
+#   vault_qbittorrent_restic_password — restic repo password; openssl rand -base64 32.
+#     LOSING IT MAKES EVERY EXISTING SNAPSHOT UNRECOVERABLE.
+# The qbittorrent.yml Garage play imports the key into the bucket; the deploy
+# feeds the same values to the config-backup sidecar. One source of truth.
+
+# lobaro/restic-backup-docker — runs restic on the BACKUP_CRON schedule.
+# Releases: https://github.com/lobaro/restic-backup-docker/releases
+qbittorrent_backup_image_version: "v1.4.2"
+
+# Garage exposes its S3 API at s3.jardoole.xyz via Traefik on beelink; region
+# label must match garage_s3_region in group_vars/ingress/main.yml. valen reaches
+# this the same way Authentik on pi-cm5-1 does (both on the home LAN).
+qbittorrent_backup_s3_endpoint: "https://s3.jardoole.xyz"
+qbittorrent_backup_s3_region: "garage"
+
+# Dedicated bucket — created by the qbittorrent.yml Garage play, isolated from the
+# Authentik backup buckets so retention/keys are independent per service.
+qbittorrent_backup_s3_bucket: "qbittorrent-backup"
+
+# 5-field crond syntax. Offset to 04:00 so it does not contend for upload
+# bandwidth with the Authentik db-backup (02:00) and volumes-backup (03:00) runs.
+qbittorrent_backup_schedule: "0 4 * * *"
+
+# Passed to `restic forget` after each run. GFS policy kept identical to the
+# Authentik backups so every snapshot ages out the same way; --prune reclaims the
+# space of forgotten snapshots.
+qbittorrent_backup_retention_args: "--keep-daily 7 --keep-weekly 4 --keep-monthly 4 --keep-yearly 1 --prune"
+
+# ----------------------------------------------------------------------------
+# Backup manifest — consumed by the generic verify/restore tooling
+# (roles/backup_verify, roles/backup_restore; playbooks verify-backups.yml and
+# restore-backups.yml). See CLAUDE.md → "Backups: verify & restore".
+# ----------------------------------------------------------------------------
+# Compose project dir the restore playbook stops/starts as a whole.
+backup_compose_dir: "{{ qbittorrent_dir }}"
+
+# Compose services that hold /config open. The restore playbook stops these
+# before copying the restored config back (so qBittorrent is not writing its
+# settings DB mid-restore), then brings the whole stack up again. gluetun and the
+# config-backup sidecar are intentionally left running.
+backup_consumer_services:
+  - qbittorrent
+  - port-manager
+
+backups:
+  - name: config
+    type: restic
+    compose_dir: "{{ qbittorrent_dir }}"
+    # The restic sidecar that owns the repo (list/verify/restore run through it).
+    compose_service: config-backup
+    bucket: "{{ qbittorrent_backup_s3_bucket }}"
+    schedule: "{{ qbittorrent_backup_schedule }}"
+    # A backup older than this fails verification. Set just above the 24h cron
+    # interval to absorb run-time skew without flagging a healthy daily backup.
+    max_age_hours: 27
+    # Paths (relative to compose_dir) the restic restore copies back over. The
+    # sidecar mounts the config dir at /data/config, so restic stores it under
+    # data/config and the handler restores it to {{ qbittorrent_dir }}/config.
+    restore_paths:
+      - config

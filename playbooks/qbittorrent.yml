@@ -15,11 +15,87 @@
 #   - Shared media tree on the pool (playbooks/media-storage.yml).
 #   - Forward-auth middleware deployed (playbooks/media-forward-auth.yml) and the
 #     Authentik provider/application created (see docs/media-stack-migration.md).
+#   - Garage up on the [garage] host (service-infra layer) — the first play below
+#     provisions the config-backup bucket/key with the `garage` CLI there.
 #
 # Vault vars required in group_vars/qbittorrent/vault.yml:
 #   vault_protonvpn_username   — ProtonVPN OpenVPN username WITH the +pmp suffix
 #   vault_protonvpn_password   — ProtonVPN OpenVPN password
 #   vault_qbittorrent_password — WebUI admin password (also used by port-manager)
+#   vault_qbittorrent_backup_s3_access_key / _secret_key — Garage key (GK+24 hex /
+#     64 hex) for the config-backup bucket; generate before first run with
+#       scripts/garage-keygen.sh vault_qbittorrent_backup_s3
+#   vault_qbittorrent_restic_password — restic repo password (openssl rand -base64
+#     32). Losing it makes existing config snapshots unrecoverable.
+
+- name: Provision the qBittorrent config-backup bucket and key on Garage
+  # Runs on the Garage host (beelink) because the `garage` CLI lives there. Kept
+  # in this service playbook (not the garage layer) so backup provisioning travels
+  # with the qBittorrent service. Garage is already up (service-infra precedes
+  # applications). Every check short-circuits on re-runs.
+  hosts: garage
+  become: true
+  vars:
+    # Single source of truth: the bucket name and credentials live with the
+    # service in group_vars/qbittorrent, pulled here via the [qbittorrent] group
+    # so this play needs no edit when qBittorrent moves hosts.
+    _qbittorrent_host: "{{ groups['qbittorrent'][0] }}"
+    _bucket: "{{ hostvars[_qbittorrent_host]['qbittorrent_backup_s3_bucket'] }}"
+    _access_key: "{{ hostvars[_qbittorrent_host]['vault_qbittorrent_backup_s3_access_key'] }}"
+    _secret_key: "{{ hostvars[_qbittorrent_host]['vault_qbittorrent_backup_s3_secret_key'] }}"
+  tasks:
+    - name: List existing Garage buckets
+      ansible.builtin.command:
+        cmd: garage bucket list
+      register: garage_bucket_list
+      changed_when: false
+
+    - name: Create the qBittorrent backup bucket
+      # Idempotent: only runs when the bucket does not yet exist.
+      when: _bucket not in garage_bucket_list.stdout
+      ansible.builtin.command:
+        cmd: garage bucket create {{ _bucket }}
+      changed_when: true
+
+    - name: List existing Garage API keys
+      ansible.builtin.command:
+        cmd: garage key list
+      register: garage_key_list
+      changed_when: false
+
+    - name: Import the vaulted backup API key
+      # Idempotent: only runs when the key (matched by name) does not yet exist.
+      # Bring-your-own creds so a rebuilt Garage accepts the same key with no
+      # manual step. Garage validates the format; --yes bypasses the confirm guard.
+      when: _bucket not in garage_key_list.stdout
+      ansible.builtin.command:
+        cmd: >
+          garage key import --yes
+          -n {{ _bucket }}
+          {{ _access_key }}
+          {{ _secret_key }}
+      no_log: true  # secret key is on the command line
+      changed_when: true
+
+    - name: Read current grants on the backup bucket
+      ansible.builtin.command:
+        cmd: garage bucket info {{ _bucket }}
+      register: garage_bucket_info
+      changed_when: false
+
+    - name: Grant the key read/write access to its backup bucket
+      # Decoupled from key existence on purpose: gating this on the key import
+      # guard would mean a failed/interrupted grant could never re-run, leaving a
+      # valid key with no bucket access (silent "Access Denied" in the sidecar).
+      # Keying off the actual grant state makes it idempotent and self-healing.
+      when: _access_key not in garage_bucket_info.stdout
+      ansible.builtin.command:
+        cmd: >
+          garage bucket allow
+          {{ _bucket }}
+          --read --write
+          --key {{ _access_key }}
+      changed_when: true
 
 - name: Deploy qBittorrent and register its Traefik route
   hosts: qbittorrent

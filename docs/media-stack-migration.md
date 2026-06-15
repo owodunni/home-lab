@@ -116,7 +116,12 @@ Template = `playbooks/seafile.yml` + `roles/seafile/`. For each service:
 4. `[<svc>]` group in `hosts.ini` → `valen`.
 5. Authentik wiring (forward-auth app, or native OIDC).
 6. `import_playbook` line in `playbooks/applications.yml`.
-7. **Validate the gate**, update the status table below, then move on.
+7. **Config backup** (any service with hand-tuned `/config`): add a
+   `config-backup` restic sidecar + a `backups:` manifest in `group_vars/<svc>`
+   (model on qBittorrent), and a Garage bucket/key-provisioning play at the top of
+   `playbooks/<svc>.yml`. The settings are then captured once and restorable via
+   `make verify-backups`/`make restore-backups SERVICE=<svc>`.
+8. **Validate the gate**, update the status table below, then move on.
 
 Compose conventions: data is a **bind mount** (`{{ media_data_root }}:/data`),
 config a local bind (`/opt/<svc>/config:/config`); `PUID/PGID=8000`; ports bind
@@ -131,7 +136,7 @@ config a local bind (`/opt/<svc>/config:/config`); `PUID/PGID=8000`; ports bind
 | — | Phase 0 — GPU drivers | — | — | ☐ | `playbooks/gpu-drivers.yml`; verify `/dev/dri/renderD128` |
 | — | Phase 0 — media storage | — | — | ☐ | `playbooks/media-storage.yml` |
 | — | Phase 0 — forward-auth infra | — | — | ☐ | middleware + Authentik provider |
-| 1 | qBittorrent + gluetun + port-manager | `qbittorrent:5.1.4` / `gluetun:v3.41.0` / `port-manager:1.3` | forward-auth | ☐ | VPN egress + port-forward + hardlink-ready `/data` |
+| 1 | qBittorrent + gluetun + port-manager | `qbittorrent:5.1.4` / `gluetun:v3.41.0` / `port-manager:1.3` | forward-auth | ☐ | VPN egress + port-forward + hardlink-ready `/data`; `/config` restic-backed up to Garage |
 | 2 | Prowlarr | `prowlarr:2.1.5` | forward-auth (`/api` bypass) | ☐ | indexer source |
 | 3 | Radarr | `radarr:5.3.6` | forward-auth (`/api` bypass) | ☐ | wire Prowlarr + qBittorrent; hardlinks on |
 | 4 | Sonarr | `sonarr:4.0.2` | forward-auth (`/api` bypass) | ☐ | same as Radarr, TV |

@@ -13,6 +13,7 @@ Three containers in one stack (`/opt/qbittorrent`):
 | `gluetun` | `ghcr.io/qdm12/gluetun` | VPN tunnel (ProtonVPN/OpenVPN). Owns the netns; publishes the WebUI on `127.0.0.1`. Kill-switch via firewall. |
 | `qbittorrent` | `lscr.io/linuxserver/qbittorrent` | Torrent client. `network_mode: service:gluetun` — all traffic egresses the VPN. |
 | `port-manager` | `snoringdragon/gluetun-qbittorrent-port-manager` | Reads gluetun's NAT-PMP forwarded port and sets it as qBittorrent's listen port. |
+| `config-backup` | `ghcr.io/lobaro/restic-backup-docker` | Restic snapshot of `/config` → Garage S3 (offsite, beelink). On the media bridge, **not** the VPN. |
 
 - WebUI: `https://qbittorrent.jardoole.xyz` via Traefik, gated by Authentik
   forward-auth.
@@ -29,6 +30,12 @@ Three containers in one stack (`/opt/qbittorrent`):
   - `vault_protonvpn_username` — **must** end in `+pmp`
   - `vault_protonvpn_password`
   - `vault_qbittorrent_password`
+  - `vault_qbittorrent_backup_s3_access_key` / `_secret_key` — Garage key for the
+    config-backup bucket. Generate the pair with
+    `scripts/garage-keygen.sh vault_qbittorrent_backup_s3`.
+  - `vault_qbittorrent_restic_password` — restic repo password
+    (`openssl rand -base64 32`). **Losing it makes existing config snapshots
+    unrecoverable.**
 
 ## First-run setup (manual, in the WebUI)
 
@@ -65,8 +72,34 @@ start. After `playbooks/qbittorrent.yml` runs:
 - Kill-switch: stopping gluetun makes qBittorrent lose connectivity (no leak).
 - WebUI reachable via Traefik behind Authentik SSO.
 
+## Config backup (configure once, restore anywhere)
+
+The first-run setup above is stored in `/opt/qbittorrent/config`. The
+`config-backup` sidecar takes a daily **restic** snapshot of that dir to a Garage
+S3 bucket on beelink (offsite, over WireGuard), so the manual WebUI config is
+captured **once** and survives a disk/host loss — no reconfiguring from scratch.
+It runs through the repo's generic backup tooling (same as Authentik), so there
+are no qBittorrent-specific backup commands:
+
+```bash
+make verify-backups  SERVICE=qbittorrent   # exist + fresh? + list every restore point
+make restore-backups SERVICE=qbittorrent   # DESTRUCTIVE (typed-confirm): restore /config
+# roll back to an older snapshot (id from verify-backups):
+make restore-backups SERVICE=qbittorrent TARGETS='config=ab12cd34'
+```
+
+Restore stops `qbittorrent` + `port-manager`, copies the chosen snapshot back over
+`/opt/qbittorrent/config`, then restarts the whole stack. The provisioning of the
+bucket/key on Garage is automatic — the first play of `qbittorrent.yml` creates
+the `qbittorrent-backup` bucket and imports the vaulted key (idempotent). The
+restic repo password and S3 key are bring-your-own vault vars (see Prerequisites),
+so a rebuilt Garage accepts the same repo unattended.
+
 ## Notes
 
+- The `config-backup` sidecar deliberately sits on the `media` bridge, **not** in
+  gluetun's netns: it needs normal host egress to reach Garage, its traffic is
+  unrelated to torrents, and it must keep running even if the VPN tunnel drops.
 - gluetun creates `/dev/net/tun` itself (it has `NET_ADMIN`); no host device
   mapping. If the tunnel fails to start, ensure the host `tun` module is loadable.
 - The compose `media` network has a fixed subnet (`172.28.0.0/16`) so it can be
