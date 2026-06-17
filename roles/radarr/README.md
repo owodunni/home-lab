@@ -25,8 +25,10 @@ Two containers in one stack (`/opt/radarr`):
 
 - valen in `[services]` (Docker), `[ingress]` (Traefik), `[media]` (shared vars).
 - The media data tree on valen's pool (`playbooks/media-storage.yml`).
-- `playbooks/media-forward-auth.yml` deployed + the Authentik domain-level
-  forward-auth provider/application created, **with an Expression Policy that
+- `playbooks/media-network.yml` (shared `media` Docker network) and
+  `playbooks/media-forward-auth.yml` (SSO middleware) deployed + Radarr's own
+  Authentik forward-auth provider + application
+  created (per-service, domain-level mode), **with an Expression Policy that
   bypasses `/api`** so Prowlarr (indexer sync) and Jellyseerr (requests) can
   reach Radarr's API behind the same auth.
 - **Prowlarr** and **qBittorrent** deployed — wired into Radarr on first run.
@@ -48,11 +50,15 @@ After `make app service=radarr` runs and you reach `https://radarr.jardoole.xyz`
 1. **Settings → Media Management**: turn **Use Hardlinks instead of Copy** on
    (the whole point of the single `/data` mount), and add a **Root Folder** of
    `/data/media/movies`.
-2. **Settings → Download Clients → Add → qBittorrent**: host `gluetun` is not
-   reachable cross-stack, so point it at the host — `http://127.0.0.1:8080`
-   from inside the Radarr container will not work; use the LAN address of valen
-   (`http://192.168.1.197:8080`) or a shared compose network. Set category
-   `movies` so grabs land in `/data/torrents/movies`.
+2. **Settings → Download Clients → Add → qBittorrent**: set **Host** `gluetun`,
+   **Port** `8080`, SSL off. Radarr and the qBittorrent stack share the external
+   `media` network, so Radarr resolves the gluetun container (which owns
+   qBittorrent's netns and publishes the WebUI) by name. Do **not** use
+   `127.0.0.1` (that's Radarr's own container), valen's LAN IP (the WebUI is
+   published on loopback only — nothing listens on the LAN), or the public URL
+   (forward-auth blocks API clients). qBittorrent's `172.28.0.0/16` auth-bypass
+   whitelist auto-authenticates the call. Set category `movies` so grabs land in
+   `/data/torrents/movies`.
 3. **Settings → Indexers**: indexers arrive automatically once Prowlarr's
    **Apps** sync is configured (add Radarr in Prowlarr with its API key + URL).
 4. **Settings → General → Security → API Key**: copy it and vault it as

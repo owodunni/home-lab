@@ -26,8 +26,10 @@ Two containers in one stack (`/opt/sonarr`):
 
 - valen in `[services]` (Docker), `[ingress]` (Traefik), `[media]` (shared vars).
 - The media data tree on valen's pool (`playbooks/media-storage.yml`).
-- `playbooks/media-forward-auth.yml` deployed + the Authentik domain-level
-  forward-auth provider/application created, **with an Expression Policy that
+- `playbooks/media-network.yml` (shared `media` Docker network) and
+  `playbooks/media-forward-auth.yml` (SSO middleware) deployed + Sonarr's own
+  Authentik forward-auth provider + application
+  created (per-service, domain-level mode), **with an Expression Policy that
   bypasses `/api`** so Prowlarr (indexer sync) and Jellyseerr (requests) can
   reach Sonarr's API behind the same auth.
 - **Prowlarr** and **qBittorrent** deployed — wired into Sonarr on first run.
@@ -48,9 +50,13 @@ After `make app service=sonarr` runs and you reach `https://sonarr.jardoole.xyz`
 
 1. **Settings → Media Management**: turn **Use Hardlinks instead of Copy** on,
    and add a **Root Folder** of `/data/media/tv`.
-2. **Settings → Download Clients → Add → qBittorrent**: point it at valen's LAN
-   address (`http://192.168.1.197:8080`); set category `tv` so grabs land in
-   `/data/torrents/tv`.
+2. **Settings → Download Clients → Add → qBittorrent**: set **Host** `gluetun`,
+   **Port** `8080`, SSL off — Sonarr and the qBittorrent stack share the external
+   `media` network, so it resolves the gluetun container (which publishes the
+   WebUI) by name. Not `127.0.0.1` (Sonarr's own container), not valen's LAN IP
+   (WebUI is loopback-only), not the public URL (forward-auth blocks API
+   clients); qBittorrent's `172.28.0.0/16` whitelist auto-authenticates the call.
+   Set category `tv` so grabs land in `/data/torrents/tv`.
 3. **Settings → Indexers**: indexers arrive automatically once Prowlarr's
    **Apps** sync is configured (add Sonarr in Prowlarr with its API key + URL).
 4. **Settings → General → Security → API Key**: copy it and vault it as

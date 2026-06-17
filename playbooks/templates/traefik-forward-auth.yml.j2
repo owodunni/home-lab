@@ -4,9 +4,9 @@
 # their router's middlewares. The address points at Authentik's embedded outpost
 # via the public auth URL, which this host reaches over the network (DNS → the
 # Authentik host's Traefik → loopback to Authentik:9000) — so Authentik keeps its
-# loopback-only binding. Uses domain-level forward auth (one provider covers all
-# *.{{ traefik_domain }} apps); see docs/media-stack-migration.md for the
-# Authentik-side setup.
+# loopback-only binding. Authentik uses a per-service proxy provider + app (each
+# in domain-level forward-auth mode); this one middleware is shared by all of
+# them. See docs/media-stack-migration.md for the Authentik-side setup.
 
 http:
   middlewares:

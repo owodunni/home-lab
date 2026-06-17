@@ -24,8 +24,10 @@ Three containers in one stack (`/opt/qbittorrent`):
 
 - valen in `[services]` (Docker), `[ingress]` (Traefik), `[media]` (shared vars).
 - `playbooks/media-storage.yml` has created `/mnt/storage/media/torrents/*`.
-- `playbooks/media-forward-auth.yml` deployed + the Authentik domain-level
-  forward-auth provider/application created.
+- `playbooks/media-network.yml` (shared `media` Docker network this stack
+  attaches to) and `playbooks/media-forward-auth.yml` (SSO middleware) deployed +
+  qBittorrent's own Authentik forward-auth provider + application created
+  (per-service, domain-level mode).
 - Vault secrets in `group_vars/qbittorrent/vault.yml` (via `/vault`):
   - `vault_protonvpn_username` — **must** end in `+pmp`
   - `vault_protonvpn_password`
@@ -50,7 +52,7 @@ start. After `playbooks/qbittorrent.yml` runs:
      port-manager sidecar (which reaches qBittorrent over `127.0.0.1` in the
      shared netns) update the forwarded port without credentials.
    - Enable **Bypass authentication for clients in whitelisted IP subnets** and
-     add **`172.28.0.0/16`** (the compose `media` network / `qbittorrent_docker_subnet`).
+     add **`172.28.0.0/16`** (the shared `media` network / `media_docker_subnet`).
      This skips qBittorrent's own login for the Traefik-proxied browser path:
      Traefik reaches qBittorrent via the loopback-published port, and Docker's
      proxy rewrites the source IP to the `media` bridge gateway (`172.28.0.1`),
@@ -102,6 +104,9 @@ so a rebuilt Garage accepts the same repo unattended.
   unrelated to torrents, and it must keep running even if the VPN tunnel drops.
 - gluetun creates `/dev/net/tun` itself (it has `NET_ADMIN`); no host device
   mapping. If the tunnel fails to start, ensure the host `tun` module is loadable.
-- The compose `media` network has a fixed subnet (`172.28.0.0/16`) so it can be
+- The `media` network is a **shared, external** bridge (defined in
+  `group_vars/media` → `media_docker_*`, created by `media-network.yml`):
+  this stack and every *arr stack attach to it, so the *arr reach the WebUI at
+  `http://gluetun:8080` by container name. Its fixed subnet (`172.28.0.0/16`) is
   whitelisted in gluetun's firewall (`FIREWALL_OUTBOUND_SUBNETS`) — that is what
   keeps the WebUI reachable while everything else is forced through the VPN.

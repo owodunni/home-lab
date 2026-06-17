@@ -21,8 +21,10 @@ Two containers in one stack (`/opt/prowlarr`):
 ## Prerequisites
 
 - valen in `[services]` (Docker), `[ingress]` (Traefik), `[media]` (shared vars).
-- `playbooks/media-forward-auth.yml` deployed + the Authentik domain-level
-  forward-auth provider/application created, **with an Expression Policy that
+- `playbooks/media-network.yml` (shared `media` Docker network) and
+  `playbooks/media-forward-auth.yml` (SSO middleware) deployed + Prowlarr's own
+  Authentik forward-auth provider + application
+  created (per-service, domain-level mode), **with an Expression Policy that
   bypasses `/api`** so Radarr/Sonarr can reach Prowlarr's API behind the same
   auth (matches the master/K8s setup).
 - Garage up on the `[garage]` host (the first play of `prowlarr.yml` provisions
@@ -45,7 +47,11 @@ After `make app service=prowlarr` runs and you reach
 2. **Settings → General → Security → API Key**: copy it and vault it as
    `vault_prowlarr_api_key` — Radarr/Sonarr will use it to sync indexers.
 3. **Settings → Apps** (added once Radarr/Sonarr exist): connect Radarr and
-   Sonarr with `Full Sync` so indexers propagate automatically.
+   Sonarr with `Full Sync` so indexers propagate automatically. All three share
+   the `media` network, so address them by container name —
+   **Prowlarr Server** `http://prowlarr:9696`, **Radarr** `http://radarr:7878`,
+   **Sonarr** `http://sonarr:8989` (each with its `vault_<svc>_api_key`). Using
+   the internal hostnames keeps the sync off the public forward-auth'd URL.
 
 ## Config backup (configure once, restore anywhere)
 

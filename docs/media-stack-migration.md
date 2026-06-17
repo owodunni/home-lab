@@ -94,16 +94,26 @@ else; only Jellyfin and Jellyseerr use the two-tier admin/user split.
 
 ### Forward-auth setup (one-time, Phase 0)
 
-Ansible side (`playbooks/media-forward-auth.yml`): drops
-`/etc/traefik/conf.d/forward-auth.yml` on valen defining the middleware
-`authentik-forward-auth`. Each protected router references it as
-`authentik-forward-auth@file`.
+Ansible side, two foundation playbooks run first in the applications-layer media
+sequence:
 
-Authentik side (manual UI — `authentik-app` skill), **domain-level** forward auth
-so one provider covers every `*.jardoole.xyz` app:
+- `playbooks/media-network.yml` creates the shared **`media` Docker network**
+  (`group_vars/media` → `media_docker_*`) that every stack joins as external — so
+  the *arr reach qBittorrent at `http://gluetun:8080` and each other by container
+  name, off the public forward-auth'd URL, and deploy order between stacks does
+  not matter.
+- `playbooks/media-forward-auth.yml` drops `/etc/traefik/conf.d/forward-auth.yml`
+  on valen defining the middleware `authentik-forward-auth`. Each protected
+  router references it as `authentik-forward-auth@file`.
 
-1. **Providers → Create → Proxy Provider**
-   - Name: `media-forward-auth`
+Authentik side (manual UI — `authentik-app` skill): **one proxy provider +
+application per service**, each in **domain-level** forward-auth mode. There is
+no single shared provider — per-app providers are what let each service carry its
+own access policy.
+
+1. **Providers → Create → Proxy Provider** — one per service (`qbittorrent`,
+   `prowlarr`, `radarr`, `sonarr`):
+   - Name: `<service>-forward-auth` (e.g. `radarr-forward-auth`)
    - Authorization flow: `default-provider-authorization-implicit-consent`
    - Forward auth mode: **Forward auth (domain level)**
    - External host: `https://auth.jardoole.xyz`
@@ -116,10 +126,10 @@ so one provider covers every `*.jardoole.xyz` app:
    - Token validity / signing key: set the **authentik Self-signed Certificate**
      (without a signing key the OIDC/outpost endpoints 404).
 2. **Applications → Create** one app per *arr service (`qBittorrent`/`qbittorrent`,
-   `Prowlarr`/`prowlarr`, `Radarr`/`radarr`, `Sonarr`/`sonarr`) bound to the
-   provider above. Per-app (not catch-all) is what lets each carry its own
-   access policy. On each, bind the **admin-gate + API-bypass Expression Policy**
-   below.
+   `Prowlarr`/`prowlarr`, `Radarr`/`radarr`, `Sonarr`/`sonarr`), each bound to
+   **its own** provider from step 1. Per-app providers (not one catch-all) are
+   what let each carry its own access policy. On each, bind the **admin-gate +
+   API-bypass Expression Policy** below.
 3. **Outposts → embedded outpost → edit → add the provider(s)** so the embedded
    outpost (on the Authentik host, pi-cm5-1) serves them.
 4. **Admin gate + API bypass** — one **Expression Policy** bound to each *arr
