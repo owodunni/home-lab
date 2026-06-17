@@ -1,6 +1,0 @@
----
-# Fallback defaults — production values are set in group_vars/authentik/main.yml.
-# These exist so the role can be tested in isolation without group_vars.
-authentik_version: "2025.6.1"
-authentik_dir: /opt/authentik
-authentik_port: 9000
