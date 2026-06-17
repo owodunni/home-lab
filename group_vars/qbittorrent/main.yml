@@ -14,7 +14,7 @@ qbittorrent_image: "lscr.io/linuxserver/qbittorrent:5.1.4"
 
 # Gluetun VPN client (qdm12). Owns the network namespace; qBittorrent routes all
 # traffic through it. Tags: https://github.com/qdm12/gluetun/releases
-qbittorrent_gluetun_image: "ghcr.io/qdm12/gluetun:v3.41.0"
+qbittorrent_gluetun_image: "ghcr.io/qdm12/gluetun:v3.41.1"
 
 # Port-manager sidecar: reads gluetun's forwarded port and updates qBittorrent's
 # listen port via the WebUI API. https://github.com/SnoringDragon/gluetun-qbittorrent-port-manager
@@ -53,8 +53,12 @@ qbittorrent_admin_user: "admin"
 # vault_protonvpn_username.
 qbittorrent_vpn_countries: "Sweden"
 
-# DNS used inside the tunnel (Quad9) — keeps lookups off the home resolver.
-qbittorrent_vpn_dns: "9.9.9.9"
+# DNS: intentionally no override var here — gluetun uses its built-in DNS-over-
+# TLS resolver (its default). The previous qbittorrent_vpn_dns=9.9.9.9 forced
+# plaintext :53 to an external IP, which ProtonVPN interfered with (DNS i/o
+# timeouts left gluetun permanently unhealthy); DoT on :853 to a resolver IP
+# avoids that and stays off the home resolver. See the DNS note in the compose
+# template. Do not reintroduce a plaintext DNS_ADDRESS.
 
 # Subnets gluetun's firewall permits outside the tunnel: the shared `media`
 # docker network (media_docker_subnet — the WebUI reply path arrives via the

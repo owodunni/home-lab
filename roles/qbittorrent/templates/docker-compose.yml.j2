@@ -30,13 +30,15 @@ services:
       - VPN_PORT_FORWARDING_PROVIDER=protonvpn
       # Only accept inbound torrent traffic on the VPN-forwarded port.
       - PORT_FORWARD_ONLY=on
-      - DOT=off
-      - DNS_ADDRESS={{ qbittorrent_vpn_dns }}
+      # No DNS override on purpose: gluetun uses its built-in DNS-over-TLS
+      # resolver (its default). A prior DOT=off + DNS_ADDRESS=9.9.9.9 forced
+      # plaintext :53 to an external IP, which ProtonVPN interfered with — lookups
+      # timed out and gluetun's DNS-dependent healthcheck pinned the container
+      # unhealthy. DoT (:853 to a resolver IP, no plaintext bootstrap) survives
+      # that and keeps lookups off the home resolver.
       # Keep the WebUI reachable from Traefik/host (the docker subnet) while
       # everything else is forced through the tunnel.
       - FIREWALL_OUTBOUND_SUBNETS={{ qbittorrent_vpn_outbound_subnets }}
-      # Give the tunnel time to come up before health is considered failed.
-      - HEALTH_VPN_DURATION_INITIAL=120s
       - TZ={{ media_time_zone }}
     ports:
       # qBittorrent WebUI, published on loopback only — Traefik (co-located on
@@ -47,8 +49,9 @@ services:
       - gluetun:/tmp/gluetun
     networks:
       - media
-    # gluetun ships its own HEALTHCHECK (gated by HEALTH_VPN_DURATION_INITIAL
-    # above), which drives the depends_on: service_healthy below — no override.
+    # gluetun ships its own HEALTHCHECK, which drives the depends_on:
+    # service_healthy below. We keep gluetun's default health timing (no
+    # HEALTH_VPN_DURATION_* overrides).
 
   qbittorrent:
     image: {{ qbittorrent_image }}
