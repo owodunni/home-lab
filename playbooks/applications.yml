@@ -21,9 +21,12 @@
 
 # --- Media stack (on valen) -------------------------------------------------
 # Storage tree (storage layer) and GPU drivers (system layer) are already in
-# place; here we deploy the SSO middleware, then the services in dependency
-# order — one at a time, each validated before the next is added.
-# See docs/media-stack-migration.md.
+# place; here we set up the shared foundations (the cross-stack Docker network,
+# then the SSO middleware), then the services in dependency order — one at a
+# time, each validated before the next is added. See docs/media-stack-migration.md.
+- name: Media — shared Docker network
+  ansible.builtin.import_playbook: media-network.yml
+
 - name: Media — Authentik forward-auth middleware
   ansible.builtin.import_playbook: media-forward-auth.yml
 

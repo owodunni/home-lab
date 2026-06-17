@@ -56,16 +56,13 @@ qbittorrent_vpn_countries: "Sweden"
 # DNS used inside the tunnel (Quad9) — keeps lookups off the home resolver.
 qbittorrent_vpn_dns: "9.9.9.9"
 
-# Fixed subnet for the compose `media` network. Whitelisted in gluetun's firewall
-# (FIREWALL_OUTBOUND_SUBNETS) so the published WebUI port stays reachable from
-# Traefik/host while everything else is forced through the VPN (kill-switch).
-qbittorrent_docker_subnet: "172.28.0.0/16"
-
-# Subnets gluetun's firewall permits outside the tunnel: the docker network (the
-# WebUI reply path from the published 127.0.0.1 port arrives via the bridge
-# gateway) and the home LAN (direct access / future LAN clients). Everything else
-# is forced through the VPN.
-qbittorrent_vpn_outbound_subnets: "{{ qbittorrent_docker_subnet }},{{ home_lan_subnet }}"
+# Subnets gluetun's firewall permits outside the tunnel: the shared `media`
+# docker network (media_docker_subnet — the WebUI reply path arrives via the
+# bridge gateway, and sibling *arr containers reach gluetun:8080 directly over
+# it) and the home LAN (direct access / future LAN clients). Everything else is
+# forced through the VPN. The `media` network itself (name + subnet) is defined
+# once in group_vars/media and created by playbooks/media-network.yml.
+qbittorrent_vpn_outbound_subnets: "{{ media_docker_subnet }},{{ home_lan_subnet }}"
 
 # ============================================================================
 # Logging

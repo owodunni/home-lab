@@ -132,12 +132,13 @@ services:
       - media
 
 networks:
+  # Shared, pre-created bridge (see group_vars/media → media_docker_*). External
+  # so this stack attaches but never owns it: the *arr stacks join the same
+  # network to reach gluetun:8080, and creation is done once by
+  # playbooks/media-network.yml so deploy order does not matter.
   media:
-    name: media
-    ipam:
-      config:
-        # Fixed subnet so it can be whitelisted in gluetun's firewall.
-        - subnet: "{{ qbittorrent_docker_subnet }}"
+    name: "{{ media_docker_network }}"
+    external: true
 
 volumes:
   # Shares /tmp/gluetun/forwarded_port between gluetun and port-manager.

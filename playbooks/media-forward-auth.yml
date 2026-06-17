@@ -10,9 +10,11 @@
 #       is net-new infra (master used a K8s outpost not ported here).
 # Resolves: Single source for the SSO middleware every media UI shares.
 #
-# Authentik side (manual UI, domain-level forward auth) is documented in
-# docs/media-stack-migration.md — provider + application + embedded-outpost
-# assignment + /api bypass policy. This play only handles the Traefik half.
+# Authentik side (manual UI) is documented in docs/media-stack-migration.md — a
+# per-service proxy provider + application (each in domain-level forward-auth
+# mode) + embedded-outpost assignment + /api bypass policy. This play only
+# handles the Traefik half. The shared `media` Docker network is a separate
+# concern (playbooks/media-network.yml, earlier in the applications layer).
 #
 # Prerequisite: Traefik running on the media host with conf.d watch (valen is in
 # [ingress]); Authentik live at auth.{{ traefik_domain }} (auth layer).

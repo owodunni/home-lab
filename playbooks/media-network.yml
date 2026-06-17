@@ -1,0 +1,32 @@
+---
+# Shared Docker network for the media stack
+#
+# What: Creates the `media` user-defined bridge that every media compose stack
+#       attaches to as an EXTERNAL network (see group_vars/media → media_docker_*).
+# Why:  The media services are separate compose projects, so they cannot reach
+#       each other by container name unless they share one network. The *arr need
+#       to reach qBittorrent's WebUI (http://gluetun:8080) and each other off the
+#       public, forward-auth'd URL — the WebUI is published on loopback only, and
+#       the public URL is gated by Authentik. Creating the network here (not in a
+#       service stack) means every stack references it as external: deploy order
+#       between stacks does not matter and each stays independently deployable.
+# Resolves: The cross-stack reachability that wires Radarr/Sonarr → qBittorrent
+#           and Prowlarr → Radarr/Sonarr without the public URL.
+#
+# Layer: applications (first in the media sequence). It needs the Docker runtime
+# (service-infra layer) and nothing else, so it runs before the media services.
+
+- name: Create the shared media Docker network on the media host
+  hosts: media
+  become: true
+
+  tasks:
+    - name: Create the shared media Docker network
+      # Fixed subnet so gluetun's firewall (FIREWALL_OUTBOUND_SUBNETS) and
+      # qBittorrent's auth-bypass whitelist can name it.
+      community.docker.docker_network:
+        name: "{{ media_docker_network }}"
+        driver: bridge
+        ipam_config:
+          - subnet: "{{ media_docker_subnet }}"
+        state: present

@@ -18,8 +18,14 @@ services:
       - {{ media_data_root }}:/data
     ports:
       # WebUI/API published on loopback only — Traefik (co-located on valen)
-      # proxies to it. No VPN: Sonarr talks to Prowlarr/qBittorrent on the LAN.
+      # proxies to it. No VPN: Sonarr talks to Prowlarr/qBittorrent over the
+      # shared media network, not the LAN.
       - "127.0.0.1:{{ sonarr_port }}:{{ sonarr_port }}"
+    networks:
+      # Shared media network so Sonarr reaches qBittorrent's WebUI at
+      # http://gluetun:8080 (and Prowlarr) by container name — off the public
+      # forward-auth'd URL. See group_vars/media → media_docker_*.
+      - media
     logging:
       driver: json-file
       options:
@@ -52,3 +58,12 @@ services:
       - {{ sonarr_config_dir }}:/data/config:ro
     env_file:
       - .env
+    networks:
+      # Same media network (it has normal internet egress) so this stack creates
+      # no extra default bridge; the sidecar reaches Garage S3 over it.
+      - media
+
+networks:
+  media:
+    name: "{{ media_docker_network }}"
+    external: true

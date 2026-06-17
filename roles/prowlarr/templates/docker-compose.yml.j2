@@ -14,9 +14,15 @@ services:
       - {{ prowlarr_config_dir }}:/config
     ports:
       # WebUI/API published on loopback only — Traefik (co-located on valen)
-      # proxies to it. No VPN: Prowlarr talks to public indexers and to the *arr
-      # apps on the LAN, none of which should egress the torrent VPN.
+      # proxies to it. No VPN: Prowlarr talks to public indexers (internet egress
+      # via the media bridge) and to the *arr apps over the shared media network,
+      # none of which should egress the torrent VPN.
       - "127.0.0.1:{{ prowlarr_port }}:{{ prowlarr_port }}"
+    networks:
+      # Shared media network so Prowlarr reaches Radarr/Sonarr (Apps sync) by
+      # container name — off the public forward-auth'd URL. See group_vars/media
+      # → media_docker_*.
+      - media
     logging:
       driver: json-file
       options:
@@ -49,3 +55,12 @@ services:
       - {{ prowlarr_config_dir }}:/data/config:ro
     env_file:
       - .env
+    networks:
+      # Same media network (it has normal internet egress) so this stack creates
+      # no extra default bridge; the sidecar reaches Garage S3 over it.
+      - media
+
+networks:
+  media:
+    name: "{{ media_docker_network }}"
+    external: true
