@@ -82,15 +82,25 @@ Use the `authentik-app` skill for the click-path. In summary, create an
 - **Scopes**: `openid`, `email`, `profile`.
 - **Signing key**: the Authentik default; the discovery doc advertises the JWKS.
 
-The role (`roles/nextcloud/tasks/oidc.yml`) installs `user_oidc` and registers the
-provider from the vaulted values, mapping `preferred_username` → Nextcloud UID,
-`name` → display name, `email` → email, with **group provisioning on**
+The role (`roles/nextcloud/tasks/oidc.yml`) installs `user_oidc`, sets
+`allow_local_remote_servers=true` (see below), and registers the provider from the
+vaulted values, mapping `preferred_username` → Nextcloud UID, `name` → display
+name, `email` → email, with **group provisioning on**
 (`--group-provisioning=1 --mapping-groups=groups`). Re-running the playbook
 upserts the provider (e.g. after a secret rotation).
 
 > Native OIDC, **not** a Traefik forward-auth: forward-auth would block the
 > Nextcloud desktop/mobile sync and WebDAV clients (non-browser auth flows), the
 > same reason Jellyfin uses its own auth in this lab.
+
+> **LAN IdP / SSRF guard:** Nextcloud's HTTP client refuses to connect to
+> private/LAN IPs by default, and `auth.jardoole.xyz` resolves to a LAN address —
+> so the server-side discovery/token fetch is blocked with
+> `LocalServerException: Host <ip> violates local access rules`, which `user_oidc`
+> surfaces as a **404 on `/apps/user_oidc/login/<id>`** (not an obvious "blocked"
+> error). The role sets `allow_local_remote_servers=true` to permit it
+> (`nextcloud_allow_local_remote_servers` in `group_vars`). If SSO logins 404,
+> check this first.
 
 ### Groups & admin
 

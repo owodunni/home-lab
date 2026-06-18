@@ -194,6 +194,13 @@ nextcloud_oidc_scope: "openid email profile"
 nextcloud_oidc_group_provisioning: true
 nextcloud_oidc_mapping_groups: "groups"
 
+# Allow Nextcloud's HTTP client to connect to private/LAN addresses. Nextcloud
+# blocks these by default (SSRF protection: "Host <ip> violates local access
+# rules"). Authentik (auth.{{ traefik_domain }}) resolves to a LAN IP, so without
+# this the server-side OIDC discovery/token fetch is refused and login fails with
+# a 404 from user_oidc. Required because the IdP is reachable only on the LAN.
+nextcloud_allow_local_remote_servers: true
+
 # ============================================================================
 # Database backup — pg_dump → restic → Garage S3 (offsite, beelink at the barn)
 #

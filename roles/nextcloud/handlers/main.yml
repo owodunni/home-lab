@@ -1,0 +1,11 @@
+---
+- name: Restart Nextcloud app and cron
+  # Reloads the long-running Apache PHP workers so they pick up routes/config
+  # registered by an `occ` CLI process (e.g. enabling the user_oidc app) — without
+  # this, freshly-enabled app routes 404 on the web until a restart.
+  community.docker.docker_compose_v2:
+    project_src: "{{ nextcloud_dir }}"
+    state: restarted
+    services:
+      - app
+      - cron

@@ -12,6 +12,30 @@
 # nextcloud_oidc_client_id and whose client secret equals
 # vault_nextcloud_oidc_client_secret.
 
+- name: Allow Nextcloud to reach the LAN Authentik (disable SSRF block)
+  # Nextcloud's HTTP client refuses to connect to private/LAN IPs by default
+  # (LocalServerException: "Host <ip> violates local access rules"). Authentik
+  # resolves to a LAN IP, so the server-side OIDC discovery/token fetch is blocked
+  # and login fails with a 404 from user_oidc. Enable allow_local_remote_servers
+  # so requests to the LAN IdP are permitted. See group_vars/nextcloud/main.yml.
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - exec
+      - -T
+      - --user
+      - www-data
+      - app
+      - php
+      - occ
+      - config:system:set
+      - allow_local_remote_servers
+      - "--value={{ nextcloud_allow_local_remote_servers | lower }}"
+      - "--type=boolean"
+    chdir: "{{ nextcloud_dir }}"
+  changed_when: true
+
 - name: List installed Nextcloud apps
   ansible.builtin.command:
     argv:
@@ -51,6 +75,11 @@
       - user_oidc
     chdir: "{{ nextcloud_dir }}"
   changed_when: true
+  # Enabling the app via this CLI occ process does not reload the long-running
+  # Apache PHP workers, which keep the route table compiled at startup — so the
+  # login route (/apps/user_oidc/login/<id>) 404s on the web until they restart.
+  # The handler reloads app/cron at play end; only fires on first install.
+  notify: Restart Nextcloud app and cron
 
 - name: Register/update the Authentik OIDC provider
   # `occ user_oidc:provider <identifier> …` upserts: it creates the provider on
