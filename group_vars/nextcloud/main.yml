@@ -1,0 +1,295 @@
+---
+# Nextcloud service configuration
+# Secrets (DB/admin/redis passwords, restic + S3 backup creds, the OIDC client
+# secret) live in group_vars/nextcloud/vault.yml with the vault_ prefix.
+#
+# Nextcloud replaces Seafile as this lab's file sync/share: compute on a Pi
+# (pi-cm5-2), bulk file data on valen's MergerFS pool over NFS, behind the
+# co-located Traefik. The Postgres DB is backed up offsite to Garage exactly
+# like Authentik (pg_dump → restic), and the NFS file data gets its own restic
+# backup. SSO is native OIDC against Authentik (not forward-auth — that breaks
+# the desktop/mobile sync and WebDAV clients, same reasoning as Jellyfin).
+
+# ============================================================================
+# Images — pinned upstream tags
+# ============================================================================
+# Official Nextcloud image, apache variant (self-contained: serves HTTP on
+# port 80, no separate php-fpm/web container needed — mirrors Seafile's single
+# HTTP service behind Traefik). Tags: https://hub.docker.com/_/nextcloud
+# UPGRADING: Nextcloud forbids skipping major versions — the entrypoint runs
+# `occ upgrade` on container start and refuses a >1 major jump. Step through each
+# major (latest patch of each), and back up the DB AND the NFS data dir before
+# every bump.
+nextcloud_image: "nextcloud:31-apache"
+
+# Postgres image — pinned to the same major (16) as Authentik so the pg-dump /
+# pg-restore sidecars are wire-compatible and we reason about one PG version.
+nextcloud_db_image: "postgres:16-alpine"
+
+# Redis — Nextcloud uses it for transactional file locking and local/distributed
+# cache (strongly recommended for a multi-process install; prevents file-locking
+# corruption). Pinned to a stable major.
+nextcloud_redis_image: "redis:7.4-alpine"
+
+# restic backup sidecar — multi-arch (amd64/arm64), matches the Pi CM5 host.
+# Releases: https://github.com/lobaro/restic-backup-docker/releases
+nextcloud_restic_image: "ghcr.io/lobaro/restic-backup-docker:v1.4.2"
+
+# ============================================================================
+# Placement and routing
+# ============================================================================
+# Directory on the Nextcloud host holding the compose stack + .env. The HTML/app
+# tree is a local Docker named volume; the Postgres data is another local named
+# volume; the user FILE data is the NFS mount at {{ nextcloud_data_dir }} below.
+nextcloud_dir: /opt/nextcloud
+
+# Port the app container's HTTP (port 80) is published on, bound to 127.0.0.1.
+# Traefik is co-located on this host (pi-cm5-2 is in [ingress]) and proxies to it
+# over loopback, so the port is never exposed on the LAN. Reuses the port Seafile
+# had on this host.
+nextcloud_port: 8001
+
+# Public hostname. Traefik terminates TLS (Cloudflare DNS-01 wildcard) and routes
+# Host(nextcloud.jardoole.xyz) → 127.0.0.1:{{ nextcloud_port }}. DNS for this
+# name must resolve to the Nextcloud host (pi-cm5-2).
+nextcloud_hostname: "nextcloud.{{ traefik_domain }}"
+
+# ============================================================================
+# Storage — file data on the NFS pool (host mount), DB + HTML local
+# ============================================================================
+# The user file data lives on valen's MergerFS pool, exported over NFS. Unlike
+# Seafile (a native Docker NFS *volume*), Nextcloud mounts the export as a HOST
+# NFS mount at {{ nextcloud_data_dir }} and bind-mounts that into the container.
+# WHY a host mount, not a Docker NFS volume: the generic restic restore tooling
+# (roles/backup_restore/tasks/restic.yml) restores a snapshot into a scratch dir
+# and `cp -a`s it back to a path *under the stack dir on the host*. A host NFS
+# mount makes that copy land in the pool in place, so `make restore-backups
+# SERVICE=nextcloud` restores the file data with NO changes to the shared backup
+# roles. A Docker named volume has no stable host path to copy back into.
+nextcloud_nfs_addr: "valen"
+
+# Pool-relative subdirectory holding Nextcloud's data. Single source of truth:
+# playbooks/nextcloud.yml creates {{ mergerfs_mount_point }}/{{ nextcloud_nfs_subdir }}
+# on valen and exports it; the host mount below mounts that same path.
+nextcloud_nfs_subdir: "nextcloud"
+
+# Absolute path of that directory on the NFS server (valen). Must equal valen's
+# mergerfs_mount_point (group_vars/storage, /mnt/storage) + nextcloud_nfs_subdir.
+# Used as the NFSv3 mount device — v3 addresses the real server path directly,
+# unlike the NFSv4 pseudo-root.
+nextcloud_nfs_server_path: "/mnt/storage/{{ nextcloud_nfs_subdir }}"
+
+# Host mountpoint for the pool subtree, bind-mounted into the container at
+# /var/www/html/data (Nextcloud's default data dir). It sits under the stack dir
+# so the restic restore copy-back targets it (see the WHY above).
+nextcloud_data_dir: "{{ nextcloud_dir }}/data"
+
+# Mount the pool subtree over NFSv3, NOT v4. Why (identical to Seafile's case):
+# the Nextcloud apache image runs its entrypoint as root (it chowns/initialises
+# the data dir) before the server serves as www-data (UID 33). The data export
+# therefore squashes every client identity (including root) to UID/GID 33 with
+# all_squash (see playbooks/templates/exports-nextcloud.j2). Under NFSv4 the pool
+# is one pseudo-filesystem and per-subtree squash options are only honoured at
+# real mount boundaries — a subdirectory inherits the pool's root_squash, so the
+# root-run init is squashed to nobody and the first write fails. NFSv3 has no
+# pseudo-root: mountd matches this exact export path and applies all_squash
+# directly, so both the root-run init and the www-data-run server map to 33.
+nextcloud_nfs_version: 3
+
+# The image's fixed in-container user/group for the web server (www-data). The
+# pool subtree is pre-created owned by this UID/GID and the data export's
+# all_squash maps every client identity to it, so the container's root-run
+# entrypoint and its www-data-run server share one consistent owner and all
+# writes succeed. (Seafile used 8000 because its container runs as 8000; the
+# value just has to match the container's effective UID — Nextcloud's is 33.)
+nextcloud_container_uid: 33
+nextcloud_container_gid: 33
+
+# ============================================================================
+# Reverse-proxy integration (Traefik on loopback, same host)
+# ============================================================================
+# Traefik terminates TLS and forwards to the app over 127.0.0.1, so the only
+# trusted proxy Nextcloud should believe X-Forwarded-* headers from is loopback.
+nextcloud_trusted_proxies: "127.0.0.1"
+
+# Nextcloud sits behind the proxy, not serving TLS itself; these make it build
+# correct absolute (https) URLs and CLI URLs for the public hostname.
+nextcloud_overwrite_protocol: "https"
+nextcloud_overwrite_host: "{{ nextcloud_hostname }}"
+nextcloud_overwrite_cli_url: "https://{{ nextcloud_hostname }}"
+
+# ============================================================================
+# PHP limits — large file uploads/sync
+# ============================================================================
+nextcloud_php_memory_limit: "512M"
+nextcloud_php_upload_limit: "10G"
+
+# ============================================================================
+# Database — names only; credentials are vaulted (vault_nextcloud_pg_pass)
+# ============================================================================
+nextcloud_db_host: "db"
+nextcloud_db_name: "nextcloud"
+nextcloud_db_user: "nextcloud"
+
+# ============================================================================
+# Redis — host only; password is vaulted (vault_nextcloud_redis_password)
+# ============================================================================
+nextcloud_redis_host: "redis"
+nextcloud_redis_port: 6379
+
+# ============================================================================
+# Initial admin account (applied only on the first-ever install)
+# ============================================================================
+# Username for the bootstrap local admin. Password is vaulted
+# (vault_nextcloud_admin_password). After SSO is wired, day-to-day login is via
+# Authentik; this account stays as a break-glass local admin.
+nextcloud_admin_user: "admin"
+
+# IANA timezone hint for default phone region etc. (purely cosmetic at install).
+nextcloud_default_phone_region: "GB"
+
+# ============================================================================
+# SSO — native OIDC against Authentik via the user_oidc app
+#
+# WHAT: the role installs Nextcloud's official `user_oidc` app and registers an
+#   Authentik OpenID Connect provider, after the stack is up.
+# WHY: Nextcloud has first-class desktop/mobile sync and WebDAV clients; a
+#   Traefik forward-auth in front of it would break those non-browser clients
+#   (same reason Jellyfin uses native auth, per CLAUDE.md). Native OIDC keeps
+#   browser SSO via Authentik while leaving the clients' own auth flows intact.
+# RESOLVES: single sign-on through Authentik without breaking the sync clients.
+#
+# Authentik side is created in its UI (an OAuth2/OIDC provider + application,
+# redirect URI https://nextcloud.jardoole.xyz/apps/user_oidc/code) — see
+# docs/nextcloud.md and the `authentik-app` skill. The client secret you set on
+# that provider MUST equal vault_nextcloud_oidc_client_secret here.
+# ============================================================================
+nextcloud_oidc_provider_id: "authentik"
+nextcloud_oidc_provider_name: "Authentik"
+nextcloud_oidc_client_id: "nextcloud"
+
+# Authentik publishes a per-application OIDC discovery doc at this path; the
+# `nextcloud` slug must match the application slug created in Authentik.
+nextcloud_oidc_discovery_uri: "https://auth.{{ traefik_domain }}/application/o/nextcloud/.well-known/openid-configuration"
+
+# Claim → Nextcloud account field mappings. preferred_username as the stable UID
+# keeps usernames stable and human-readable across logins.
+nextcloud_oidc_mapping_uid: "preferred_username"
+nextcloud_oidc_mapping_display_name: "name"
+nextcloud_oidc_mapping_email: "email"
+nextcloud_oidc_scope: "openid email profile"
+
+# ============================================================================
+# Database backup — pg_dump → restic → Garage S3 (offsite, beelink at the barn)
+#
+# Identical engine and rationale to Authentik (see group_vars/authentik/main.yml):
+# a postgres pg-dump sidecar writes a logical dump to a shared volume on a
+# schedule; a lobaro restic db-backup sidecar snapshots that dump to Garage with
+# grandfather-father-son retention and per-snapshot restore.
+#
+# Bucket + key are provisioned by the first play in playbooks/nextcloud.yml
+# (targets [garage]); bring-your-own credentials generated with
+# scripts/garage-keygen.sh and vaulted before the first run.
+# ============================================================================
+# How often the pg-dump sidecar refreshes the on-disk dump (seconds). 86400 = daily.
+nextcloud_db_dump_interval_seconds: 86400
+
+# Cron (5-field) for the restic db snapshot run. Offset from the data-backup run
+# (0 4) so the two restic jobs don't compete for upload bandwidth.
+nextcloud_db_backup_schedule: "0 2 * * *"
+
+# `restic forget` GFS policy after each DB snapshot — a week of dailies, a month
+# of weeklies, a third of a year of monthlies, one yearly, then prune.
+nextcloud_db_backup_retention_args: "--keep-daily 7 --keep-weekly 4 --keep-monthly 4 --keep-yearly 1 --prune"
+
+# Garage S3 — region label must match garage_s3_region in group_vars/ingress.
+# The DB restic repo lives under the restic/ subpath of this bucket (see compose).
+nextcloud_backup_s3_region: "garage"
+nextcloud_backup_s3_bucket: "nextcloud-backup"
+
+# Garage exposes its S3 API at s3.jardoole.xyz via Traefik on beelink (path-style).
+nextcloud_backup_s3_endpoint: "https://s3.jardoole.xyz"
+
+# ============================================================================
+# File-data backup — lobaro restic sidecar → Garage S3 (offsite)
+#
+# WHAT: a second restic sidecar snapshots the NFS data mount (read-only) to its
+#   own Garage bucket. It runs ON the Nextcloud host (pi-cm5-2), reading the data
+#   over the same NFS mount the app uses.
+# WHY (Pi storage): restic STREAMS data to the repo and only keeps a metadata
+#   cache locally — it never stores a full copy of the dataset on the Pi. The
+#   cache is pinned to a dedicated local Docker volume (RESTIC_CACHE_DIR=/cache)
+#   so it is bounded and reused between runs rather than re-downloaded. So the Pi
+#   provides CPU/network for the transfer but its disk is not filled by the file
+#   set — only restic's metadata cache.
+# WHY a separate bucket/key from the DB backup: independent retention/lifecycle
+#   and blast radius, same convention as Authentik's two backups.
+# ============================================================================
+# Cron (5-field). Offset from the DB snapshot (0 2) so the two restic uploads
+# don't overlap.
+nextcloud_data_backup_schedule: "0 4 * * *"
+
+# `restic forget` GFS policy for the file data — kept identical to the DB policy
+# so both backups age out the same way.
+nextcloud_data_backup_retention_args: "--keep-daily 7 --keep-weekly 4 --keep-monthly 4 --keep-yearly 1 --prune"
+
+# Separate bucket from the DB repo.
+nextcloud_data_backup_s3_bucket: "nextcloud-data-backup"
+
+# ============================================================================
+# Backup manifest — consumed by the generic verify/restore tooling
+# (roles/backup_verify, roles/backup_restore; verify-backups.yml,
+# restore-backups.yml). See CLAUDE.md → "Backups: verify & restore".
+#
+# Both backups are restic-based, so both are first-class in the unified
+# list/verify/restore code path: `make verify-backups SERVICE=nextcloud` and
+# `make restore-backups SERVICE=nextcloud`.
+# ============================================================================
+# Compose project dir the restore playbook stops/starts as a whole.
+backup_compose_dir: "{{ nextcloud_dir }}"
+
+# Compose services that read the DB / file data. The restore playbook stops these
+# before restoring (so nothing writes mid-restore) and starts the whole stack
+# again afterwards. The db/redis/backup sidecars stay up: pg_restore needs the
+# live DB, and the restic restores run as one-off `compose run` containers.
+backup_consumer_services:
+  - app
+  - cron
+
+backups:
+  - name: postgres
+    # type: postgres — a pg_dump captured in a restic repo. Verify = restic
+    # snapshot freshness; restore = restic-restore the chosen snapshot then
+    # pg_restore --clean --if-exists into the live DB.
+    type: postgres
+    compose_dir: "{{ nextcloud_dir }}"
+    # restic sidecar holding the DB snapshots (list/verify/restic-restore run
+    # through it).
+    compose_service: db-backup
+    # postgres-client sidecar used to run pg_restore against the live DB.
+    pg_restore_service: pg-dump
+    bucket: "{{ nextcloud_backup_s3_bucket }}"
+    schedule: "{{ nextcloud_db_backup_schedule }}"   # 0 2 * * *
+    # Dump filename inside each snapshot (restic restores it to
+    # /restore/data/<dump_file>). Matches what the pg-dump sidecar writes.
+    dump_file: nextcloud.dump
+    # Slack over the snapshot cron: the dump can lag the snapshot by up to one
+    # dump interval.
+    max_age_hours: 30
+
+  - name: data
+    # type: restic — the NFS file data mount, snapshotted read-only. Restore
+    # copies the chosen snapshot back over the live data dir in place (the data
+    # dir is a host NFS mount under the stack dir, so the generic copy-back lands
+    # in the pool — see nextcloud_nfs_addr above for the WHY).
+    type: restic
+    compose_dir: "{{ nextcloud_dir }}"
+    compose_service: data-backup
+    bucket: "{{ nextcloud_data_backup_s3_bucket }}"
+    schedule: "{{ nextcloud_data_backup_schedule }}"   # 0 4 * * *
+    max_age_hours: 27
+    # Path (relative to compose_dir) the restic restore copies back over. The
+    # data-backup sidecar mounts the NFS data at /data/data, so snapshots carry
+    # /data/data/… and restore lands at compose_dir/data (= the NFS mount).
+    restore_paths:
+      - data

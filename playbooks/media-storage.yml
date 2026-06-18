@@ -10,7 +10,7 @@
 # Resolves: The storage prerequisite for the entire applications-layer media stack.
 #
 # Local (not NFS): the media services run ON valen, so they bind-mount these
-# paths directly — unlike Seafile (compute on a Pi reaching valen over NFS), no
+# paths directly — unlike Nextcloud (compute on a Pi reaching valen over NFS), no
 # export drop-in is needed here.
 
 - name: Provision the shared media data tree on the pool

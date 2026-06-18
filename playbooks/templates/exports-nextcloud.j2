@@ -1,0 +1,25 @@
+# {{ ansible_managed }}
+# Nextcloud subtree NFS export — managed by playbooks/nextcloud.yml (do not edit).
+#
+# What: Re-exports the Nextcloud data subtree of the pool with all_squash, mapping
+#       every client UID/GID (including a client's root) to the container's
+#       www-data account ({{ _nextcloud_uid }}/{{ _nextcloud_gid }}).
+# Why:  The Nextcloud apache image runs its entrypoint as root (it initialises and
+#       chowns the data dir) before the server serves as www-data
+#       (UID {{ _nextcloud_uid }}). Under the pool's root_squash export that root
+#       is squashed to nobody, so data-dir writes fail and the install breaks.
+#       all_squash forces every access on this dedicated subtree to the www-data
+#       account, so both the root-run init and the {{ _nextcloud_uid }}-run server
+#       can write — while the rest of the pool keeps root_squash.
+# Resolves: Nextcloud first-run/install failure on the NFS-backed data dir.
+#
+# IMPORTANT: the Nextcloud host must mount this path over NFSv3 (see
+# group_vars/nextcloud/main.yml, nextcloud_nfs_version). Over NFSv4 the whole pool
+# is one pseudo-filesystem and these per-subtree squash options are NOT honoured
+# for a subdirectory of the same filesystem — the parent's root_squash wins. NFSv3
+# matches this exact export path in mountd and applies all_squash directly.
+#
+# fsid is an explicit non-zero value, distinct from the pool root (fsid=0) and
+# from any other subtree export on this host (Seafile used fsid=1): the pool is a
+# FUSE/mergerfs filesystem, for which the kernel cannot auto-derive a stable fsid.
+{{ mergerfs_mount_point }}/{{ _nextcloud_pool_subdir }} {{ nfs_export_clients }}(rw,sync,no_subtree_check,all_squash,anonuid={{ _nextcloud_uid }},anongid={{ _nextcloud_gid }},fsid=2)

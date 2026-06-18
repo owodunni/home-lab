@@ -29,7 +29,7 @@
 - name: Auth layer — Authentik identity provider (SSO/OIDC for all services)
   ansible.builtin.import_playbook: playbooks/auth.yml
 
-- name: Applications layer — end-user services (Seafile, media stack)
+- name: Applications layer — end-user services (Nextcloud, media stack)
   ansible.builtin.import_playbook: playbooks/applications.yml
 
 - name: Monitoring layer — node_exporter, Prometheus, Alertmanager, Grafana

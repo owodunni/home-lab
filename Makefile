@@ -63,7 +63,7 @@ auth: ## 🛡️ Auth layer: Authentik SSO/OIDC identity provider
 	@echo "Running auth layer..."
 	$(ANSIBLE_PLAYBOOK) playbooks/auth.yml
 
-applications: ## 📂 Applications layer: end-user services (Seafile + media stack)
+applications: ## 📂 Applications layer: end-user services (Nextcloud + media stack)
 	@echo "Running applications layer..."
 	$(ANSIBLE_PLAYBOOK) playbooks/applications.yml
 

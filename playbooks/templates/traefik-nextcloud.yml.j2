@@ -1,0 +1,31 @@
+# Traefik dynamic config for Nextcloud — managed by Ansible, do not edit manually.
+#
+# The wildcard cert (*.{{ traefik_domain }}) is managed by traefik-wildcard-tls.yml.j2
+# (deployed by the ingress layer). This router just selects it via certResolver.
+# Traefik is co-located with Nextcloud on this host, so the upstream is loopback.
+
+http:
+  routers:
+    nextcloud:
+      rule: "Host(`{{ nextcloud_hostname }}`)"
+      service: nextcloud
+      middlewares:
+        - nextcloud-dav
+      tls:
+        certResolver: letsencrypt
+
+  middlewares:
+    # Nextcloud's service-discovery URLs live under /remote.php/dav; redirecting
+    # the legacy .well-known paths there keeps CalDAV/CardDAV clients and the
+    # admin setup check happy.
+    nextcloud-dav:
+      redirectRegex:
+        regex: "https://([^/]+)/.well-known/(card|cal)dav"
+        replacement: "https://${1}/remote.php/dav/"
+        permanent: true
+
+  services:
+    nextcloud:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:{{ nextcloud_port }}"

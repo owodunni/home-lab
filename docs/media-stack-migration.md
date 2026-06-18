@@ -15,7 +15,7 @@ and status.
 The stack (qBittorrent+VPN, Prowlarr, Radarr, Sonarr, Jellyfin, Jellyseerr) ran
 on `master` as `bjw-s/app-template` Helm releases on a K3s cluster. `rebuild`
 replaces that with per-service Ansible roles deploying Docker Compose stacks
-(the Seafile pattern). So every service is a **port + architecture conversion**,
+(the same per-service Compose pattern Nextcloud uses). So every service is a **port + architecture conversion**,
 done **one service at a time, validating each before the next**, fundamental
 services first.
 
@@ -28,7 +28,7 @@ on the home LAN. Therefore:
 
 - **Compute + storage + GPU transcoding all co-locate on valen.**
 - Media data is **local** → containers use **bind mounts** to `/mnt/storage/media`,
-  *not* NFS volumes (the Seafile NFS-volume detail does **not** apply here).
+  *not* NFS (the Nextcloud NFS-mount detail does **not** apply here).
 - Hardlinks between `/data/torrents` and `/data/media` work natively because it is
   one local filesystem — this is what makes seed-while-streaming with no data
   duplication possible.
@@ -248,7 +248,7 @@ native mobile/TV client still logs in with a normal Jellyfin account.
 
 ## Repeatable porting recipe (per service `<svc>`)
 
-Template = `playbooks/seafile.yml` + `roles/seafile/`. For each service:
+Template = `playbooks/nextcloud.yml` + `roles/nextcloud/`. For each service:
 
 1. `roles/<svc>/` — `tasks/main.yml` (create stack dir → template
    `docker-compose.yml.j2` + `env.j2` → `community.docker.docker_compose_v2`),
@@ -326,7 +326,7 @@ Order is fundamental → up the stack. **Do not advance until the current gate p
 
 ## Open items
 
-- Confirm valen exposes `*.jardoole.xyz` externally the same way pi-cm5-2/Seafile
+- Confirm valen exposes `*.jardoole.xyz` externally the same way pi-cm5-2/Nextcloud
   does (DNS + any port-forward/tunnel).
 - Confirm valen's iGPU presents `/dev/dri/renderD128` before relying on HW transcode.
 - Decide Jellyfin auth (native plugin vs forward-auth) at Phase 5.

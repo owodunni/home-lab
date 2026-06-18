@@ -1,0 +1,8 @@
+---
+galaxy_info:
+  role_name: nextcloud
+  author: home-lab
+  description: Deploy Nextcloud (apache) via docker-compose with NFS file data, offsite restic backups, and Authentik OIDC SSO
+  license: MIT
+  min_ansible_version: "2.15"
+dependencies: []

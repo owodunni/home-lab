@@ -1,0 +1,227 @@
+# Nextcloud docker-compose stack — managed by Ansible, do not edit manually.
+# Based on the official image's compose example:
+#   https://github.com/nextcloud/docker  (apache variant + postgres + redis + cron)
+# Changes from upstream:
+#   - User file data (/var/www/html/data) is a HOST NFS mount of valen's pool,
+#     bind-mounted in — so the generic restic restore tooling can copy a restored
+#     snapshot back into the pool in place (see group_vars/nextcloud/main.yml).
+#   - The HTML/app tree and the Postgres data are local Docker named volumes.
+#   - No web/proxy container: Traefik (co-located on this host) terminates TLS and
+#     the app's port 80 is published on 127.0.0.1 only.
+#   - pg-dump + db-backup + data-backup restic sidecars add offsite Garage backups.
+# Non-secret values come from group_vars/nextcloud/main.yml (Jinja); runtime env
+# and secrets come from .env (templated from vault).
+
+services:
+  db:
+    image: {{ nextcloud_db_image }}
+    container_name: nextcloud-db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}"]
+      start_period: 20s
+      interval: 30s
+      retries: 5
+      timeout: 5s
+    volumes:
+      - nextcloud-db:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    networks:
+      - nextcloud-net
+
+  redis:
+    image: {{ nextcloud_redis_image }}
+    container_name: nextcloud-redis
+    restart: unless-stopped
+    command:
+      - /bin/sh
+      - -c
+      - redis-server --requirepass "$$REDIS_HOST_PASSWORD"
+    environment:
+      REDIS_HOST_PASSWORD: ${REDIS_HOST_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_HOST_PASSWORD\" ping | grep -q PONG"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+    networks:
+      - nextcloud-net
+
+  app:
+    image: {{ nextcloud_image }}
+    container_name: nextcloud
+    restart: unless-stopped
+    volumes:
+      # App/HTML tree (code, config/config.php, installed apps) on local disk.
+      - nextcloud-html:/var/www/html
+      # User file data on valen's pool via the host NFS mount. Nested on top of
+      # the html volume at the default data path; Docker mounts the deeper path
+      # last so this bind wins for /var/www/html/data.
+      - {{ nextcloud_data_dir }}:/var/www/html/data
+    environment:
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_HOST_PORT: ${REDIS_HOST_PORT}
+      REDIS_HOST_PASSWORD: ${REDIS_HOST_PASSWORD}
+      NEXTCLOUD_ADMIN_USER: ${NEXTCLOUD_ADMIN_USER}
+      NEXTCLOUD_ADMIN_PASSWORD: ${NEXTCLOUD_ADMIN_PASSWORD}
+      NEXTCLOUD_TRUSTED_DOMAINS: ${NEXTCLOUD_TRUSTED_DOMAINS}
+      NEXTCLOUD_DATA_DIR: ${NEXTCLOUD_DATA_DIR}
+      # Reverse-proxy: trust only loopback (Traefik on this host) and build https
+      # absolute URLs for the public hostname.
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES}
+      OVERWRITEHOST: ${OVERWRITEHOST}
+      OVERWRITEPROTOCOL: ${OVERWRITEPROTOCOL}
+      OVERWRITECLIURL: ${OVERWRITECLIURL}
+      APACHE_DISABLE_REWRITE_IP: "1"
+      PHP_MEMORY_LIMIT: ${PHP_MEMORY_LIMIT}
+      PHP_UPLOAD_LIMIT: ${PHP_UPLOAD_LIMIT}
+      # SMTP (cluster-wide Gmail relay from group_vars/all)
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_SECURE: ${SMTP_SECURE}
+      SMTP_NAME: ${SMTP_NAME}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS}
+      MAIL_DOMAIN: ${MAIL_DOMAIN}
+    ports:
+      - "127.0.0.1:{{ nextcloud_port }}:80"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:80/status.php || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - nextcloud-net
+
+  # Runs Nextcloud's background jobs (cron.php) every 5 min via the image's
+  # /cron.sh (busybox crond). Shares the app's volumes so it sees the same code,
+  # config and data. Set "Background jobs" to Cron in the admin UI (or via occ,
+  # see roles/nextcloud/tasks/main.yml) to use this instead of AJAX.
+  cron:
+    image: {{ nextcloud_image }}
+    container_name: nextcloud-cron
+    restart: unless-stopped
+    entrypoint: /cron.sh
+    volumes:
+      - nextcloud-html:/var/www/html
+      - {{ nextcloud_data_dir }}:/var/www/html/data
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - nextcloud-net
+
+  # DB backup, half 1 of 2: produce a logical dump on a schedule. Writes pg_dump
+  # custom-format output to the shared db-dump volume; the db-backup restic
+  # sidecar snapshots that volume to Garage. Image major must match `db` (16) so
+  # pg_dump/pg_restore are wire-compatible. Atomic temp-then-rename so the restic
+  # sidecar never snapshots a half-written dump.
+  pg-dump:
+    image: {{ nextcloud_db_image }}
+    container_name: nextcloud-pg-dump
+    restart: unless-stopped
+    environment:
+      PGHOST: ${POSTGRES_HOST}
+      PGDATABASE: ${POSTGRES_DB}
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - db-dump:/dump
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        while true; do
+          pg_dump -Fc -f /dump/nextcloud.dump.tmp \
+            && mv -f /dump/nextcloud.dump.tmp /dump/nextcloud.dump \
+            && echo "pg-dump: wrote /dump/nextcloud.dump at $$(date -Is)"
+          sleep {{ nextcloud_db_dump_interval_seconds }}
+        done
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - nextcloud-net
+
+  # DB backup, half 2 of 2: restic snapshot of the dump → offsite Garage S3.
+  # Repo lives under the restic/ subpath of the nextcloud-backup bucket. The dump
+  # mount is read-only — restic only ever reads it.
+  db-backup:
+    image: {{ nextcloud_restic_image }}
+    container_name: nextcloud-db-backup
+    restart: unless-stopped
+    environment:
+      RESTIC_REPOSITORY: "s3:{{ nextcloud_backup_s3_endpoint }}/{{ nextcloud_backup_s3_bucket }}/restic"
+      RESTIC_PASSWORD: ${RESTIC_PASSWORD}
+      AWS_ACCESS_KEY_ID: ${DB_BACKUP_S3_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${DB_BACKUP_S3_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: "{{ nextcloud_backup_s3_region }}"
+      RESTIC_TAG: nextcloud-db
+      BACKUP_CRON: "{{ nextcloud_db_backup_schedule }}"
+      RESTIC_FORGET_ARGS: "{{ nextcloud_db_backup_retention_args }}"
+    volumes:
+      - db-dump:/data:ro
+    depends_on:
+      - pg-dump
+
+  # File-data backup: restic snapshot of the NFS data mount → offsite Garage S3.
+  # Mounted at /data/data so snapshots carry /data/data/… and the generic restore
+  # copy-back (restore_paths: [data]) lands at the host data dir in place. The
+  # mount is read-only — restic only reads. RESTIC_CACHE_DIR points at a local
+  # named volume so the metadata cache is bounded and reused, never re-downloaded
+  # to a throwaway container layer (keeps the Pi's disk footprint to metadata).
+  data-backup:
+    image: {{ nextcloud_restic_image }}
+    container_name: nextcloud-data-backup
+    restart: unless-stopped
+    environment:
+      RESTIC_REPOSITORY: "s3:{{ nextcloud_backup_s3_endpoint }}/{{ nextcloud_data_backup_s3_bucket }}"
+      RESTIC_PASSWORD: ${RESTIC_PASSWORD}
+      RESTIC_CACHE_DIR: /cache
+      AWS_ACCESS_KEY_ID: ${DATA_BACKUP_S3_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${DATA_BACKUP_S3_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: "{{ nextcloud_backup_s3_region }}"
+      RESTIC_TAG: nextcloud-data
+      BACKUP_CRON: "{{ nextcloud_data_backup_schedule }}"
+      RESTIC_FORGET_ARGS: "{{ nextcloud_data_backup_retention_args }}"
+    volumes:
+      - {{ nextcloud_data_dir }}:/data/data:ro
+      - restic-cache:/cache
+
+networks:
+  nextcloud-net:
+    name: nextcloud-net
+
+volumes:
+  # Nextcloud code + config + installed apps on local disk.
+  nextcloud-html:
+    driver: local
+  # Postgres data on local disk — a DB data dir over NFS risks locking/corruption.
+  nextcloud-db:
+    driver: local
+  # Shared between pg-dump (writes the dump) and db-backup (reads it for restic).
+  db-dump:
+    driver: local
+  # restic metadata cache for the data-backup sidecar — bounded, local, reused.
+  restic-cache:
+    driver: local

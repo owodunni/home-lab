@@ -1,0 +1,84 @@
+---
+# Native OIDC SSO against Authentik via the official `user_oidc` app.
+#
+# Browser logins go through Authentik; the Nextcloud sync/WebDAV clients keep
+# their own auth (so they are NOT broken by a proxy-level forward-auth — the
+# reason this is native OIDC, not a Traefik middleware; see
+# group_vars/nextcloud/main.yml and CLAUDE.md's Jellyfin note).
+#
+# Prerequisite (manual, in Authentik's UI — see docs/nextcloud.md): an
+# OAuth2/OIDC provider + application with slug `nextcloud`, redirect URI
+# https://{{ nextcloud_hostname }}/apps/user_oidc/code, whose client ID is
+# nextcloud_oidc_client_id and whose client secret equals
+# vault_nextcloud_oidc_client_secret.
+
+- name: List installed Nextcloud apps
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - exec
+      - -T
+      - --user
+      - www-data
+      - app
+      - php
+      - occ
+      - app:list
+      - --output=json
+    chdir: "{{ nextcloud_dir }}"
+  register: nextcloud_app_list
+  changed_when: false
+
+- name: Install the user_oidc app
+  # Only when absent (enabled or disabled). app:install errors if already there,
+  # so gate on the list above to stay idempotent.
+  when: >-
+    'user_oidc' not in (nextcloud_app_list.stdout | from_json).enabled and
+    'user_oidc' not in (nextcloud_app_list.stdout | from_json).disabled
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - exec
+      - -T
+      - --user
+      - www-data
+      - app
+      - php
+      - occ
+      - app:install
+      - user_oidc
+    chdir: "{{ nextcloud_dir }}"
+  changed_when: true
+
+- name: Register/update the Authentik OIDC provider
+  # `occ user_oidc:provider <identifier> …` upserts: it creates the provider on
+  # first run and updates it (e.g. rotated secret) on later runs, so this is
+  # safe to re-run. The identifier doubles as the login-button label.
+  # --unique-uid=0 keeps the mapped preferred_username as the Nextcloud UID
+  # (stable, human-readable) rather than a hash.
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - exec
+      - -T
+      - --user
+      - www-data
+      - app
+      - php
+      - occ
+      - user_oidc:provider
+      - "{{ nextcloud_oidc_provider_name }}"
+      - "--clientid={{ nextcloud_oidc_client_id }}"
+      - "--clientsecret={{ vault_nextcloud_oidc_client_secret }}"
+      - "--discoveryuri={{ nextcloud_oidc_discovery_uri }}"
+      - "--scope={{ nextcloud_oidc_scope }}"
+      - "--mapping-uid={{ nextcloud_oidc_mapping_uid }}"
+      - "--mapping-display-name={{ nextcloud_oidc_mapping_display_name }}"
+      - "--mapping-email={{ nextcloud_oidc_mapping_email }}"
+      - "--unique-uid=0"
+    chdir: "{{ nextcloud_dir }}"
+  no_log: true # client secret is on the command line
+  changed_when: true

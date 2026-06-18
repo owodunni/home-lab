@@ -1,0 +1,132 @@
+---
+- name: Create Nextcloud stack directory
+  # Holds the compose file + .env only. Persistent state lives in volumes: the
+  # HTML/app tree and Postgres data are local named volumes; the user file data
+  # is the NFS mount created below.
+  ansible.builtin.file:
+    path: "{{ nextcloud_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Create the NFS data mountpoint
+  # Bind-mounted into the app/cron containers at /var/www/html/data. Pre-created
+  # empty so the NFS mount has a target; ownership/contents come from the pool.
+  ansible.builtin.file:
+    path: "{{ nextcloud_data_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Mount the Nextcloud data subtree from valen's pool over NFSv3
+  # Host NFS mount (not a Docker NFS volume) so the generic restic restore copies
+  # a restored snapshot back into the pool in place — see
+  # group_vars/nextcloud/main.yml (nextcloud_nfs_addr) for the full rationale.
+  # NFSv3 so the all_squash subtree export (exports-nextcloud.j2) is honoured;
+  # _netdev defers the mount until the network is up across reboots.
+  ansible.posix.mount:
+    path: "{{ nextcloud_data_dir }}"
+    src: "{{ nextcloud_nfs_addr }}:{{ nextcloud_nfs_server_path }}"
+    fstype: nfs
+    opts: "nfsvers={{ nextcloud_nfs_version }},rw,_netdev,noatime"
+    state: mounted
+    boot: true
+
+- name: Template docker-compose.yml
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ nextcloud_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0640"
+
+- name: Template .env file
+  # Mode 0600: contains vault secrets (DB/admin/redis passwords, restic + S3
+  # backup credentials, SMTP password).
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ nextcloud_dir }}/.env"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Start Nextcloud stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ nextcloud_dir }}"
+    state: present
+    pull: always
+    remove_orphans: true
+
+- name: Wait for Nextcloud to finish installing/upgrading
+  # The image's entrypoint runs the install (first boot) or `occ upgrade` (after
+  # an image bump) before the app is usable. Poll occ status until it reports
+  # installed so the SSO/config steps below run against a ready instance.
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - exec
+      - -T
+      - --user
+      - www-data
+      - app
+      - php
+      - occ
+      - status
+      - --output=json
+    chdir: "{{ nextcloud_dir }}"
+  register: nextcloud_status
+  changed_when: false
+  # `until` retries through the early window when the entrypoint is still copying
+  # code / installing (occ may be missing or error → rc != 0). `and` short-
+  # circuits, so from_json only runs once occ returned 0 with JSON — no templating
+  # error on empty output. If install never completes in retries×delay, the task
+  # fails loudly rather than running the occ steps below against a half-built app.
+  until: nextcloud_status.rc == 0 and ((nextcloud_status.stdout | from_json).installed | default(false))
+  retries: 30
+  delay: 10
+
+- name: Set Nextcloud background jobs to cron
+  # Uses the `cron` sidecar (runs cron.php every 5 min) instead of AJAX, which is
+  # the recommended mode for a real install. Idempotent: occ no-ops if unchanged.
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - exec
+      - -T
+      - --user
+      - www-data
+      - app
+      - php
+      - occ
+      - background:cron
+    chdir: "{{ nextcloud_dir }}"
+  register: nextcloud_bgcron
+  changed_when: "'set to' in nextcloud_bgcron.stdout"
+
+- name: Set default phone region
+  # Silences the admin "no default phone region" warning and fixes local number
+  # parsing. Cosmetic but keeps the security/setup check clean.
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - exec
+      - -T
+      - --user
+      - www-data
+      - app
+      - php
+      - occ
+      - config:system:set
+      - default_phone_region
+      - --value
+      - "{{ nextcloud_default_phone_region }}"
+    chdir: "{{ nextcloud_dir }}"
+  changed_when: true
+
+- name: Configure Authentik OIDC single sign-on
+  ansible.builtin.include_tasks: oidc.yml

@@ -1,0 +1,178 @@
+---
+# Deploy Nextcloud (apache + PostgreSQL + Redis + cron) as a docker-compose
+# stack, store its user file data on valen's NFS pool, back the DB and the file
+# data up offsite to Garage S3, and route nextcloud.jardoole.xyz through the
+# co-located Traefik. Replaces the former Seafile deployment.
+#
+# What: Provisions the Nextcloud data subtree on the storage pool (valen), the
+#       offsite backup buckets/keys on Garage (beelink), then deploys the stack
+#       on the [nextcloud] host and registers the Traefik route.
+# Why:  Self-hosted file sync/share backed by the shared pool, with the same
+#       offsite restic backups the rest of the platform uses and SSO via Authentik.
+# Resolves: File sync/share on the pool with codified, restorable backups.
+#
+# Prerequisites:
+#   - Docker runtime (service-infra layer) on the [nextcloud] host.
+#   - NFS client userspace on the [nextcloud] host (storage layer / nfs.yml; the
+#     host is in [nfs_client]).
+#   - Traefik running with conf.d at /etc/traefik/conf.d (ingress layer) — the
+#     [nextcloud] host is in [ingress], so Traefik is co-located here.
+#   - Garage up on [garage] (service-infra layer) — the first play needs the
+#     `garage` CLI to provision the backup buckets/keys.
+#   - Authentik live (auth layer) for OIDC SSO, plus a manually-created Authentik
+#     provider/application — see docs/nextcloud.md.
+#
+# Vault vars required in group_vars/nextcloud/vault.yml:
+#   vault_nextcloud_pg_pass                       — Postgres password
+#   vault_nextcloud_admin_password                — initial local admin password
+#   vault_nextcloud_redis_password                — Redis AUTH password
+#   vault_nextcloud_restic_password               — encrypts BOTH restic repos;
+#       openssl rand -base64 32. Losing it makes snapshots unrecoverable.
+#   vault_nextcloud_backup_s3_access_key / _secret_key       — DB backup Garage key
+#   vault_nextcloud_data_backup_s3_access_key / _secret_key  — data backup Garage key
+#       Generate both with: scripts/garage-keygen.sh vault_nextcloud_backup_s3
+#                           scripts/garage-keygen.sh vault_nextcloud_data_backup_s3
+#   vault_nextcloud_oidc_client_secret            — must equal the secret set on
+#       the Authentik provider (docs/nextcloud.md)
+# (Mail auth reuses the cluster-wide vault_smtp_username / vault_smtp_password
+#  from group_vars/all/vault.yml — no per-service SMTP secret needed.)
+
+- name: Provision the Nextcloud data directory on the storage pool
+  # Runs on the NFS server (valen) because the directory lives on its local pool
+  # mount. Pre-created owned by the container's www-data UID/GID (33) so the
+  # all_squash subtree export below maps every client identity to that owner —
+  # see group_vars/nextcloud/main.yml (nextcloud_container_uid) for why.
+  hosts: nfs_server
+  become: true
+  vars:
+    # Single source of truth: the pool-relative subdir and the squash UID/GID
+    # live with the service in group_vars/nextcloud, pulled here via the
+    # [nextcloud] group so this play needs no edit if they change.
+    _nextcloud_host: "{{ groups['nextcloud'][0] }}"
+    _nextcloud_pool_subdir: "{{ hostvars[_nextcloud_host]['nextcloud_nfs_subdir'] }}"
+    _nextcloud_uid: "{{ hostvars[_nextcloud_host]['nextcloud_container_uid'] }}"
+    _nextcloud_gid: "{{ hostvars[_nextcloud_host]['nextcloud_container_gid'] }}"
+
+  handlers:
+    - name: Reload NFS exports
+      ansible.builtin.command: exportfs -ra
+      changed_when: true
+
+  tasks:
+    - name: Create Nextcloud data directory in the storage pool
+      # Mode 0770: Nextcloud requires its data dir not be world-readable (it warns
+      # otherwise). Owned by the container's www-data UID/GID.
+      ansible.builtin.file:
+        path: "{{ mergerfs_mount_point }}/{{ _nextcloud_pool_subdir }}"
+        state: directory
+        owner: "{{ _nextcloud_uid }}"
+        group: "{{ _nextcloud_gid }}"
+        mode: "0770"
+
+    - name: Ensure the NFS exports.d drop-in directory exists
+      ansible.builtin.file:
+        path: /etc/exports.d
+        state: directory
+        mode: "0755"
+        owner: root
+        group: root
+
+    - name: Export the Nextcloud subtree with all_squash to the www-data account
+      ansible.builtin.template:
+        src: templates/exports-nextcloud.j2
+        dest: /etc/exports.d/nextcloud.exports
+        mode: "0644"
+        owner: root
+        group: root
+      notify: Reload NFS exports
+
+- name: Provision Nextcloud backup buckets and keys on Garage
+  # Runs on the Garage host (beelink) where the `garage` CLI lives. Creates the
+  # DB and file-data backup buckets and imports the vaulted keys (bring-your-own
+  # creds, so a rebuilt Garage accepts the same keys unattended). All checks
+  # short-circuit on subsequent runs. Mirrors playbooks/authentik.yml.
+  hosts: garage
+  become: true
+  vars:
+    _nextcloud_host: "{{ groups['nextcloud'][0] }}"
+    _garage_resources:
+      - bucket: "{{ hostvars[_nextcloud_host]['nextcloud_backup_s3_bucket'] }}"
+        access_key: "{{ hostvars[_nextcloud_host]['vault_nextcloud_backup_s3_access_key'] }}"
+        secret_key: "{{ hostvars[_nextcloud_host]['vault_nextcloud_backup_s3_secret_key'] }}"
+      - bucket: "{{ hostvars[_nextcloud_host]['nextcloud_data_backup_s3_bucket'] }}"
+        access_key: "{{ hostvars[_nextcloud_host]['vault_nextcloud_data_backup_s3_access_key'] }}"
+        secret_key: "{{ hostvars[_nextcloud_host]['vault_nextcloud_data_backup_s3_secret_key'] }}"
+  tasks:
+    - name: List existing Garage buckets
+      ansible.builtin.command:
+        cmd: garage bucket list
+      register: garage_bucket_list
+      changed_when: false
+
+    - name: Create Nextcloud backup buckets
+      when: item.bucket not in garage_bucket_list.stdout
+      ansible.builtin.command:
+        cmd: garage bucket create {{ item.bucket }}
+      loop: "{{ _garage_resources }}"
+      loop_control:
+        label: "{{ item.bucket }}"
+      changed_when: true
+
+    - name: List existing Garage API keys
+      ansible.builtin.command:
+        cmd: garage key list
+      register: garage_key_list
+      changed_when: false
+
+    - name: Import the vaulted backup API keys
+      when: item.bucket not in garage_key_list.stdout
+      ansible.builtin.command:
+        cmd: >
+          garage key import --yes
+          -n {{ item.bucket }}
+          {{ item.access_key }}
+          {{ item.secret_key }}
+      loop: "{{ _garage_resources }}"
+      loop_control:
+        label: "{{ item.bucket }}"
+      no_log: true # secret key is on the command line
+      changed_when: true
+
+    - name: Read current grants on each backup bucket
+      ansible.builtin.command:
+        cmd: garage bucket info {{ item.bucket }}
+      loop: "{{ _garage_resources }}"
+      loop_control:
+        label: "{{ item.bucket }}"
+      register: garage_bucket_info
+      changed_when: false
+
+    - name: Grant key read/write access to its backup bucket
+      # Keyed on the actual grant state (not key existence) so it is idempotent
+      # and self-healing — see playbooks/authentik.yml for the full rationale.
+      when: item.item.access_key not in item.stdout
+      ansible.builtin.command:
+        cmd: >
+          garage bucket allow {{ item.item.bucket }}
+          --read --write
+          --key {{ item.item.access_key }}
+      loop: "{{ garage_bucket_info.results }}"
+      loop_control:
+        label: "{{ item.item.bucket }}"
+      changed_when: true
+
+- name: Deploy Nextcloud and register its Traefik route
+  hosts: nextcloud
+  become: true
+
+  roles:
+    - role: nextcloud
+
+  tasks:
+    - name: Deploy Traefik routing config for Nextcloud
+      ansible.builtin.template:
+        src: templates/traefik-nextcloud.yml.j2
+        dest: /etc/traefik/conf.d/nextcloud.yml
+        owner: traefik
+        group: traefik
+        mode: "0640"

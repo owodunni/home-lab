@@ -2,7 +2,7 @@
 # Applications layer
 #
 # What: Deploys end-user application services that sit on top of the full
-#       platform (ingress, Docker, storage/NFS, and identity): Seafile file
+#       platform (ingress, Docker, storage/NFS, and identity): Nextcloud file
 #       sync/share, and the media (arr) stack on valen.
 # Why:  These services depend on everything below them — Traefik for ingress,
 #       Docker for runtime, the storage pool/NFS for bulk data, and (for SSO)
@@ -16,8 +16,8 @@
 #
 # Pure orchestration: no logic here, only imports of standalone function
 # playbooks.
-- name: Deploy Seafile file sync/share
-  ansible.builtin.import_playbook: seafile.yml
+- name: Deploy Nextcloud file sync/share
+  ansible.builtin.import_playbook: nextcloud.yml
 
 # --- Media stack (on valen) -------------------------------------------------
 # Storage tree (storage layer) and GPU drivers (system layer) are already in
