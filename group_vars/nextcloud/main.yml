@@ -164,9 +164,7 @@ nextcloud_default_phone_region: "GB"
 # docs/nextcloud.md and the `authentik-app` skill. The client secret you set on
 # that provider MUST equal vault_nextcloud_oidc_client_secret here.
 # ============================================================================
-nextcloud_oidc_provider_id: "authentik"
 nextcloud_oidc_provider_name: "Authentik"
-nextcloud_oidc_client_id: "nextcloud"
 
 # Authentik publishes a per-application OIDC discovery doc at this path; the
 # `nextcloud` slug must match the application slug created in Authentik.
@@ -178,6 +176,23 @@ nextcloud_oidc_mapping_uid: "preferred_username"
 nextcloud_oidc_mapping_display_name: "name"
 nextcloud_oidc_mapping_email: "email"
 nextcloud_oidc_scope: "openid email profile"
+
+# ----------------------------------------------------------------------------
+# Group provisioning + admin
+#
+# WHAT: with group provisioning on, user_oidc syncs the user's groups from the
+#   OIDC `groups` claim into Nextcloud on every login (creating/removing
+#   membership to match), so access groups and admin rights are driven from
+#   Authentik. The claim rides Authentik's default `profile` scope, which already
+#   emits the user's group names — no custom scope mapping needed.
+# ADMIN: Nextcloud administrators are exactly the members of its built-in group
+#   whose ID is `admin`. So an Authentik group named `admin` maps straight onto
+#   it and its members become Nextcloud admins; an access group (e.g.
+#   `nextcloud-users`) is just a regular group. See docs/nextcloud.md for the
+#   Authentik group + application-binding setup. The break-glass local `admin`
+#   account logs in on the local backend, so group sync never touches it.
+nextcloud_oidc_group_provisioning: true
+nextcloud_oidc_mapping_groups: "groups"
 
 # ============================================================================
 # Database backup — pg_dump → restic → Garage S3 (offsite, beelink at the barn)
@@ -269,7 +284,7 @@ backups:
     # postgres-client sidecar used to run pg_restore against the live DB.
     pg_restore_service: pg-dump
     bucket: "{{ nextcloud_backup_s3_bucket }}"
-    schedule: "{{ nextcloud_db_backup_schedule }}"   # 0 2 * * *
+    schedule: "{{ nextcloud_db_backup_schedule }}" # 0 2 * * *
     # Dump filename inside each snapshot (restic restores it to
     # /restore/data/<dump_file>). Matches what the pg-dump sidecar writes.
     dump_file: nextcloud.dump
@@ -286,7 +301,7 @@ backups:
     compose_dir: "{{ nextcloud_dir }}"
     compose_service: data-backup
     bucket: "{{ nextcloud_data_backup_s3_bucket }}"
-    schedule: "{{ nextcloud_data_backup_schedule }}"   # 0 4 * * *
+    schedule: "{{ nextcloud_data_backup_schedule }}" # 0 4 * * *
     max_age_hours: 27
     # Path (relative to compose_dir) the restic restore copies back over. The
     # data-backup sidecar mounts the NFS data at /data/data, so snapshots carry

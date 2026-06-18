@@ -76,7 +76,7 @@ Use the `authentik-app` skill for the click-path. In summary, create an
 - **Application slug**: `nextcloud` (the discovery URL in
   `group_vars/nextcloud/main.yml` is `…/application/o/nextcloud/.well-known/…`).
 - **Client type**: Confidential.
-- **Client ID**: `nextcloud` (`nextcloud_oidc_client_id`).
+- **Client ID**: `nextcloud` (`vault_nextcloud_oidc_client_id`).
 - **Client secret**: set it to `vault_nextcloud_oidc_client_secret`.
 - **Redirect URI**: `https://nextcloud.jardoole.xyz/apps/user_oidc/code`
 - **Scopes**: `openid`, `email`, `profile`.
@@ -84,12 +84,39 @@ Use the `authentik-app` skill for the click-path. In summary, create an
 
 The role (`roles/nextcloud/tasks/oidc.yml`) installs `user_oidc` and registers the
 provider from the vaulted values, mapping `preferred_username` → Nextcloud UID,
-`name` → display name, `email` → email. Re-running the playbook upserts the
-provider (e.g. after a secret rotation).
+`name` → display name, `email` → email, with **group provisioning on**
+(`--group-provisioning=1 --mapping-groups=groups`). Re-running the playbook
+upserts the provider (e.g. after a secret rotation).
 
 > Native OIDC, **not** a Traefik forward-auth: forward-auth would block the
 > Nextcloud desktop/mobile sync and WebDAV clients (non-browser auth flows), the
 > same reason Jellyfin uses its own auth in this lab.
+
+### Groups & admin
+
+Group provisioning syncs the user's Authentik groups into Nextcloud on every
+login (the group names ride Authentik's default `profile` scope — no custom scope
+mapping needed). Create two groups in Authentik:
+
+| Authentik group | Purpose | Effect in Nextcloud |
+|---|---|---|
+| `nextcloud-users` | grants access | a regular group |
+| `admin` | grants admin | maps onto Nextcloud's **built-in `admin` group**, so members are administrators |
+
+The admin group **must be named exactly `admin`** — Nextcloud administrators are
+exactly the members of its built-in group whose ID is `admin`, and `user_oidc`
+has no separate "admin group" setting (unlike LDAP's promote-group).
+
+- **Restrict who can log in**: bind `nextcloud-users` (and `admin`) to the
+  Nextcloud **Application → Bindings** in Authentik. Users in no bound group are
+  denied at Authentik before reaching Nextcloud.
+- **Heads up**: provisioning creates *every* Authentik group the user is in as a
+  Nextcloud group (verbatim). Only one named exactly `admin` confers admin; the
+  rest are harmless regular groups. Keep users' Authentik membership tidy to
+  avoid clutter.
+- The **break-glass local `admin` account** logs in on the local backend, so group
+  sync never removes its admin rights — your recovery path is safe even if SSO
+  group config is wrong.
 
 ## Backups
 
