@@ -12,9 +12,19 @@
 # ============================================================================
 # Image — pinned upstream tag (matches the master/K8s deploy)
 # ============================================================================
-# Jellyseerr (fallenbagel — NOT a LinuxServer.io image, so no PUID/PGID; it
-# manages /app/config itself). Tags: https://github.com/fallenbagel/jellyseerr/releases
-jellyseerr_image: "fallenbagel/jellyseerr:2.7.3"
+# Seerr (the merged jellyseerr+overseerr successor). We keep the "jellyseerr"
+# name/vars/group for continuity — only the image moved. NOT a LinuxServer.io
+# image, so no PUID/PGID: the container is hardcoded to run as the `node` user
+# (UID/GID 1000) and writes /app/config as that user, so the host config dir must
+# be owned by 1000:1000 (see jellyseerr_config_uid/gid below and tasks/main.yml).
+# Tags: https://github.com/seerr-team/seerr/releases
+jellyseerr_image: "ghcr.io/seerr-team/seerr:v3.3.0"
+
+# Host-side ownership of the config bind. The seerr container runs as `node`
+# (UID/GID 1000, not overridable via PUID/PGID), so /app/config must be writable
+# by that uid or it fails at startup with EACCES on mkdir /app/config/logs.
+jellyseerr_config_uid: 1000
+jellyseerr_config_gid: 1000
 
 # ============================================================================
 # Placement and routing

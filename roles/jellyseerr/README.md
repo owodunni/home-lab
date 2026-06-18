@@ -11,14 +11,15 @@ Two containers in one stack (`/opt/jellyseerr`):
 
 | Container | Image | Role |
 |-----------|-------|------|
-| `jellyseerr` | `fallenbagel/jellyseerr` | Request/discovery UI. HTTP on `127.0.0.1:5055`. |
+| `jellyseerr` | `ghcr.io/seerr-team/seerr` | Request/discovery UI (seerr, the merged jellyseerr+overseerr — kept under the `jellyseerr` name). HTTP on `127.0.0.1:5055`. |
 | `config-backup` | `ghcr.io/lobaro/restic-backup-docker` | Restic snapshot of `/config` → Garage S3 (offsite, beelink). |
 
 - WebUI: `https://jellyseerr.jardoole.xyz` via Traefik. **No forward-auth** — see
   the auth note below.
-- Config: `/opt/jellyseerr/config` (local bind → `/app/config`). Jellyseerr is not
-  a LinuxServer.io image: it takes **no PUID/PGID** and manages config ownership
-  itself.
+- Config: `/opt/jellyseerr/config` (local bind → `/app/config`). seerr is not a
+  LinuxServer.io image: it takes **no PUID/PGID** and is hardcoded to run as the
+  `node` user (**UID/GID 1000**), so the host config dir is owned `1000:1000`
+  (root ownership makes it fail at startup with `EACCES … mkdir /app/config/logs/`).
 - No media mount — it only talks to the Jellyfin/Radarr/Sonarr APIs over the LAN.
 
 ## Auth model (read this)

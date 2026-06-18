@@ -9,15 +9,18 @@
     mode: "0750"
 
 - name: Create Jellyseerr config directory
-  # Jellyseerr's /app/config (settings DB). Unlike the LinuxServer.io apps,
-  # Jellyseerr takes no PUID/PGID and manages ownership itself (the container
-  # writes here as its own user), so the host dir is plain root-owned.
+  # Seerr's /app/config (settings DB). The container is hardcoded to run as the
+  # `node` user (UID/GID 1000) — no PUID/PGID override — and writes here as that
+  # user, so the host dir must be owned by 1000:1000. Root ownership (as the old
+  # fallenbagel image tolerated) makes seerr fail at startup with
+  # "EACCES: permission denied, mkdir '/app/config/logs/'".
   ansible.builtin.file:
     path: "{{ jellyseerr_config_dir }}"
     state: directory
-    owner: root
-    group: root
+    owner: "{{ jellyseerr_config_uid }}"
+    group: "{{ jellyseerr_config_gid }}"
     mode: "0750"
+    recurse: true
 
 - name: Template docker-compose.yml
   ansible.builtin.template:
