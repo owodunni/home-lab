@@ -11,14 +11,18 @@
     mode: "0750"
 
 - name: Create the NFS data mountpoint
-  # Bind-mounted into the app/cron containers at /var/www/html/data. Pre-created
-  # empty so the NFS mount has a target; ownership/contents come from the pool.
+  # Bind-mounted into the app/cron containers at /var/www/html/data. Only ensure
+  # the directory exists as a mount target — deliberately do NOT manage
+  # owner/group/mode here. Once the NFS mount below is in place this path IS the
+  # all_squash export (owned by www-data/33, set by the nfs_server play), and a
+  # squashed root cannot chown it back to root — re-running would fail with
+  # "Operation not permitted". mode matches the pool dir (0770, set by the
+  # nfs_server play) so it is a no-op on the mounted export (the owner, 33, may
+  # chmod it); owner/group are intentionally unset so `file` never tries to chown.
   ansible.builtin.file:
     path: "{{ nextcloud_data_dir }}"
     state: directory
-    owner: root
-    group: root
-    mode: "0750"
+    mode: "0770"
 
 - name: Mount the Nextcloud data subtree from valen's pool over NFSv3
   # Host NFS mount (not a Docker NFS volume) so the generic restic restore copies
@@ -33,6 +37,16 @@
     opts: "nfsvers={{ nextcloud_nfs_version }},rw,_netdev,noatime"
     state: mounted
     boot: true
+
+- name: Template Apache ServerName drop-in
+  # Bind-mounted into the app container's conf-enabled so Apache stops warning it
+  # cannot determine its FQDN (AH00558). Cosmetic only — see the template.
+  ansible.builtin.template:
+    src: apache-servername.conf.j2
+    dest: "{{ nextcloud_dir }}/apache-servername.conf"
+    owner: root
+    group: root
+    mode: "0644"
 
 - name: Template docker-compose.yml
   ansible.builtin.template:
@@ -59,10 +73,14 @@
     pull: always
     remove_orphans: true
 
-- name: Wait for Nextcloud to finish installing/upgrading
-  # The image's entrypoint runs the install (first boot) or `occ upgrade` (after
-  # an image bump) before the app is usable. Poll occ status until it reports
-  # installed so the SSO/config steps below run against a ready instance.
+- name: Wait for occ to become responsive
+  # The entrypoint copies the Nextcloud code into the html volume before the app
+  # is usable; poll until occ runs and returns parseable status. We do NOT rely on
+  # the image's auto-install here — it only fires on a pristine volume (no
+  # version.php), so a failed first run that already copied the code would leave
+  # the instance stuck at installed=false forever. Installation is driven
+  # explicitly below instead (the admin env vars are intentionally not passed to
+  # the container, so the entrypoint never tries to auto-install).
   ansible.builtin.command:
     argv:
       - docker
@@ -79,14 +97,41 @@
     chdir: "{{ nextcloud_dir }}"
   register: nextcloud_status
   changed_when: false
-  # `until` retries through the early window when the entrypoint is still copying
-  # code / installing (occ may be missing or error → rc != 0). `and` short-
-  # circuits, so from_json only runs once occ returned 0 with JSON — no templating
-  # error on empty output. If install never completes in retries×delay, the task
-  # fails loudly rather than running the occ steps below against a half-built app.
-  until: nextcloud_status.rc == 0 and ((nextcloud_status.stdout | from_json).installed | default(false))
+  # `and` short-circuits, so from_json only runs once occ returned 0 with JSON.
+  # `installed` may be true or false — we just need occ to be answering.
+  until: nextcloud_status.rc == 0 and ((nextcloud_status.stdout | from_json).installed is defined)
   retries: 30
   delay: 10
+
+- name: Install Nextcloud if not already installed
+  # Explicit, idempotent install: runs only when occ reports installed=false.
+  # maintenance:install refuses to run on an already-installed instance, so the
+  # guard keeps re-runs safe. Deterministic (no race with the image's async
+  # auto-install, which we disabled) and self-healing for a stranded first run.
+  when: not ((nextcloud_status.stdout | from_json).installed)
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - exec
+      - -T
+      - --user
+      - www-data
+      - app
+      - php
+      - occ
+      - maintenance:install
+      - "--database=pgsql"
+      - "--database-host={{ nextcloud_db_host }}"
+      - "--database-name={{ nextcloud_db_name }}"
+      - "--database-user={{ nextcloud_db_user }}"
+      - "--database-pass={{ vault_nextcloud_pg_pass }}"
+      - "--admin-user={{ nextcloud_admin_user }}"
+      - "--admin-pass={{ vault_nextcloud_admin_password }}"
+      - "--data-dir=/var/www/html/data"
+    chdir: "{{ nextcloud_dir }}"
+  no_log: true # DB + admin passwords on the command line
+  changed_when: true
 
 - name: Set Nextcloud background jobs to cron
   # Uses the `cron` sidecar (runs cron.php every 5 min) instead of AJAX, which is

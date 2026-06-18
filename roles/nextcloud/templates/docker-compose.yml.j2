@@ -61,6 +61,8 @@ services:
       # the html volume at the default data path; Docker mounts the deeper path
       # last so this bind wins for /var/www/html/data.
       - {{ nextcloud_data_dir }}:/var/www/html/data
+      # Global ServerName drop-in to silence Apache's AH00558 FQDN notice.
+      - {{ nextcloud_dir }}/apache-servername.conf:/etc/apache2/conf-enabled/servername.conf:ro
     environment:
       POSTGRES_HOST: ${POSTGRES_HOST}
       POSTGRES_DB: ${POSTGRES_DB}
@@ -69,8 +71,9 @@ services:
       REDIS_HOST: ${REDIS_HOST}
       REDIS_HOST_PORT: ${REDIS_HOST_PORT}
       REDIS_HOST_PASSWORD: ${REDIS_HOST_PASSWORD}
-      NEXTCLOUD_ADMIN_USER: ${NEXTCLOUD_ADMIN_USER}
-      NEXTCLOUD_ADMIN_PASSWORD: ${NEXTCLOUD_ADMIN_PASSWORD}
+      # NEXTCLOUD_ADMIN_USER/PASSWORD intentionally omitted — install is run
+      # explicitly by the role (occ maintenance:install), not the entrypoint's
+      # pristine-volume-only auto-install. See roles/nextcloud/templates/env.j2.
       NEXTCLOUD_TRUSTED_DOMAINS: ${NEXTCLOUD_TRUSTED_DOMAINS}
       NEXTCLOUD_DATA_DIR: ${NEXTCLOUD_DATA_DIR}
       # Reverse-proxy: trust only loopback (Traefik on this host) and build https

@@ -1,0 +1,7 @@
+# Managed by Ansible — do not edit manually.
+# Sets Apache's global ServerName so it stops emitting the startup notice
+# "AH00558: Could not reliably determine the server's fully qualified domain
+# name, using <container IP>". Purely cosmetic: Nextcloud generates its public
+# URLs from the OVERWRITE* settings (.env), not from this — but pinning the name
+# silences the warning and gives Apache a stable canonical name.
+ServerName {{ nextcloud_hostname }}
