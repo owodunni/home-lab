@@ -21,6 +21,11 @@ services:
       options:
         max-size: "{{ jellyseerr_log_max_size }}"
         max-file: "{{ jellyseerr_log_max_file }}"
+    networks:
+      # Shared media network so Prowlarr reaches Radarr/Sonarr (Apps sync) by
+      # container name — off the public forward-auth'd URL. See group_vars/media
+      # → media_docker_*.
+      - media
 
   # Offsite backup of Jellyseerr's config — the Jellyfin/Radarr/Sonarr connections,
   # the user accounts/permissions, request history and OIDC settings, all configured
@@ -47,3 +52,12 @@ services:
       - {{ jellyseerr_config_dir }}:/data/config:ro
     env_file:
       - .env
+    networks:
+      # Same media network (it has normal internet egress) so this stack creates
+      # no extra default bridge; the sidecar reaches Garage S3 over it.
+      - media
+
+networks:
+  media:
+    name: "{{ media_docker_network }}"
+    external: true
