@@ -27,10 +27,11 @@ services:
       # → media_docker_*.
       - media
 
-  # Offsite backup of Jellyseerr's config — the Jellyfin/Radarr/Sonarr connections,
+  # Backup of Jellyseerr's config — the Jellyfin/Radarr/Sonarr connections,
   # the user accounts/permissions, request history and OIDC settings, all configured
-  # by hand. A restic snapshot of it on a schedule → Garage S3 on beelink (offsite,
-  # over WireGuard), so that wiring is captured ONCE and survives a host/disk loss
+  # by hand. A restic snapshot of it on a schedule → Garage S3 on valen (local;
+  # the backup layer mirrors it offsite to beelink), so that wiring is captured
+  # ONCE and survives a host/disk loss
   # (restore-any-snapshot via the generic tooling: make verify-backups /
   # restore-backups SERVICE=jellyseerr). Read-only mount — restic only ever reads.
   config-backup:

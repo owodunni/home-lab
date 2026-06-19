@@ -31,7 +31,7 @@
 #     32). Losing it makes existing config snapshots unrecoverable.
 
 - name: Provision the Radarr config-backup bucket and key on Garage
-  # Runs on the Garage host (beelink) because the `garage` CLI lives there. Kept in
+  # Runs on the Garage host (valen) because the `garage` CLI lives there. Kept in
   # this service playbook (not the garage layer) so backup provisioning travels
   # with the Radarr service. Garage is already up (service-infra precedes
   # applications). Every check short-circuits on re-runs.

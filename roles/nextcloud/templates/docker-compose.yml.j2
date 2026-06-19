@@ -8,7 +8,7 @@
 #   - The HTML/app tree and the Postgres data are local Docker named volumes.
 #   - No web/proxy container: Traefik (co-located on this host) terminates TLS and
 #     the app's port 80 is published on 127.0.0.1 only.
-#   - pg-dump + db-backup + data-backup restic sidecars add offsite Garage backups.
+#   - pg-dump + db-backup + data-backup restic sidecars add local Garage backups on valen (mirrored offsite).
 # Non-secret values come from group_vars/nextcloud/main.yml (Jinja); runtime env
 # and secrets come from .env (templated from vault).
 
@@ -166,7 +166,7 @@ services:
     networks:
       - nextcloud-net
 
-  # DB backup, half 2 of 2: restic snapshot of the dump → offsite Garage S3.
+  # DB backup, half 2 of 2: restic snapshot of the dump → Garage S3 on valen (local; mirrored offsite).
   # Repo lives under the restic/ subpath of the nextcloud-backup bucket. The dump
   # mount is read-only — restic only ever reads it.
   db-backup:
@@ -187,7 +187,7 @@ services:
     depends_on:
       - pg-dump
 
-  # File-data backup: restic snapshot of the NFS data mount → offsite Garage S3.
+  # File-data backup: restic snapshot of the NFS data mount → Garage S3 on valen (local; mirrored offsite).
   # Mounted at /data/data so snapshots carry /data/data/… and the generic restore
   # copy-back (restore_paths: [data]) lands at the host data dir in place. The
   # mount is read-only — restic only reads. RESTIC_CACHE_DIR points at a local

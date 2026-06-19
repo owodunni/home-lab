@@ -39,7 +39,7 @@ prowlarr_log_max_size: "20m"
 prowlarr_log_max_file: "3"
 
 # ============================================================================
-# Config backup — restic snapshot of /config → Garage S3 (offsite, beelink)
+# Config backup — restic snapshot of /config → Garage S3 on valen (local), mirrored offsite to beelink
 # ============================================================================
 # WHAT: a lobaro/restic-backup-docker sidecar snapshots Prowlarr's /config dir on
 #   a schedule to a dedicated Garage S3 bucket. /config holds the indexer set,
@@ -62,7 +62,7 @@ prowlarr_log_max_file: "3"
 # Releases: https://github.com/lobaro/restic-backup-docker/releases
 prowlarr_backup_image_version: "v1.4.2"
 
-# Garage exposes its S3 API at s3.jardoole.xyz via Traefik on beelink; region
+# Garage exposes its S3 API at s3.jardoole.xyz via Traefik on valen; region
 # label must match garage_s3_region in group_vars/ingress/main.yml.
 prowlarr_backup_s3_endpoint: "https://s3.jardoole.xyz"
 prowlarr_backup_s3_region: "garage"

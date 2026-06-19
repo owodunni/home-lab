@@ -27,9 +27,10 @@ the entire site.
 | **networking** | WireGuard peers tunneling offsite hosts into the home LAN. Skips hosts until their UniFi peer values are filled in. | `wireguard.yml` | `wireguard` |
 | **storage** | Encrypted drives, MergerFS pool, SnapRAID parity, the media data tree, NFS export of the pool, HDD spin-down. Exports on `[storage]`; NFS client step on `[nfs_client]` (the Docker fleet). | `disk-encrypt.yml`, `snapraid-mergerfs.yml`, `media-storage.yml`, `nfs.yml`, `disk-spindown.yml` | `storage` / `media` / `nfs_server` / `nfs_client` |
 | **ingress** | Traefik reverse proxy with ACME wildcard certificates via Cloudflare DNS-01. | `traefik.yml` | `ingress` |
-| **service-infra** | Docker runtime + Garage S3 object storage — a shared backend other services consume (e.g. Authentik DB backups). | `docker.yml`, `garage.yml` | `services` / `garage` |
+| **service-infra** | Docker runtime + Garage S3 object storage — a shared backend other services consume (e.g. Authentik DB backups). Garage runs on valen, so services back up to a *local* S3 target; the offsite copy is the `backup` layer's job. | `docker.yml`, `garage.yml` | `services` / `garage` |
 | **auth** | Authentik SSO/OIDC identity provider. Backs up to Garage. | `authentik.yml` | `authentik` |
 | **applications** | End-user services on the full platform. Nextcloud, Vaultwarden, and the media (arr) stack — see [Application notes](#application-notes) below. | `nextcloud.yml`, `vaultwarden.yml`, `media-network.yml`, `media-forward-auth.yml`, `qbittorrent.yml`, `prowlarr.yml`, `radarr.yml`, `sonarr.yml`, `unpackerr.yml`, `jellyfin.yml`, `jellyseerr.yml` | `nextcloud` / `vaultwarden` / `media` / `qbittorrent` / `prowlarr` / `radarr` / `sonarr` / `unpackerr` / `jellyfin` / `jellyseerr` |
+| **backup** | Offsite copy of every service backup: beelink pulls each Garage bucket from valen into local restic repos with a read-only key. The decoupled "something else" that makes the offsite copy — apps only write locally to valen. See the Backups section below. | `backup-mirror.yml` | `garage` / `backup_mirror` |
 | **monitoring** | node_exporter everywhere, smartctl_exporter on `[storage]`, Prometheus + Alertmanager + Grafana on `[monitoring]`. Alert rules for host/drive faults route to email; Grafana at `grafana.jardoole.xyz`. | `node-exporter.yml`, `smartctl-exporter.yml`, `prometheus.yml`, `grafana.yml` | `all` / `storage` / `monitoring` |
 | **security** | Hardening: automatic security updates (firewall, SSH hardening to come). | `unattended-upgrades.yml` | `all` |
 
@@ -40,8 +41,10 @@ operator out). Concretely: `system` (patched OS + hardware first) → `networkin
 package/drive operations) → `ingress` (Traefik up before any routing config) →
 `service-infra` (Docker runs the app containers; Garage is the backend `auth`
 backs up to) → `auth` (live before any service configures OIDC) → `applications`
-(depend on every layer below — ingress, Docker, NFS, SSO) → `monitoring` (scrapes
-the services `applications` deploys) → `security`.
+(depend on every layer below — ingress, Docker, NFS, SSO) → `backup` (mirrors the
+backup buckets the apps create offsite, so it must run after them) → `monitoring`
+(scrapes the services `applications` deploys, and the `backup` layer's freshness
+metric) → `security`.
 
 This is also why the media stack's GPU drivers and data tree live in `system` and
 `storage` rather than alongside the media apps: they are host hardware and storage
@@ -51,12 +54,14 @@ state, consumed by the apps above.
 
 - **Nextcloud** — compute on a Pi, bulk file data on valen's pool over an NFS host
   mount, behind a co-located Traefik. Postgres DB and NFS file data both backed up
-  offsite to Garage (pg_dump→restic and restic). Uses native Authentik OIDC —
-  forward-auth would break the sync/WebDAV clients.
+  to local Garage on valen (pg_dump→restic and restic), then mirrored offsite to
+  beelink by the `backup` layer. Uses native Authentik OIDC — forward-auth would
+  break the sync/WebDAV clients.
 - **Vaultwarden** — password manager co-located with Nextcloud on the same Pi
   (Postgres backend + data dir all local), behind the co-located Traefik. Postgres
-  DB and data dir both backed up offsite to Garage (pg_dump→restic and restic).
-  Uses native Authentik OIDC SSO — forward-auth would break the Bitwarden clients.
+  DB and data dir both backed up to local Garage on valen (pg_dump→restic and
+  restic), then mirrored offsite to beelink by the `backup` layer. Uses native
+  Authentik OIDC SSO — forward-auth would break the Bitwarden clients.
 - **Media (arr) stack** — on valen (compute + storage + Intel iGPU transcoding
   co-located, local bind mounts). Foundations first (`media-network.yml` cross-stack
   Docker network, then `media-forward-auth.yml` SSO middleware), then services in
@@ -124,7 +129,21 @@ that group). Never use infrastructure groups as service targets.
   runs `playbooks/qbittorrent.yml`). For any other one-off function playbook,
   invoke it directly: `uv run ansible-playbook playbooks/<function>.yml`.
 
-## Backups: verify & restore
+## Backups: 3-2-1, verify & restore
+
+**Topology (3-2-1).** Every service backs up to **local** Garage S3 on valen
+(`s3.jardoole.xyz` → valen) — that is the live data + a local backup copy. The
+`backup` layer then makes the **offsite** copy: beelink (`[backup_mirror]`, at the
+barn) pulls each bucket with `rclone` and a **read-only** key into plain restic
+repos on its pool. The pull direction + read-only key is the security model — a
+compromised valen can't reach beelink, a compromised beelink can't alter valen's
+copy, and beelink never holds the restic password so it can't read plaintext.
+Apps write to exactly one place (valen); the mirror is the decoupled "something
+else" that copies offsite. A mirrored bucket is a byte-identical restic repo, so
+**restore works from either side**: valen via the tooling below, or beelink via
+`restic -r {{ mergerfs_mount_point }}/restic-offsite/<bucket>` + the service's
+restic password. Media *library* files are not backed up (re-acquirable); only
+service *config/data* is.
 
 Two generic, manifest-driven playbooks back up **any** service — no
 service-specific backup playbooks. Every backup is a **restic** snapshot (a

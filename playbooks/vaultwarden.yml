@@ -3,7 +3,7 @@
 # backend, back the DB and the data dir up offsite to Garage S3, and route
 # vaultwarden.jardoole.xyz through the co-located Traefik.
 #
-# What: Provisions the offsite backup buckets/keys on Garage (beelink), then
+# What: Provisions the offsite backup buckets/keys on Garage (valen), then
 #       deploys the stack on the [vaultwarden] host and registers the Traefik route.
 # Why:  Self-hosted, Bitwarden-compatible password manager with native Authentik
 #       SSO and the same offsite restic backups the rest of the platform uses.
@@ -32,7 +32,7 @@
 #  from group_vars/all/vault.yml — no per-service SMTP secret needed.)
 
 - name: Provision Vaultwarden backup buckets and keys on Garage
-  # Runs on the Garage host (beelink) where the `garage` CLI lives. Creates the
+  # Runs on the Garage host (valen) where the `garage` CLI lives. Creates the
   # DB and data backup buckets and imports the vaulted keys (bring-your-own
   # creds, so a rebuilt Garage accepts the same keys unattended). All checks
   # short-circuit on subsequent runs. Mirrors playbooks/nextcloud.yml.

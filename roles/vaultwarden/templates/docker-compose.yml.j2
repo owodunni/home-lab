@@ -9,7 +9,7 @@
 #     (see group_vars/vaultwarden/main.yml).
 #   - No web/proxy container: Traefik (co-located on this host) terminates TLS and
 #     the app's port 80 is published on 127.0.0.1 only.
-#   - pg-dump + db-backup + data-backup restic sidecars add offsite Garage backups.
+#   - pg-dump + db-backup + data-backup restic sidecars add local Garage backups on valen (mirrored offsite).
 # Non-secret values come from group_vars/vaultwarden/main.yml (Jinja); runtime
 # secrets come from .env (templated from vault).
 
@@ -113,7 +113,7 @@ services:
     networks:
       - vaultwarden-net
 
-  # DB backup, half 2 of 2: restic snapshot of the dump → offsite Garage S3.
+  # DB backup, half 2 of 2: restic snapshot of the dump → Garage S3 on valen (local; mirrored offsite).
   # Repo lives under the restic/ subpath of the vaultwarden-backup bucket. The
   # dump mount is read-only — restic only ever reads it.
   db-backup:
@@ -134,8 +134,9 @@ services:
     depends_on:
       - pg-dump
 
-  # Data-dir backup: restic snapshot of the Vaultwarden data dir → offsite Garage
-  # S3. Mounted at /data/data so snapshots carry /data/data/… and the generic
+  # Data-dir backup: restic snapshot of the Vaultwarden data dir → Garage S3 on
+  # valen (local; mirrored offsite). Mounted at /data/data so snapshots carry
+  # /data/data/… and the generic
   # restore copy-back (restore_paths: [data]) lands at the host data dir in place.
   # The mount is read-only — restic only reads. RESTIC_CACHE_DIR points at a local
   # named volume so the metadata cache is bounded and reused, never re-downloaded

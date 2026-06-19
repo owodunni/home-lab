@@ -122,7 +122,7 @@ vaultwarden_sso_scopes: "openid profile email offline_access"
 vaultwarden_signups_allowed: false
 
 # ============================================================================
-# Database backup — pg_dump → restic → Garage S3 (offsite, beelink at the barn)
+# Database backup — pg_dump → restic → Garage S3 (local on valen, mirrored offsite to beelink at the barn)
 #
 # Identical engine and rationale to Authentik/Nextcloud: a postgres pg-dump
 # sidecar writes a logical dump to a shared volume on a schedule; a lobaro restic
@@ -149,7 +149,7 @@ vaultwarden_db_backup_retention_args: "--keep-daily 7 --keep-weekly 4 --keep-mon
 vaultwarden_backup_s3_region: "garage"
 vaultwarden_backup_s3_bucket: "vaultwarden-backup"
 
-# Garage exposes its S3 API at s3.jardoole.xyz via Traefik on beelink (path-style).
+# Garage exposes its S3 API at s3.jardoole.xyz via Traefik on valen (path-style).
 vaultwarden_backup_s3_endpoint: "https://s3.jardoole.xyz"
 
 # ============================================================================

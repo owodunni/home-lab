@@ -75,7 +75,7 @@ qbittorrent_log_max_size: "20m"
 qbittorrent_log_max_file: "3"
 
 # ============================================================================
-# Config backup — restic snapshot of /config → Garage S3 (offsite, beelink)
+# Config backup — restic snapshot of /config → Garage S3 on valen (local), mirrored offsite to beelink
 # ============================================================================
 # WHAT: a lobaro/restic-backup-docker sidecar snapshots qBittorrent's /config dir
 #   on a schedule to a Garage S3 bucket. /config is the settings DB holding every
@@ -101,7 +101,7 @@ qbittorrent_log_max_file: "3"
 # Releases: https://github.com/lobaro/restic-backup-docker/releases
 qbittorrent_backup_image_version: "v1.4.2"
 
-# Garage exposes its S3 API at s3.jardoole.xyz via Traefik on beelink; region
+# Garage exposes its S3 API at s3.jardoole.xyz via Traefik on valen; region
 # label must match garage_s3_region in group_vars/ingress/main.yml. valen reaches
 # this the same way Authentik on pi-cm5-1 does (both on the home LAN).
 qbittorrent_backup_s3_endpoint: "https://s3.jardoole.xyz"

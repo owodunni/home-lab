@@ -67,7 +67,7 @@ authentik_db_backup_retention_args: "--keep-daily 7 --keep-weekly 4 --keep-month
 authentik_backup_s3_region: "garage"
 authentik_backup_s3_bucket: "authentik-backup"
 
-# Garage exposes its S3 API at s3.jardoole.xyz via Traefik on beelink.
+# Garage exposes its S3 API at s3.jardoole.xyz via Traefik on valen.
 # Path-style requests (aws cli default for custom endpoints) are supported.
 authentik_backup_s3_endpoint: "https://s3.jardoole.xyz"
 

@@ -29,7 +29,7 @@
 #     truth, fully unattended.
 
 - name: Provision Authentik backup buckets and keys on Garage
-  # Runs on the Garage host (beelink) because the `garage` CLI lives there, and
+  # Runs on the Garage host (valen) because the `garage` CLI lives there, and
   # in the auth layer (not the service-infra/garage layer) so backup
   # provisioning and consumption travel with the Authentik service. Garage is
   # already up by now (service-infra layer precedes auth). All checks

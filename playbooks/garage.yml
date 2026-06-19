@@ -7,13 +7,15 @@
 # Why:  MinIO moved to BUSL (non-OSS). Garage is a lightweight, self-hostable
 #       S3-compatible alternative well-suited to single-node setups backed by
 #       SnapRAID/MergerFS.
-# Resolves: An S3-compatible object store on beelink with HTTPS termination via
-#           the ingress layer.
+# Resolves: An S3-compatible object store on valen (local to the data and on the
+#           home LAN, so services back up locally instead of over WireGuard) with
+#           HTTPS termination via the ingress layer. The offsite copy is made by
+#           the backup layer — beelink pulls these buckets. See CLAUDE.md.
 #
 # Prerequisites:
 #   - Traefik (ingress layer) must already be running
 #   - MergerFS pool at {{ mergerfs_mount_point }} must be mounted (storage layer)
-#   - vault_garage_rpc_secret and vault_garage_admin_token in host_vars/beelink/vault.yml
+#   - vault_garage_rpc_secret and vault_garage_admin_token in host_vars/valen/vault.yml
 #
 # Idempotency: `garage status` is retried until Garage is up. The layout
 #              assign/apply block is keyed off `garage layout show` reporting

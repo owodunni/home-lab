@@ -5,7 +5,7 @@
 # co-located Traefik. Replaces the former Seafile deployment.
 #
 # What: Provisions the Nextcloud data subtree on the storage pool (valen), the
-#       offsite backup buckets/keys on Garage (beelink), then deploys the stack
+#       offsite backup buckets/keys on Garage (valen), then deploys the stack
 #       on the [nextcloud] host and registers the Traefik route.
 # Why:  Self-hosted file sync/share backed by the shared pool, with the same
 #       offsite restic backups the rest of the platform uses and SSO via Authentik.
@@ -87,7 +87,7 @@
       notify: Reload NFS exports
 
 - name: Provision Nextcloud backup buckets and keys on Garage
-  # Runs on the Garage host (beelink) where the `garage` CLI lives. Creates the
+  # Runs on the Garage host (valen) where the `garage` CLI lives. Creates the
   # DB and file-data backup buckets and imports the vaulted keys (bring-your-own
   # creds, so a rebuilt Garage accepts the same keys unattended). All checks
   # short-circuit on subsequent runs. Mirrors playbooks/authentik.yml.

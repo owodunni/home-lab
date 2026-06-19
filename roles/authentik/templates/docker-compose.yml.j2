@@ -99,7 +99,7 @@ services:
       postgresql:
         condition: service_healthy
 
-  # DB backup, half 2 of 2: restic snapshot of the dump → offsite Garage S3
+  # DB backup, half 2 of 2: restic snapshot of the dump → Garage S3 on valen (local; mirrored offsite)
   # (beelink at the barn, over WireGuard). Repo lives under the restic/ subpath
   # of the authentik-backup bucket; reuses the bucket's existing S3 key. The
   # mount is read-only — restic only ever reads the dump.
@@ -123,7 +123,7 @@ services:
       - pg-dump
 
   # Periodic restic backup of file-based volumes (media, certs,
-  # custom-templates) → offsite Garage S3, alongside the db-backup snapshot above.
+  # custom-templates) → Garage S3 on valen (local; mirrored offsite), alongside the db-backup snapshot above.
   # Mounts are read-only: restic only ever reads the live data.
   # Restore procedure: docs/restore_volumes.md
   volumes-backup:
