@@ -76,7 +76,13 @@ Provider** + **Application**:
   alphanumeric — it rides a docker-compose `${...}` reference).
 - **Redirect URI**: `https://vaultwarden.jardoole.xyz/identity/connect/oidc-signin`
 - **Scopes**: `openid`, `email`, `profile`, **`offline_access`** (the last is
-  required so Vaultwarden gets refresh tokens).
+  required so Vaultwarden gets refresh tokens). **Add `offline_access` to the
+  provider's *Selected Scopes*** under **Advanced protocol settings**, not just
+  to what Vaultwarden requests — see the refresh-token note below.
+- **Access Token validity**: raise it above the 5-minute default (e.g.
+  `hours=1`) under **Advanced protocol settings**. Vaultwarden warns
+  `Raise access_token lifetime to more than 5min` otherwise and refreshes far
+  more often than necessary.
 - **Signing key**: the Authentik default (RS256); **encryption key empty**.
 - **Application → Bindings**: bind an access group (e.g. `vaultwarden-users`) so
   only those users can authenticate. Users in no bound group are denied at
@@ -118,6 +124,33 @@ account-takeover vector. Fixing the claim at Authentik is the correct layer.
 > `request.user.attributes.get("email_verified", False)` and manage an
 > `email_verified` user attribute (manually, or via an expression policy after an
 > email-verification stage). More moving parts; unnecessary for this lab.
+
+### No refresh token / "Raise access_token lifetime" (login then immediate 400)
+
+**Symptom**: SSO login succeeds, but the Vaultwarden log shows
+`Scope offline_access is present but response contain no refresh_token`, followed
+by `Unable to refresh login credentials: ... we have no refresh token` and a
+`POST /identity/connect/token => 400`. The session breaks within ~5 minutes.
+
+**Root cause**: Since **authentik 2024.2**, requesting the `offline_access` scope
+is necessary but **not sufficient** — the Authentik OAuth2 *provider* must also
+**include the `offline_access` scope mapping in its Selected Scopes**, or no
+refresh token is ever issued. Vaultwarden requests it (set in
+`vaultwarden_sso_scopes`), but if the provider doesn't grant it, the token
+response carries only a short-lived access token.
+
+**Fix** (Authentik UI → the Vaultwarden **provider** → **Advanced protocol
+settings**):
+
+1. **Selected Scopes** — add **`offline_access`** alongside
+   `authentik default OAuth Mapping: OpenID 'openid'/'email'/'profile'`.
+2. **Access Token validity** — raise above the 5-minute default (e.g. `hours=1`)
+   to silence the `Raise access_token lifetime to more than 5min` warning and cut
+   refresh churn.
+
+> `refresh_token` and `authorization_code` are **grant types, not scopes** — do
+> not add them to `vaultwarden_sso_scopes`. They have no effect there; the fix is
+> the provider's Selected Scopes above.
 
 ### Enrolling the first user
 

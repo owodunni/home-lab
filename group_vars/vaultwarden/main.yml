@@ -104,6 +104,13 @@ vaultwarden_sso_client_id: "vaultwarden"
 # Requested scopes. offline_access is REQUIRED for refresh tokens (so Vaultwarden
 # can keep the session alive); openid/profile/email carry identity + the groups
 # claim. Matches Authentik's recommended Vaultwarden scope set.
+#
+# NOTE: requesting offline_access here is necessary but NOT sufficient — since
+# authentik 2024.2 the Authentik OAuth2 *provider* must also include the
+# offline_access scope mapping in its Selected Scopes, or no refresh token is
+# issued (Vaultwarden then logs "Scope offline_access is present but response
+# contain no refresh_token"). See docs/vaultwarden.md. Only valid OIDC scopes
+# belong here: refresh_token/authorization_code are grant types, not scopes.
 vaultwarden_sso_scopes: "openid profile email offline_access"
 
 # Account creation policy. false = no self-service signups; access is gated by
