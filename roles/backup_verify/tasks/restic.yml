@@ -55,3 +55,34 @@
     fail_msg: >-
       {{ backup.name }}: newest snapshot is {{ _age_h }}h old, exceeds
       {{ backup.max_age_hours }}h — backup is STALE.
+
+# Freshness only proves a snapshot is recent, not that the repo is intact.
+# `restic check` verifies the repository structure — that every snapshot's
+# pack/index references resolve — so a corrupt or partially-uploaded repo fails
+# verification instead of surfacing only when a real restore is attempted.
+# (Structure check; no --read-data, which re-downloads every pack. Run
+# `restic check --read-data-subset=N%` by hand for periodic deep verification.)
+- name: "Run restic check (repo integrity) for {{ backup.name }}"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - exec
+      - -T
+      - "{{ backup.compose_service }}"
+      - restic
+      - check
+    chdir: "{{ backup.compose_dir }}"
+  register: backup_verify_restic_check
+  changed_when: false
+  failed_when: false
+
+- name: "Assert restic check passed for {{ backup.name }}"
+  ansible.builtin.assert:
+    that:
+      - backup_verify_restic_check.rc == 0
+    success_msg: "{{ backup.name }}: restic check passed — repo integrity OK."
+    fail_msg: >-
+      {{ backup.name }}: restic check FAILED (rc={{ backup_verify_restic_check.rc }})
+      — the repo may be corrupt. Output:
+      {{ backup_verify_restic_check.stdout }} {{ backup_verify_restic_check.stderr }}

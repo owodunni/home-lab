@@ -1,0 +1,27 @@
+---
+# Generic, NON-destructive restore drill. Proves each backup is actually
+# restorable — the "verified restore" that freshness/integrity checks alone do
+# not give — by restoring the latest snapshot into a scratch dir and asserting
+# the result, then cleaning up. It never stops the stack, never touches live
+# data, and never loads into the live DB, so it is safe to run anytime.
+#
+# Targets the service host (the play sets `hosts: {{ backup_service }}`), so the
+# service's `backups` manifest is in scope. Each entry is routed to its per-type
+# handler; adding an engine means adding tasks/<type>.yml, never editing this.
+
+- name: Assert the service declares a backup manifest
+  ansible.builtin.assert:
+    that:
+      - backups is defined
+      - backups | length > 0
+    fail_msg: >-
+      No 'backups' manifest found for '{{ backup_service | default("?") }}'.
+      Declare it in group_vars/<service>/main.yml
+      (see CLAUDE.md → "Backups").
+
+- name: "Drill-restore each declared backup"
+  ansible.builtin.include_tasks: "{{ backup.type }}.yml"
+  loop: "{{ backups }}"
+  loop_control:
+    loop_var: backup
+    label: "{{ backup.name }} ({{ backup.type }})"

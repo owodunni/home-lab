@@ -1,0 +1,47 @@
+---
+# Drill handler — type: restic. Restores the latest snapshot into a scratch dir
+# and asserts it actually produced files, then removes the scratch. Proves the
+# repo + snapshot are restorable end to end without touching the live volume.
+#
+# Mirrors the restore handler's restore-to-scratch step (a read-only volume
+# mount + ephemeral --rm container, so restore into a bind-mounted .drill dir we
+# can inspect from the host), but stops there — no copy-back over live data.
+
+- name: "Drill-restore latest snapshot into a scratch dir for {{ backup.name }}"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - run
+      - --rm
+      - -v
+      - "{{ backup.compose_dir }}/.drill:/restore"
+      - "{{ backup.compose_service }}"
+      - restic
+      - restore
+      - latest
+      - --target
+      - /restore
+    chdir: "{{ backup.compose_dir }}"
+  changed_when: true
+
+- name: "Count restored files for {{ backup.name }}"
+  ansible.builtin.find:
+    paths: "{{ backup.compose_dir }}/.drill"
+    recurse: true
+    file_type: file
+  register: backup_drill_restored
+
+- name: "Assert the drill restore produced files for {{ backup.name }}"
+  ansible.builtin.assert:
+    that:
+      - backup_drill_restored.matched | int > 0
+    success_msg: "{{ backup.name }}: drill restore OK — {{ backup_drill_restored.matched }} file(s) recovered from the latest snapshot."
+    fail_msg: >-
+      {{ backup.name }}: drill restore produced NO files — the snapshot may be
+      empty or unrestorable.
+
+- name: "Remove the drill scratch dir for {{ backup.name }}"
+  ansible.builtin.file:
+    path: "{{ backup.compose_dir }}/.drill"
+    state: absent

@@ -1,0 +1,62 @@
+---
+# Drill handler — type: postgres (a pg_dump captured in a restic repo). Restores
+# the latest snapshot's dump into a scratch dir and validates it with
+# `pg_restore --list`, which parses the custom-format archive's table of
+# contents — proving the dump is intact and restorable — WITHOUT connecting to
+# or loading into the live database. Non-destructive.
+
+- name: "Drill-restore latest DB dump into a scratch dir for {{ backup.name }}"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - run
+      - --rm
+      - -v
+      - "{{ backup.compose_dir }}/.drill:/restore"
+      - "{{ backup.compose_service }}"
+      - restic
+      - restore
+      - latest
+      - --target
+      - /restore
+    chdir: "{{ backup.compose_dir }}"
+  changed_when: true
+
+- name: "Validate the restored dump with pg_restore --list for {{ backup.name }}"
+  # --list only reads the archive's TOC (no DB connection, no objects touched),
+  # so a corrupt/truncated dump fails here. --no-deps so it doesn't start the DB.
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - run
+      - --rm
+      - --no-deps
+      - -v
+      - "{{ backup.compose_dir }}/.drill:/restore"
+      - --entrypoint
+      - sh
+      - "{{ backup.pg_restore_service }}"
+      - -c
+      - "pg_restore --list /restore/data/{{ backup.dump_file }}"
+    chdir: "{{ backup.compose_dir }}"
+  register: backup_drill_pg_list
+  changed_when: false
+  failed_when: false
+
+- name: "Assert the dump is a valid, non-empty archive for {{ backup.name }}"
+  ansible.builtin.assert:
+    that:
+      - backup_drill_pg_list.rc == 0
+      - backup_drill_pg_list.stdout | trim | length > 0
+    success_msg: "{{ backup.name }}: drill OK — latest dump parses as a valid pg_restore archive."
+    fail_msg: >-
+      {{ backup.name }}: pg_restore --list FAILED (rc={{ backup_drill_pg_list.rc }})
+      — the restored dump is corrupt or empty. Output:
+      {{ backup_drill_pg_list.stderr }}
+
+- name: "Remove the drill scratch dir for {{ backup.name }}"
+  ansible.builtin.file:
+    path: "{{ backup.compose_dir }}/.drill"
+    state: absent

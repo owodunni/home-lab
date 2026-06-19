@@ -1,0 +1,30 @@
+---
+# Non-destructive backup restore drill — prove a service's backups are actually
+# restorable, the "verified restore" of 3-2-1-1-0.
+#
+# Usage:
+#   make drill SERVICE=authentik
+#   # or directly:
+#   ansible-playbook playbooks/drill-backups.yml -e backup_service=authentik
+#
+# Targets the host(s) in the named service group, so that service's group_vars
+# (including its `backups` manifest) are in scope. For each backup the
+# backup_drill role restores the LATEST snapshot into a scratch dir and asserts
+# the result (restic: files recovered; postgres: the dump parses via
+# `pg_restore --list`), then removes the scratch.
+#
+# Unlike restore-backups.yml this is SAFE: it never stops the stack, never
+# overwrites live volumes, and never loads into the live DB — it only reads the
+# repo into a throwaway dir. Run it on a cadence (see
+# docs/backup-recovery-testing.md) so a broken restore path is caught before a
+# real disaster, not during one.
+
+- name: Drill-restore backups for a service (non-destructive)
+  # Set at runtime via -e backup_service=<group> (see Makefile drill). The
+  # default is a placeholder group that matches no host, so a forgotten -e is a
+  # safe no-op rather than an error.
+  hosts: "{{ backup_service | default('undefined_service_group') }}"
+  become: true
+  gather_facts: false
+  roles:
+    - role: backup_drill
