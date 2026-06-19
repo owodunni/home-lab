@@ -50,7 +50,6 @@ services:
       # ---- SSO / OIDC against Authentik ----
       SSO_ENABLED: "true"
       SSO_AUTHORITY: "{{ vaultwarden_sso_authority }}"
-      SSO_CLIENT_ID: "{{ vaultwarden_sso_client_id }}"
       SSO_SCOPES: "{{ vaultwarden_sso_scopes }}"
       # Link an SSO login to an existing local account with the same email
       # (so SSO and the break-glass master-password account converge).
@@ -63,6 +62,7 @@ services:
       # Gmail relay: 587/STARTTLS, or 465/implicit-TLS if smtp_use_ssl is set.
       SMTP_SECURITY: "{{ 'force_tls' if smtp_use_ssl else 'starttls' }}"
       # ---- Secrets (from .env) ----
+      SSO_CLIENT_ID: ${SSO_CLIENT_ID}
       DATABASE_URL: ${DATABASE_URL}
       SSO_CLIENT_SECRET: ${SSO_CLIENT_SECRET}
       SMTP_USERNAME: ${SMTP_USERNAME}
