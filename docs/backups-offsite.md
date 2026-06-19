@@ -19,10 +19,17 @@ service sidecars ─────► s3.jardoole.xyz (→ valen) ──rclone pul
   bucket in valen's Garage. This is fast (LAN-local) and has no dependency on the
   offsite link.
 - **Offsite copy** — `[backup_mirror]` (beelink, at the barn) runs
-  `backup-mirror.timer`, which `rclone sync`s every bucket in
+  `backup-mirror.timer`, which `rclone copy`s every bucket in
   `backup_mirror_buckets` (group_vars/backup_mirror/main.yml) into
-  `{{ backup_mirror_dest }}/<bucket>`. Because `rclone sync` copies the encrypted
+  `{{ backup_mirror_dest }}/<bucket>`. Because rclone copies the encrypted
   objects byte-for-byte, each destination dir **is** a valid restic repo.
+- **Additive, not a mirror** — we use `rclone copy --immutable --checksum`, *not*
+  `sync`. Copy never deletes on the destination, so a `restic forget --prune`, an
+  accidental wipe, or ransomware on valen is **never** propagated offsite — the
+  offsite keeps snapshots valen has already forgotten and becomes a longer-
+  retention tier. `--immutable` refuses to overwrite an existing object (restic
+  packs are write-once, so this also trips loudly on tampering); `--checksum`
+  verifies transfers by hash. The cost is growth (see "Pruning" below).
 
 ### Why pull + read-only (the security model)
 
@@ -94,5 +101,43 @@ have built up a comfortable retention window, then:
   fails.
 - Manually: `uv run ansible backup_mirror -a "ls -la /mnt/storage/restic-offsite"`
   (read-only) and `journalctl -u backup-mirror` on beelink.
-- Periodically run the **restore drill** above against the offsite copy and log
-  it in `docs/backup-recovery-testing.md`.
+- **Integrity / bit-rot**: beelink's `snapraid_runner` timer scrubs the pool
+  daily (the offsite repos live on it), detecting and repairing silent
+  corruption; `SnapraidScrubStale`/`SnapraidScrubErrors` alert if it stops.
+  `rclone --checksum` verifies each transfer. Logical repo integrity is asserted
+  by `make verify-backups` (`restic check`) and `make drill` against the local
+  side; run a drill against the offsite copy periodically too (above) and log it
+  in `docs/backup-recovery-testing.md`.
+
+## Pruning the offsite (bounding growth)
+
+Because the pull is additive, the offsite keeps every snapshot ever copied,
+including ones valen has pruned locally — so it grows. This is intentional
+(longer retention, ransomware depth), and growth is slow thanks to restic dedup
+and watched by the `HighDiskUsage` alert on beelink. When you do need to reclaim
+space, prune **deliberately** (never as an automated job with delete rights):
+
+```bash
+# From the SERVICE's host (it holds the restic password), point restic at the
+# offsite repo over SFTP and apply the same GFS policy, then prune:
+restic -r sftp:beelink:/mnt/storage/restic-offsite/<bucket>[/restic] \
+  forget --keep-daily 7 --keep-weekly 4 --keep-monthly 4 --keep-yearly 1 --prune
+```
+
+Do this rarely and only after confirming the local + offsite copies are healthy.
+
+## Residual risk & immutability (#5)
+
+The offsite has **no WORM/immutability**. The pull model means a compromised
+*valen* can't reach beelink at all, and `--immutable` blocks overwrites — but a
+compromised beelink **host** (root) or physical loss/theft of beelink endangers
+the offsite copy itself. That is an accepted residual: it costs you only the
+offsite copy — the primary data and valen-local backup survive — so it is not a
+data-loss event on its own.
+
+The recommended upgrade for true immutability (and a second provider/geo) is a
+small **Backblaze B2 bucket with Object-Lock** holding just the crown-jewel DBs
+(Vaultwarden, Nextcloud, Authentik — all tiny). It was considered and deferred;
+revisit it if the threat model changes. A filesystem switch on beelink (ZFS/btrfs
+snapshots) was rejected — root can still destroy snapshots, so it does not close
+this gap.

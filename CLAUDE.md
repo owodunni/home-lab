@@ -145,13 +145,31 @@ else" that copies offsite. A mirrored bucket is a byte-identical restic repo, so
 restic password. Media *library* files are not backed up (re-acquirable); only
 service *config/data* is.
 
+**The pull is additive** (`rclone copy`, not `sync`): objects valen deletes —
+a `restic forget --prune`, an accidental wipe, ransomware — are **never** deleted
+offsite, so the offsite is a longer-retention tier that survives source-side
+corruption. It therefore grows over time (bounded by restic dedup, watched by the
+`HighDiskUsage` alert); offsite pruning is a deliberate operator action, never
+automated (see [docs/backups-offsite.md](docs/backups-offsite.md)).
+
+**Integrity (the "0" of 3-2-1-1-0).** `make verify-backups` runs `restic check`
+(repo structure), `make drill SERVICE=…` does a non-destructive restore drill
+(restore latest to scratch + assert; never touches live data), and the
+`snapraid_runner` timer syncs+scrubs the pools daily — detecting bit-rot on both
+the primary and the offsite mirror — with a deletion guard that refuses to sync a
+mass deletion into parity. **Residual risk:** the offsite has no WORM/immutability,
+so a compromised beelink *host* (root) or physical loss of beelink endangers
+**only** the offsite copy (primary + valen-local survive). True immutability for
+the crown-jewel DBs (Backblaze B2 + Object-Lock) was considered and deferred.
+
 Two generic, manifest-driven playbooks back up **any** service — no
 service-specific backup playbooks. Every backup is a **restic** snapshot (a
 database is a `pg_dump` captured in restic), so DBs and file volumes share one
 grandfather-father-son retention policy and the same restore-any-snapshot path.
 
 ```bash
-make verify-backups  SERVICE=authentik   # non-destructive: exist + fresh? + list restore points
+make verify-backups  SERVICE=authentik   # non-destructive: fresh? + restic check (integrity) + list restore points
+make drill           SERVICE=authentik   # non-destructive: restore latest to scratch & assert it restores
 make restore-backups SERVICE=authentik   # DESTRUCTIVE (typed-confirm): restore each backup's latest snapshot
 ```
 
