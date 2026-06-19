@@ -82,18 +82,7 @@
   # explicitly below instead (the admin env vars are intentionally not passed to
   # the container, so the entrypoint never tries to auto-install).
   ansible.builtin.command:
-    argv:
-      - docker
-      - compose
-      - exec
-      - -T
-      - --user
-      - www-data
-      - app
-      - php
-      - occ
-      - status
-      - --output=json
+    argv: "{{ nextcloud_occ + ['status', '--output=json'] }}"
     chdir: "{{ nextcloud_dir }}"
   register: nextcloud_status
   changed_when: false
@@ -110,25 +99,18 @@
   # auto-install, which we disabled) and self-healing for a stranded first run.
   when: not ((nextcloud_status.stdout | from_json).installed)
   ansible.builtin.command:
-    argv:
-      - docker
-      - compose
-      - exec
-      - -T
-      - --user
-      - www-data
-      - app
-      - php
-      - occ
-      - maintenance:install
-      - "--database=pgsql"
-      - "--database-host={{ nextcloud_db_host }}"
-      - "--database-name={{ nextcloud_db_name }}"
-      - "--database-user={{ nextcloud_db_user }}"
-      - "--database-pass={{ vault_nextcloud_pg_pass }}"
-      - "--admin-user={{ nextcloud_admin_user }}"
-      - "--admin-pass={{ vault_nextcloud_admin_password }}"
-      - "--data-dir=/var/www/html/data"
+    argv: >-
+      {{ nextcloud_occ + [
+        'maintenance:install',
+        '--database=pgsql',
+        '--database-host=' ~ nextcloud_db_host,
+        '--database-name=' ~ nextcloud_db_name,
+        '--database-user=' ~ nextcloud_db_user,
+        '--database-pass=' ~ vault_nextcloud_pg_pass,
+        '--admin-user=' ~ nextcloud_admin_user,
+        '--admin-pass=' ~ vault_nextcloud_admin_password,
+        '--data-dir=/var/www/html/data'
+      ] }}
     chdir: "{{ nextcloud_dir }}"
   no_log: true # DB + admin passwords on the command line
   changed_when: true
@@ -137,17 +119,7 @@
   # Uses the `cron` sidecar (runs cron.php every 5 min) instead of AJAX, which is
   # the recommended mode for a real install. Idempotent: occ no-ops if unchanged.
   ansible.builtin.command:
-    argv:
-      - docker
-      - compose
-      - exec
-      - -T
-      - --user
-      - www-data
-      - app
-      - php
-      - occ
-      - background:cron
+    argv: "{{ nextcloud_occ + ['background:cron'] }}"
     chdir: "{{ nextcloud_dir }}"
   register: nextcloud_bgcron
   changed_when: "'set to' in nextcloud_bgcron.stdout"
@@ -156,20 +128,11 @@
   # Silences the admin "no default phone region" warning and fixes local number
   # parsing. Cosmetic but keeps the security/setup check clean.
   ansible.builtin.command:
-    argv:
-      - docker
-      - compose
-      - exec
-      - -T
-      - --user
-      - www-data
-      - app
-      - php
-      - occ
-      - config:system:set
-      - default_phone_region
-      - --value
-      - "{{ nextcloud_default_phone_region }}"
+    argv: >-
+      {{ nextcloud_occ + [
+        'config:system:set', 'default_phone_region',
+        '--value', nextcloud_default_phone_region
+      ] }}
     chdir: "{{ nextcloud_dir }}"
   changed_when: true
 

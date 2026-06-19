@@ -8,8 +8,8 @@
 #
 # Prerequisite (manual, in Authentik's UI — see docs/nextcloud.md): an
 # OAuth2/OIDC provider + application with slug `nextcloud`, redirect URI
-# https://{{ nextcloud_hostname }}/apps/user_oidc/code, whose client ID is
-# nextcloud_oidc_client_id and whose client secret equals
+# https://{{ nextcloud_hostname }}/apps/user_oidc/code, whose client ID equals
+# vault_nextcloud_oidc_client_id and whose client secret equals
 # vault_nextcloud_oidc_client_secret.
 
 - name: Allow Nextcloud to reach the LAN Authentik (disable SSRF block)
@@ -19,37 +19,18 @@
   # and login fails with a 404 from user_oidc. Enable allow_local_remote_servers
   # so requests to the LAN IdP are permitted. See group_vars/nextcloud/main.yml.
   ansible.builtin.command:
-    argv:
-      - docker
-      - compose
-      - exec
-      - -T
-      - --user
-      - www-data
-      - app
-      - php
-      - occ
-      - config:system:set
-      - allow_local_remote_servers
-      - "--value={{ nextcloud_allow_local_remote_servers | lower }}"
-      - "--type=boolean"
+    argv: >-
+      {{ nextcloud_occ + [
+        'config:system:set', 'allow_local_remote_servers',
+        '--value=' ~ (nextcloud_allow_local_remote_servers | lower),
+        '--type=boolean'
+      ] }}
     chdir: "{{ nextcloud_dir }}"
   changed_when: true
 
 - name: List installed Nextcloud apps
   ansible.builtin.command:
-    argv:
-      - docker
-      - compose
-      - exec
-      - -T
-      - --user
-      - www-data
-      - app
-      - php
-      - occ
-      - app:list
-      - --output=json
+    argv: "{{ nextcloud_occ + ['app:list', '--output=json'] }}"
     chdir: "{{ nextcloud_dir }}"
   register: nextcloud_app_list
   changed_when: false
@@ -61,18 +42,7 @@
     'user_oidc' not in (nextcloud_app_list.stdout | from_json).enabled and
     'user_oidc' not in (nextcloud_app_list.stdout | from_json).disabled
   ansible.builtin.command:
-    argv:
-      - docker
-      - compose
-      - exec
-      - -T
-      - --user
-      - www-data
-      - app
-      - php
-      - occ
-      - app:install
-      - user_oidc
+    argv: "{{ nextcloud_occ + ['app:install', 'user_oidc'] }}"
     chdir: "{{ nextcloud_dir }}"
   changed_when: true
   # Enabling the app via this CLI occ process does not reload the long-running
@@ -91,28 +61,20 @@
   # of the Authentik `admin` group grants Nextcloud admin (its built-in admin
   # group ID) — see group_vars/nextcloud/main.yml and docs/nextcloud.md.
   ansible.builtin.command:
-    argv:
-      - docker
-      - compose
-      - exec
-      - -T
-      - --user
-      - www-data
-      - app
-      - php
-      - occ
-      - user_oidc:provider
-      - "{{ nextcloud_oidc_provider_name }}"
-      - "--clientid={{ vault_nextcloud_oidc_client_id }}"
-      - "--clientsecret={{ vault_nextcloud_oidc_client_secret }}"
-      - "--discoveryuri={{ nextcloud_oidc_discovery_uri }}"
-      - "--scope={{ nextcloud_oidc_scope }}"
-      - "--mapping-uid={{ nextcloud_oidc_mapping_uid }}"
-      - "--mapping-display-name={{ nextcloud_oidc_mapping_display_name }}"
-      - "--mapping-email={{ nextcloud_oidc_mapping_email }}"
-      - "--mapping-groups={{ nextcloud_oidc_mapping_groups }}"
-      - "--unique-uid=0"
-      - "--group-provisioning={{ '1' if nextcloud_oidc_group_provisioning else '0' }}"
+    argv: >-
+      {{ nextcloud_occ + [
+        'user_oidc:provider', nextcloud_oidc_provider_name,
+        '--clientid=' ~ vault_nextcloud_oidc_client_id,
+        '--clientsecret=' ~ vault_nextcloud_oidc_client_secret,
+        '--discoveryuri=' ~ nextcloud_oidc_discovery_uri,
+        '--scope=' ~ nextcloud_oidc_scope,
+        '--mapping-uid=' ~ nextcloud_oidc_mapping_uid,
+        '--mapping-display-name=' ~ nextcloud_oidc_mapping_display_name,
+        '--mapping-email=' ~ nextcloud_oidc_mapping_email,
+        '--mapping-groups=' ~ nextcloud_oidc_mapping_groups,
+        '--unique-uid=0',
+        '--group-provisioning=' ~ ('1' if nextcloud_oidc_group_provisioning else '0')
+      ] }}
     chdir: "{{ nextcloud_dir }}"
   no_log: true # client secret is on the command line
   changed_when: true

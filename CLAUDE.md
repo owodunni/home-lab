@@ -83,6 +83,20 @@ Service variables live in `group_vars/<service>/`:
 This means all variables travel with the service definition. Migrating a service
 to a new host is a single-line `hosts.ini` change with no playbook edits.
 
+**Variables live in `group_vars/<service>/`, not in the role.** A service role
+(`roles/nextcloud`, `roles/authentik`, the *arr roles, …) holds **no**
+`defaults/main.yml` or `vars/main.yml` and no inline `vars:`/`default()`
+fallbacks — every value it consumes is defined once in `group_vars/<service>/`.
+Do not split a service's config across both places: a default in the role plus an
+override in `group_vars` is the duplication this convention exists to prevent
+(two sources of truth, and the role default silently wins when the `group_vars`
+entry is renamed). If the role needs a structural constant that is not host/env
+config (e.g. an `argv` command prefix shared across tasks), still define it in
+`group_vars/<service>/main.yml` so there is one home for everything the service
+references. The **only** role carrying `defaults/` is `pi_cm5_config`, and that
+is deliberate: it is a generic, parameterized hardware role (geerlingguy-style)
+whose defaults are meant to be overridden per group/host, not a service.
+
 Infrastructure groups (`[ingress]`, `[services]`, `[monitoring]`) describe *what
 infrastructure runs where* and are targets for infrastructure playbooks only
 (e.g. `docker.yml` uses `hosts: services` because Docker goes on every host in
