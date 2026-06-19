@@ -1,0 +1,57 @@
+---
+# SnapRAID runner — automated parity sync + scrub with a deletion guard.
+#
+# Replaces the old "remind the operator to run snapraid sync manually" step:
+# parity that is only synced by hand drifts, and a pool that is never scrubbed
+# never detects silent bit-rot — so the offsite mirror (and the primary pool)
+# had no automated integrity guard. This role installs a wrapper + a daily timer
+# that diffs, syncs (unless too many files vanished — see the threshold guard),
+# and scrubs a slice, exporting node_exporter metrics for alerting.
+#
+# Config lives in group_vars/storage; this role only installs the mechanism.
+# Applied by playbooks/snapraid-mergerfs.yml, already gated on snapraid_configured.
+
+- name: Ensure the node_exporter textfile directory exists
+  # The runner writes its metrics here. node_exporter (monitoring layer) owns
+  # this dir but may not be installed yet on a fresh host; create it defensively.
+  ansible.builtin.file:
+    path: "{{ snapraid_runner_textfile | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deploy the SnapRAID runner script
+  ansible.builtin.template:
+    src: snapraid-runner.sh.j2
+    dest: /usr/local/bin/snapraid-runner.sh
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deploy the SnapRAID runner systemd service
+  ansible.builtin.template:
+    src: snapraid-runner.service.j2
+    dest: /etc/systemd/system/snapraid-runner.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Deploy the SnapRAID runner systemd timer
+  ansible.builtin.template:
+    src: snapraid-runner.timer.j2
+    dest: /etc/systemd/system/snapraid-runner.timer
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Flush handlers so the timer unit is loaded before enabling it
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start the SnapRAID runner timer
+  ansible.builtin.systemd:
+    name: snapraid-runner.timer
+    enabled: true
+    state: started

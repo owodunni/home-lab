@@ -162,6 +162,52 @@ prometheus_alert_rules:
         least one bucket. Check `journalctl -u backup-mirror` on the mirror
         host.{% endraw %}
 
+  # --- SnapRAID parity health (snapraid_runner on [storage] hosts w/ parity) -
+  # The runner (roles/snapraid_runner) diffs → syncs → scrubs daily and writes
+  # these textfile metrics. Series only exist where parity is configured, so
+  # hosts without it raise nothing.
+  - alert: SnapraidSyncGuardTripped
+    # The deletion guard refused to sync because too many files vanished — a
+    # likely mass deletion / ransomware event on the pool. Parity is deliberately
+    # NOT updated; a human must investigate before the protected state is lost.
+    expr: "snapraid_sync_delete_guard_tripped == 1"
+    for: 0m
+    labels:
+      severity: critical
+    annotations:
+      summary: "{% raw %}SnapRAID deletion guard tripped on {{ $labels.instance }}{% endraw %}"
+      description: >-
+        {% raw %}snapraid-runner refused an automatic sync because more files
+        were removed/updated than the configured threshold. Investigate for
+        accidental or malicious deletion before running 'snapraid sync' by
+        hand.{% endraw %}
+  - alert: SnapraidSyncStale
+    # 26h grace over the daily run; if sync stops succeeding parity drifts from
+    # the data and a drive loss may be unrecoverable.
+    expr: "time() - snapraid_last_sync_success_timestamp_seconds > 93600"
+    for: 30m
+    labels:
+      severity: critical
+    annotations:
+      summary: "{% raw %}SnapRAID sync stale on {{ $labels.instance }}{% endraw %}"
+      description: >-
+        {% raw %}snapraid sync has not succeeded for over 26h
+        ({{ $value | humanizeDuration }} ago). Parity may not protect recent
+        changes.{% endraw %}
+  - alert: SnapraidScrubStale
+    # Scrub is what detects silent bit-rot; if it stops running, corruption goes
+    # unnoticed until a restore fails.
+    expr: "time() - snapraid_last_scrub_success_timestamp_seconds > 93600"
+    for: 30m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{% raw %}SnapRAID scrub stale on {{ $labels.instance }}{% endraw %}"
+      description: >-
+        {% raw %}snapraid scrub has not succeeded for over 26h
+        ({{ $value | humanizeDuration }} ago) — silent bit-rot is no longer being
+        detected. Check `journalctl -u snapraid-runner`.{% endraw %}
+
   # --- SMART drive health (smartctl_exporter on [storage] hosts) ------------
   # Metric names follow smartctl_exporter 0.14. ATA attributes are matched by
   # name on the raw value; NVMe health uses the dedicated nvme metrics.

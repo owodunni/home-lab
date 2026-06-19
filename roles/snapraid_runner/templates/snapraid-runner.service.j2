@@ -1,0 +1,11 @@
+# SnapRAID runner — managed by Ansible (roles/snapraid_runner).
+[Unit]
+Description=SnapRAID parity sync + scrub (guarded)
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/snapraid-runner.sh
+User=root
+# sync/scrub of a large array can take a while; don't let systemd kill it.
+TimeoutStartSec=0

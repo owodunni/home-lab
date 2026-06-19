@@ -67,6 +67,33 @@ snapraid_data_drives: []
 snapraid_content_files: []
 
 # ============================================================================
+# SnapRAID runner — automated sync + scrub (roles/snapraid_runner)
+# ============================================================================
+# Installed by snapraid-mergerfs.yml only where snapraid_configured is true
+# (a parity drive is present), so it activates on beelink now and on valen
+# automatically once its planned parity drive is added.
+
+# systemd OnCalendar for the daily diff → sync → scrub run. 04:30 sits after the
+# service backup crons (02:00–05:00 write to Garage) but before the offsite
+# mirror pull (06:00), so each day's parity reflects the freshest local data.
+snapraid_runner_schedule: "*-*-* 04:30:00"
+
+# Deletion guard: if more than this many files are removed+updated since the
+# last sync, the runner REFUSES to sync (so an automated sync can't bless a mass
+# deletion / ransomware run into parity) and lets SnapraidSyncStale fire. Tune
+# up for hosts with legitimately high churn.
+snapraid_sync_delete_threshold: 500
+
+# scrub a slice each run: SCRUB_PERCENT of the least-recently-scrubbed blocks
+# older than SCRUB_OLDER days, so the whole array is verified over time without
+# a heavy full scrub. 12%/10d cycles the array roughly every ~8 days.
+snapraid_scrub_percent: 12
+snapraid_scrub_older_than: 10
+
+# node_exporter textfile metric the runner writes (default textfile dir).
+snapraid_runner_textfile: /var/lib/node_exporter/snapraid.prom
+
+# ============================================================================
 # HDD spin-down — group-wide defaults
 # ============================================================================
 # Drives opt in via storage_drives: set `spindown: true` on a drive entry in

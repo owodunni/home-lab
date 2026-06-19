@@ -1,0 +1,11 @@
+# SnapRAID runner — managed by Ansible (roles/snapraid_runner).
+[Unit]
+Description=Schedule the SnapRAID sync + scrub runner
+
+[Timer]
+OnCalendar={{ snapraid_runner_schedule }}
+# Catch up a run missed while the host was down.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

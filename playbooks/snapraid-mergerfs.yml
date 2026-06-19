@@ -207,9 +207,11 @@
             group: root
             backup: true
 
-        - name: Remind operator to run initial SnapRAID sync
-          ansible.builtin.debug:
-            msg: >-
-              SnapRAID installed. Run the initial parity sync manually once data is
-              in place: ssh {{ inventory_hostname }} 'snapraid sync'
-              This takes 1-2 hours for empty drives.
+        - name: Install the automated SnapRAID sync + scrub runner
+          # Replaces the old "run snapraid sync by hand" reminder: parity synced
+          # only manually drifts, and an unscrubbed pool never detects bit-rot,
+          # leaving the offsite mirror and primary pool without an integrity
+          # guard. The runner diffs (with a deletion guard), syncs, and scrubs a
+          # slice daily, exporting metrics the monitoring layer alerts on.
+          ansible.builtin.include_role:
+            name: snapraid_runner

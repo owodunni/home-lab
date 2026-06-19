@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# SnapRAID runner — managed by Ansible (roles/snapraid_runner).
+#
+# Daily: diff → (guarded) sync → scrub a slice. Exports node_exporter textfile
+# metrics for freshness/error alerting. The deletion guard stops an automated
+# sync from updating parity to match a mass deletion (accidental rm, ransomware)
+# — if that many files vanished it is almost certainly not a legitimate change,
+# so we refuse to bless it into parity and let SnapraidSyncStale fire instead.
+set -uo pipefail
+
+THRESHOLD={{ snapraid_sync_delete_threshold }}
+SCRUB_PERCENT={{ snapraid_scrub_percent }}
+SCRUB_OLDER={{ snapraid_scrub_older_than }}
+TEXTFILE="{{ snapraid_runner_textfile }}"
+
+log() { echo "snapraid-runner: $*" >&2; }
+
+sync_ok=0
+scrub_ok=0
+guard_tripped=0
+
+# --- diff -------------------------------------------------------------------
+# Exit: 0 = no changes, 2 = changes to sync, anything else = error.
+diff_out="$(snapraid diff 2>&1)"
+diff_rc=$?
+printf '%s\n' "${diff_out}" >&2
+
+if [ "${diff_rc}" -ne 0 ] && [ "${diff_rc}" -ne 2 ]; then
+  log "diff failed (rc=${diff_rc}) — skipping sync/scrub"
+else
+  removed="$(printf '%s\n' "${diff_out}" | awk '/ removed$/{print $1; exit}')"
+  updated="$(printf '%s\n' "${diff_out}" | awk '/ updated$/{print $1; exit}')"
+  removed="${removed:-0}"
+  updated="${updated:-0}"
+  changed=$(( removed + updated ))
+
+  if [ "${changed}" -gt "${THRESHOLD}" ]; then
+    guard_tripped=1
+    log "DELETION GUARD: ${removed} removed + ${updated} updated = ${changed} > ${THRESHOLD} — refusing automatic sync. Investigate, then run 'snapraid sync' by hand if legitimate."
+  else
+    # --- sync ---------------------------------------------------------------
+    if snapraid sync >&2; then
+      sync_ok=1
+    else
+      log "sync failed"
+    fi
+
+    # --- scrub (only meaningful once parity is in sync) ---------------------
+    if [ "${sync_ok}" -eq 1 ]; then
+      if snapraid scrub -p "${SCRUB_PERCENT}" -o "${SCRUB_OLDER}" >&2; then
+        scrub_ok=1
+      else
+        log "scrub reported errors (see output above)"
+      fi
+    fi
+  fi
+fi
+
+# --- metrics ----------------------------------------------------------------
+# Preserve previous success timestamps on a failed/guarded run, so the alert
+# measures time since the last GOOD sync/scrub.
+prev_sync="" ; prev_scrub=""
+if [ -f "${TEXTFILE}" ]; then
+  prev_sync="$(awk '/^snapraid_last_sync_success_timestamp_seconds /{print $2}' "${TEXTFILE}")"
+  prev_scrub="$(awk '/^snapraid_last_scrub_success_timestamp_seconds /{print $2}' "${TEXTFILE}")"
+fi
+now="$(date +%s)"
+[ "${sync_ok}" -eq 1 ]  && last_sync="${now}"  || last_sync="${prev_sync}"
+[ "${scrub_ok}" -eq 1 ] && last_scrub="${now}" || last_scrub="${prev_scrub}"
+
+tmp="$(mktemp)"
+{
+  echo "# HELP snapraid_last_sync_success_timestamp_seconds Unix time of the last successful snapraid sync."
+  echo "# TYPE snapraid_last_sync_success_timestamp_seconds gauge"
+  [ -n "${last_sync}" ] && echo "snapraid_last_sync_success_timestamp_seconds ${last_sync}"
+  echo "# HELP snapraid_last_scrub_success_timestamp_seconds Unix time of the last successful snapraid scrub."
+  echo "# TYPE snapraid_last_scrub_success_timestamp_seconds gauge"
+  [ -n "${last_scrub}" ] && echo "snapraid_last_scrub_success_timestamp_seconds ${last_scrub}"
+  echo "# HELP snapraid_sync_delete_guard_tripped Whether the last run refused to sync because too many files were removed/updated (1) or not (0)."
+  echo "# TYPE snapraid_sync_delete_guard_tripped gauge"
+  echo "snapraid_sync_delete_guard_tripped ${guard_tripped}"
+} >"${tmp}"
+chmod 0644 "${tmp}"
+mv "${tmp}" "${TEXTFILE}"
+
+# Non-zero exit if anything went wrong, so `systemctl status`/journal flag it.
+[ "${guard_tripped}" -eq 0 ] && [ "${sync_ok}" -eq 1 ] && [ "${scrub_ok}" -eq 1 ]
