@@ -2,9 +2,21 @@
 # Offsite backup mirror — managed by Ansible (roles/backup_mirror).
 #
 # Pulls each Garage bucket from valen into a plain restic-repo directory on this
-# host's pool. `rclone sync` makes the local copy an exact mirror of the bucket
-# (byte-identical objects), so {{ backup_mirror_dest }}/<bucket> is itself a
-# valid restic repo, restorable as-is with the service's restic password.
+# host's pool, so {{ backup_mirror_dest }}/<bucket> is itself a valid restic
+# repo, restorable as-is with the service's restic password.
+#
+# ADDITIVE on purpose: we use `rclone copy` (NOT sync), so objects that valen
+# deletes — a `restic forget --prune`, an accidental wipe, or ransomware — are
+# NEVER deleted offsite. The offsite becomes a longer-retention tier that
+# survives source-side corruption (the #1 reason "sync is not backup"). The
+# trade-off is growth: beelink keeps packs valen has forgotten, bounded by
+# restic dedup and watched by the existing HighDiskUsage alert; pruning the
+# offsite is a deliberate, infrequent operator action (see docs/backups-offsite.md).
+#   --immutable : refuse to overwrite an existing offsite object. restic packs
+#                 are write-once, so this is always safe AND flags tampering
+#                 (a changed "immutable" object aborts the run loudly).
+#   --checksum  : compare by hash, not size+mtime — catches truncated/corrupt
+#                 transfers (the transfer-integrity half of backup verification).
 #
 # Writes a node_exporter textfile metric so Prometheus can alert if the offsite
 # copy goes stale. We never need the restic password here: rclone only moves
@@ -24,8 +36,9 @@ BUCKETS=(
 
 rc=0
 for bucket in "${BUCKETS[@]}"; do
-  if ! rclone --config "${CONFIG}" sync "${REMOTE}:${bucket}" "${DEST}/${bucket}"; then
-    echo "backup-mirror: rclone sync failed for ${bucket}" >&2
+  if ! rclone --config "${CONFIG}" copy --immutable --checksum \
+      "${REMOTE}:${bucket}" "${DEST}/${bucket}"; then
+    echo "backup-mirror: rclone copy failed for ${bucket}" >&2
     rc=1
   fi
 done

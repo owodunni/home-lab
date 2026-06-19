@@ -22,6 +22,10 @@
 # Where the mirrored restic repos land on beelink's MergerFS pool. Each bucket
 # becomes a subdir that is itself a valid restic repo, restorable as-is with
 # `restic -r {{ backup_mirror_dest }}/<bucket>` and the service's restic password.
+# The pull is ADDITIVE (rclone copy, not sync — see backup-mirror-sync.sh.j2):
+# objects valen deletes are kept here, so this is a longer-retention tier that
+# grows over time. Growth is watched by the existing HighDiskUsage alert; prune
+# is a deliberate operator action (docs/backups-offsite.md), never automated.
 backup_mirror_dest: "{{ mergerfs_mount_point }}/restic-offsite"
 
 # Garage S3 endpoint to pull from. s3.jardoole.xyz now resolves to valen; the
