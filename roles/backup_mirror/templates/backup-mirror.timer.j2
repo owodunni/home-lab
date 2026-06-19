@@ -1,0 +1,11 @@
+# Offsite backup mirror — managed by Ansible (roles/backup_mirror).
+[Unit]
+Description=Schedule the offsite backup mirror pull
+
+[Timer]
+OnCalendar={{ backup_mirror_schedule }}
+# Catch up a run missed while the host (or the WireGuard link) was down.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

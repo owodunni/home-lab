@@ -1,0 +1,19 @@
+---
+# Backup layer
+#
+# What: Makes the OFFSITE copy of the backup strategy — the [backup_mirror] node
+#       (beelink) pulls every service backup bucket from valen's Garage into
+#       local restic repos.
+# Why:  Backups must be decoupled from the apps and exist in two places. The
+#       service sidecars (in the layers below) write their snapshots LOCALLY to
+#       valen's Garage; this layer is the separate mechanism that copies them
+#       offsite, giving a local + offsite pair instead of one offsite-only copy.
+# Order: After `applications`, because the read-only mirror key is granted on
+#        each service's backup bucket and those buckets are created when the
+#        services deploy. Before `monitoring`, which adds the freshness alert
+#        that watches this layer's output.
+#
+# Pure orchestration: no logic here, only imports of standalone function
+# playbooks.
+- name: Backup | Offsite mirror pull (valen Garage → beelink restic repos)
+  ansible.builtin.import_playbook: backup-mirror.yml

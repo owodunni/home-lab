@@ -1,0 +1,59 @@
+---
+# Offsite backup mirror configuration (the [backup_mirror] host — beelink).
+#
+# WHAT: beelink pulls every service backup bucket from valen's Garage and writes
+#   it, byte-for-byte, into plain restic-repo directories on its own pool.
+# WHY: this is the OFFSITE copy of the 3-2-1 strategy, decoupled from the apps.
+#   The service sidecars only ever write LOCALLY to valen's Garage; a separate
+#   mechanism (this node, on its own timer) makes the offsite copy. Pulling with
+#   a READ-ONLY key means a compromised valen has no path to delete the offsite
+#   copy, and a compromised beelink cannot alter valen's copy — and because the
+#   objects are restic-encrypted and beelink never holds the restic password,
+#   the mirror leaks no plaintext. See CLAUDE.md "Backups: 3-2-1 & offsite".
+# RESOLVES: the previous single-copy, offsite-only posture (every app backed up
+#   straight to beelink) where an unreachable beelink meant NO backups at all.
+#
+# Secrets (the read-only S3 key) live in group_vars/backup_mirror/vault.yml:
+#   vault_backup_mirror_s3_access_key / vault_backup_mirror_s3_secret_key
+#   Generate with: scripts/garage-keygen.sh vault_backup_mirror_s3
+#   The first play of playbooks/backup-mirror.yml imports this key into valen's
+#   Garage and grants it READ-ONLY on every bucket below.
+
+# Where the mirrored restic repos land on beelink's MergerFS pool. Each bucket
+# becomes a subdir that is itself a valid restic repo, restorable as-is with
+# `restic -r {{ backup_mirror_dest }}/<bucket>` and the service's restic password.
+backup_mirror_dest: "{{ mergerfs_mount_point }}/restic-offsite"
+
+# Garage S3 endpoint to pull from. s3.jardoole.xyz now resolves to valen; the
+# region label must match garage_s3_region (group_vars/ingress/main.yml).
+backup_mirror_endpoint: "https://s3.jardoole.xyz"
+backup_mirror_region: "{{ garage_s3_region }}"
+
+# systemd OnCalendar for the pull. Runs at 06:00 — after every service backup
+# cron (02:00–05:00) has produced fresh snapshots, so the mirror is never a lap
+# behind. Persistent=true catches a missed run after downtime.
+backup_mirror_schedule: "*-*-* 06:00:00"
+
+# node_exporter textfile metric the sync script writes for freshness alerting.
+# /var/lib/node_exporter is the node_exporter role's default textfile dir, and
+# node_exporter already runs on beelink (deployed on [all]).
+backup_mirror_textfile: /var/lib/node_exporter/backup_mirror.prom
+
+# Every service backup bucket to mirror. KEEP IN SYNC: when a service gains a
+# new backup bucket (a new `*_backup_s3_bucket` in its group_vars), add it here
+# too — this is the one deliberate duplication, the price of one mirror job that
+# is independent of how many services exist. The grant play reads this list to
+# scope the read-only key, and the sync script loops it.
+backup_mirror_buckets:
+  - authentik-backup
+  - authentik-volumes-backup
+  - nextcloud-backup
+  - nextcloud-data-backup
+  - vaultwarden-backup
+  - vaultwarden-data-backup
+  - prowlarr-backup
+  - radarr-backup
+  - sonarr-backup
+  - jellyfin-backup
+  - jellyseerr-backup
+  - qbittorrent-backup

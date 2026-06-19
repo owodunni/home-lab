@@ -28,6 +28,20 @@ mergerfs_data_drives:
   - /mnt/disk1
 
 # ============================================================================
+# Garage — S3-compatible object storage
+# ============================================================================
+# Garage runs here (not on beelink) so every service backs up to a LOCAL S3
+# target on the home LAN instead of pushing over WireGuard to the offsite node;
+# beelink then pulls these buckets to make the offsite copy (see hosts.ini
+# [garage]/[backup_mirror] and playbooks/backup-mirror.yml).
+# Metadata (sqlite index) on the local OS SSD for fast access; object data on the
+# MergerFS pool so SnapRAID provides parity protection.
+# NOTE: requires host_vars/valen/vault.yml with vault_garage_rpc_secret and
+# vault_garage_admin_token (generate per the garage role; they moved off beelink).
+garage_metadata_dir: /var/lib/garage/meta
+garage_data_dir: "{{ mergerfs_mount_point }}/garage"
+
+# ============================================================================
 # smartctl_exporter — poll interval override
 # ============================================================================
 # What: Poll SMART hourly instead of the 60s group default.

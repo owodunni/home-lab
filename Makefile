@@ -3,7 +3,7 @@
 ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(CURDIR)/roles:~/.ansible/roles  uv run ansible-playbook
 
 .PHONY: help setup lint precommit vault-edit \
-        system networking storage ingress service-infra auth applications monitoring security site \
+        system networking storage ingress service-infra auth applications backup monitoring security site \
         app verify-backups restore-backups
 
 help:
@@ -67,6 +67,10 @@ applications: ## 📂 Applications layer: end-user services (Nextcloud + media s
 	@echo "Running applications layer..."
 	$(ANSIBLE_PLAYBOOK) playbooks/applications.yml
 
+backup: ## 💾 Backup layer: offsite mirror of service backups (valen Garage → beelink)
+	@echo "Running backup layer..."
+	$(ANSIBLE_PLAYBOOK) playbooks/backup.yml
+
 monitoring: ## 🔭 Monitoring layer: node_exporter + Prometheus + Alertmanager + Grafana
 	@echo "Running monitoring layer..."
 	$(ANSIBLE_PLAYBOOK) playbooks/monitoring.yml
@@ -75,7 +79,7 @@ security: ## 🔒 Security layer: unattended upgrades (firewall/SSH to come)
 	@echo "Running security layer..."
 	$(ANSIBLE_PLAYBOOK) playbooks/security.yml
 
-site: ## 🏗️ Full provisioning: all layers in sequence (system → networking → storage → ingress → service-infra → auth → applications → monitoring → security)
+site: ## 🏗️ Full provisioning: all layers in sequence (system → networking → storage → ingress → service-infra → auth → applications → backup → monitoring → security)
 	@echo "Running full site provisioning..."
 	$(ANSIBLE_PLAYBOOK) site.yml
 

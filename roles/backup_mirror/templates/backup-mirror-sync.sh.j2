@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Offsite backup mirror — managed by Ansible (roles/backup_mirror).
+#
+# Pulls each Garage bucket from valen into a plain restic-repo directory on this
+# host's pool. `rclone sync` makes the local copy an exact mirror of the bucket
+# (byte-identical objects), so {{ backup_mirror_dest }}/<bucket> is itself a
+# valid restic repo, restorable as-is with the service's restic password.
+#
+# Writes a node_exporter textfile metric so Prometheus can alert if the offsite
+# copy goes stale. We never need the restic password here: rclone only moves
+# opaque, already-encrypted objects.
+set -uo pipefail
+
+DEST="{{ backup_mirror_dest }}"
+TEXTFILE="{{ backup_mirror_textfile }}"
+CONFIG="/root/.config/rclone/rclone.conf"
+REMOTE="garage"
+
+BUCKETS=(
+{% for bucket in backup_mirror_buckets %}
+  "{{ bucket }}"
+{% endfor %}
+)
+
+rc=0
+for bucket in "${BUCKETS[@]}"; do
+  if ! rclone --config "${CONFIG}" sync "${REMOTE}:${bucket}" "${DEST}/${bucket}"; then
+    echo "backup-mirror: rclone sync failed for ${bucket}" >&2
+    rc=1
+  fi
+done
+
+# Preserve the previous success timestamp on a failed run so the freshness alert
+# measures "time since last GOOD mirror", not "time since last attempt".
+prev_success=""
+if [ -f "${TEXTFILE}" ]; then
+  prev_success="$(awk '/^backup_mirror_last_success_timestamp_seconds /{print $2}' "${TEXTFILE}")"
+fi
+if [ "${rc}" -eq 0 ]; then
+  last_success="$(date +%s)"
+else
+  last_success="${prev_success}"
+fi
+
+tmp="$(mktemp)"
+{
+  echo "# HELP backup_mirror_last_success_timestamp_seconds Unix time of the last fully successful offsite mirror run."
+  echo "# TYPE backup_mirror_last_success_timestamp_seconds gauge"
+  if [ -n "${last_success}" ]; then
+    echo "backup_mirror_last_success_timestamp_seconds ${last_success}"
+  fi
+  echo "# HELP backup_mirror_run_success Whether the most recent offsite mirror run fully succeeded (1) or had failures (0)."
+  echo "# TYPE backup_mirror_run_success gauge"
+  echo "backup_mirror_run_success $([ "${rc}" -eq 0 ] && echo 1 || echo 0)"
+} >"${tmp}"
+chmod 0644 "${tmp}"
+mv "${tmp}" "${TEXTFILE}"
+
+exit "${rc}"

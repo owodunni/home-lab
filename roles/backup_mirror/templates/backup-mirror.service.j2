@@ -1,0 +1,11 @@
+# Offsite backup mirror — managed by Ansible (roles/backup_mirror).
+[Unit]
+Description=Pull valen's Garage backup buckets into local offsite restic repos
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/backup-mirror-sync.sh
+# Runs as root: reads/writes the pool dest and the node_exporter textfile dir.
+User=root

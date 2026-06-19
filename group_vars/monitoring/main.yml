@@ -131,6 +131,37 @@ prometheus_alert_rules:
         {% raw %}Memory usage on {{ $labels.instance }} has been above 90%
         for more than 10 minutes.{% endraw %}
 
+  # --- Offsite backup mirror freshness (backup_mirror on [backup_mirror]) ----
+  # The offsite analogue of `make verify-backups` (which checks the local/valen
+  # side). The mirror sync script writes these textfile metrics on beelink after
+  # each pull; if the offsite copy stops updating we want to know before a real
+  # disaster needs it.
+  - alert: BackupMirrorStale
+    # 26h grace over the daily 06:00 pull (so a single delayed run does not trip
+    # it, but a genuinely missed day does). `time() - ...` is the age in seconds.
+    expr: "time() - backup_mirror_last_success_timestamp_seconds > 93600"
+    for: 30m
+    labels:
+      severity: critical
+    annotations:
+      summary: "{% raw %}Offsite backup mirror is stale on {{ $labels.instance }}{% endraw %}"
+      description: >-
+        {% raw %}The offsite backup mirror has not completed successfully for
+        over 26h ({{ $value | humanizeDuration }} ago). The offsite copy of the
+        fleet's backups is no longer current.{% endraw %}
+  - alert: BackupMirrorRunFailed
+    # The most recent pull had at least one bucket fail to sync.
+    expr: "backup_mirror_run_success == 0"
+    for: 30m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{% raw %}Offsite backup mirror run failed on {{ $labels.instance }}{% endraw %}"
+      description: >-
+        {% raw %}The last offsite backup mirror pull reported a failure for at
+        least one bucket. Check `journalctl -u backup-mirror` on the mirror
+        host.{% endraw %}
+
   # --- SMART drive health (smartctl_exporter on [storage] hosts) ------------
   # Metric names follow smartctl_exporter 0.14. ATA attributes are matched by
   # name on the raw value; NVMe health uses the dedicated nvme metrics.

@@ -1,0 +1,86 @@
+---
+# Offsite backup mirror — pull valen's Garage buckets into plain restic repos.
+#
+# Config (dest, endpoint, bucket list, schedule) and the read-only S3 creds come
+# from group_vars/backup_mirror. This role only installs the mechanism: rclone,
+# its config, the sync script, and a systemd timer. See group_vars/backup_mirror
+# /main.yml for the WHAT/WHY, and playbooks/backup-mirror.yml for the key+grants
+# that must exist on valen's Garage first.
+
+- name: Install rclone (the pull engine)
+  ansible.builtin.apt:
+    name: rclone
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create the offsite mirror destination directory
+  ansible.builtin.file:
+    path: "{{ backup_mirror_dest }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"  # restic repos — root-only, even though already encrypted
+
+- name: Create the rclone config directory
+  ansible.builtin.file:
+    path: /root/.config/rclone
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Ensure the node_exporter textfile directory exists
+  # The sync script writes its freshness metric here. node_exporter (monitoring
+  # layer) owns this dir, but the backup layer runs BEFORE monitoring on a fresh
+  # `make site`, so create it defensively — node_exporter only needs to read the
+  # .prom file, and it re-applies its own ownership when it installs later.
+  ansible.builtin.file:
+    path: "{{ backup_mirror_textfile | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deploy the rclone config (read-only key to valen's Garage)
+  ansible.builtin.template:
+    src: rclone.conf.j2
+    dest: /root/.config/rclone/rclone.conf
+    owner: root
+    group: root
+    mode: "0600"  # contains the S3 secret key
+
+- name: Deploy the offsite mirror sync script
+  ansible.builtin.template:
+    src: backup-mirror-sync.sh.j2
+    dest: /usr/local/bin/backup-mirror-sync.sh
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deploy the offsite mirror systemd service
+  ansible.builtin.template:
+    src: backup-mirror.service.j2
+    dest: /etc/systemd/system/backup-mirror.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Deploy the offsite mirror systemd timer
+  ansible.builtin.template:
+    src: backup-mirror.timer.j2
+    dest: /etc/systemd/system/backup-mirror.timer
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Flush handlers so the timer unit is loaded before enabling it
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start the offsite mirror timer
+  ansible.builtin.systemd:
+    name: backup-mirror.timer
+    enabled: true
+    state: started

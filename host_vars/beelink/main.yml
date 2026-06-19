@@ -89,12 +89,13 @@ snapraid_content_files:
   - /mnt/disk2/.snapraid.content
 
 # ============================================================================
-# Garage — S3-compatible object storage
+# Backup role
 # ============================================================================
-# Metadata (LMDB/sqlite index) on the local OS SSD for fast access.
-# Object data on the MergerFS pool so SnapRAID provides parity protection.
-garage_metadata_dir: /var/lib/garage/meta
-garage_data_dir: "{{ mergerfs_mount_point }}/garage"
+# beelink no longer runs Garage — it is the OFFSITE MIRROR ([backup_mirror]).
+# Garage moved to valen (see host_vars/valen/main.yml and hosts.ini) so services
+# back up to a local S3 target; beelink pulls those buckets here over WireGuard.
+# The mirror's config (dest dir, bucket list, schedule) lives in
+# group_vars/backup_mirror/main.yml; its read-only S3 creds in that dir's vault.
 
 # ============================================================================
 # Unattended Upgrades

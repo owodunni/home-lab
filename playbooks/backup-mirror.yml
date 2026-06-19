@@ -1,0 +1,100 @@
+---
+# Offsite backup mirror — make the OFFSITE copy of the 3-2-1 strategy.
+#
+# What: (1) on valen's Garage, import a single READ-ONLY S3 key and grant it read
+#       on every service backup bucket; (2) on beelink, install rclone + a systemd
+#       timer that pulls those buckets into plain restic-repo files on its pool.
+# Why:  decouple the offsite copy from the apps. Service sidecars only write
+#       LOCALLY to valen; this node pulls to make the offsite copy. A read-only
+#       key pulled by the offsite node means neither a compromised valen nor a
+#       compromised beelink can destroy both copies, and no plaintext leaks
+#       (objects stay restic-encrypted; the password never reaches beelink).
+# Resolves: the prior single-copy, offsite-only posture where an unreachable
+#       beelink left the fleet with no backups at all. See CLAUDE.md "Backups".
+#
+# Ordering: runs in the `backup` layer, AFTER `applications`, so every service
+# backup bucket already exists on Garage before we grant the mirror key on it.
+#
+# Vault prerequisites:
+#   group_vars/backup_mirror/vault.yml — vault_backup_mirror_s3_access_key and
+#   vault_backup_mirror_s3_secret_key (a Garage-format pair from
+#   scripts/garage-keygen.sh vault_backup_mirror_s3).
+
+- name: Grant the offsite mirror a read-only key on every backup bucket
+  # Runs on the Garage host (valen) because the `garage` CLI lives there. The
+  # bucket list and the read-only key live with the mirror in
+  # group_vars/backup_mirror, pulled here via the [backup_mirror] group so this
+  # play needs no edit when either node moves. All checks short-circuit on re-run.
+  hosts: garage
+  become: true
+  vars:
+    _mirror_host: "{{ groups['backup_mirror'][0] }}"
+    _mirror_buckets: "{{ hostvars[_mirror_host]['backup_mirror_buckets'] }}"
+    _mirror_access_key: "{{ hostvars[_mirror_host]['vault_backup_mirror_s3_access_key'] }}"
+    _mirror_secret_key: "{{ hostvars[_mirror_host]['vault_backup_mirror_s3_secret_key'] }}"
+    # Garage key name (the -n label) for the mirror's read-only key.
+    _mirror_key_name: backup-mirror-ro
+  tasks:
+    - name: List existing Garage buckets
+      ansible.builtin.command:
+        cmd: garage bucket list
+      register: garage_bucket_list
+      changed_when: false
+
+    - name: List existing Garage API keys
+      ansible.builtin.command:
+        cmd: garage key list
+      register: garage_key_list
+      changed_when: false
+
+    - name: Import the vaulted read-only mirror key
+      # Idempotent: only imports when a key of this name does not yet exist.
+      # Bring-your-own creds so a rebuilt Garage accepts the same key with no
+      # manual step. --yes bypasses the interactive import guard.
+      when: _mirror_key_name not in garage_key_list.stdout
+      ansible.builtin.command:
+        cmd: >
+          garage key import --yes
+          -n {{ _mirror_key_name }}
+          {{ _mirror_access_key }}
+          {{ _mirror_secret_key }}
+      no_log: true  # secret key is on the command line
+      changed_when: true
+
+    - name: Select backup buckets that already exist on Garage
+      # The grant only touches buckets that exist, so this play is safe to run
+      # before every service has been deployed (it just grants what is present).
+      ansible.builtin.set_fact:
+        _existing_buckets: "{{ _mirror_buckets | select('in', garage_bucket_list.stdout) | list }}"
+
+    - name: Read current grants on each existing backup bucket
+      ansible.builtin.command:
+        cmd: garage bucket info {{ item }}
+      loop: "{{ _existing_buckets }}"
+      register: garage_bucket_info
+      changed_when: false
+
+    - name: Grant the mirror key READ-ONLY access to each backup bucket
+      # WHAT: grant --read only (never --write) whenever the key is not already
+      #   listed in that bucket's grants.
+      # WHY: read-only is the whole security model — the offsite puller must not
+      #   be able to mutate valen's copy. Keying off the actual grant state (not
+      #   key existence) makes this idempotent and self-healing, the same lesson
+      #   as the service backup-key grants (see playbooks/authentik.yml).
+      when: _mirror_access_key not in item.stdout
+      ansible.builtin.command:
+        cmd: >
+          garage bucket allow
+          {{ item.item }}
+          --read
+          --key {{ _mirror_access_key }}
+      loop: "{{ garage_bucket_info.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      changed_when: true
+
+- name: Deploy the offsite backup mirror
+  hosts: backup_mirror
+  become: true
+  roles:
+    - role: backup_mirror
