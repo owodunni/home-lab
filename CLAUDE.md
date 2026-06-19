@@ -23,40 +23,47 @@ the entire site.
 
 | Layer | Purpose | Function playbooks | Hosts |
 |---|---|---|---|
-| **system** | Base OS state and per-host hardware enablement: apply all package updates, then Pi CM5 firmware/hardware/power settings and Intel GPU drivers (QuickSync/VA-API) on the media host. GPU drivers live here, not with the media apps, because they are host hardware state present whatever runs on top. | `upgrade.yml`, `pi-base-config.yml`, `gpu-drivers.yml` | `all` / `pi_cm5` / `media` |
-| **networking** | WireGuard peers for cross-site connectivity. Tunnels offsite hosts into the home LAN; skips hosts until their UniFi peer values are filled in. | `wireguard.yml` | `wireguard` |
-| **storage** | Encrypted drives, MergerFS pool, SnapRAID parity, the media data tree on the pool, NFS export of the pool, HDD spin-down. The media tree lives here (storage layout, owned by the media account) rather than with the media apps that bind-mount it. Runs on `[storage]`; the NFS client step runs on `[nfs_client]` (the Docker fleet). | `disk-encrypt.yml`, `snapraid-mergerfs.yml`, `media-storage.yml`, `nfs.yml`, `disk-spindown.yml` | `storage` / `media` / `nfs_server` / `nfs_client` |
-| ingress | Traefik reverse proxy with ACME wildcard certificates via Cloudflare DNS-01. | `traefik.yml` | `ingress` |
-| **service-infra** | Foundational infrastructure that application services depend on: the Docker runtime, and Garage S3 object storage (a shared storage backend — the target for Authentik's DB backups, and available to future services). Garage lives here, below auth, because other services consume it. | `docker.yml`, `garage.yml` | `services` / `garage` |
-| **auth** | Identity provider (Authentik SSO/OIDC). Must be live before any service configures OIDC integration against it. Provisions its backup bucket/key on Garage, so `service-infra` runs first. | `authentik.yml` | `authentik` |
-| **applications** | End-user app services that sit on the full platform (ingress + Docker + NFS, and auth for SSO). Nextcloud file sync/share — compute on a Pi, bulk file data on valen's pool over an NFS host mount, behind a co-located Traefik; its Postgres DB and its NFS file data are both backed up offsite to Garage (pg_dump→restic and restic), and it uses native Authentik OIDC (forward-auth would break the sync/WebDAV clients). **Vaultwarden** password manager — co-located with Nextcloud on the same Pi (Postgres backend + data dir all local), behind the co-located Traefik; its Postgres DB and its data dir are both backed up offsite to Garage (pg_dump→restic and restic), and it uses native Authentik OIDC SSO (forward-auth would break the Bitwarden clients). Plus the **media (arr) stack** on valen (compute + storage + Intel iGPU transcoding co-located, local bind mounts): the shared foundations (`media-network.yml` cross-stack Docker network, then `media-forward-auth.yml` SSO middleware) then services in dependency order — qBittorrent+VPN, Prowlarr, Radarr, Sonarr, Jellyfin (QuickSync), Jellyseerr — see `docs/media-stack-migration.md`. The *arr apps sit behind forward-auth; Jellyfin and Jellyseerr use their own auth (forward-auth breaks Jellyfin native clients). Its hardware (GPU drivers) and storage layout (media tree) foundations live in the `system` and `storage` layers respectively. | `nextcloud.yml`, `vaultwarden.yml`, `media-network.yml`, `media-forward-auth.yml`, `qbittorrent.yml`, `prowlarr.yml`, `radarr.yml`, `sonarr.yml`, `jellyfin.yml`, `jellyseerr.yml` | `nextcloud` / `vaultwarden` / `media` / `qbittorrent` / `prowlarr` / `radarr` / `sonarr` / `jellyfin` / `jellyseerr` |
-| **monitoring** | Observability stack: node_exporter on every host; smartctl_exporter (SMART drive health) on `[storage]`; Prometheus, Alertmanager, and Grafana on `[monitoring]`. Alert rules cover host and drive faults (failed SMART status, reallocated/pending sectors, temperature, NVMe wearout) and route to email via Alertmanager. Grafana exposed at `grafana.jardoole.xyz` via Traefik. Runs after `applications` so every service it scrapes already exists. | `node-exporter.yml`, `smartctl-exporter.yml`, `prometheus.yml`, `grafana.yml` | `all` / `storage` / `monitoring` |
+| **system** | Base OS + per-host hardware: package updates, then Pi CM5 firmware/power and Intel GPU drivers (QuickSync/VA-API) on the media host. | `upgrade.yml`, `pi-base-config.yml`, `gpu-drivers.yml` | `all` / `pi_cm5` / `media` |
+| **networking** | WireGuard peers tunneling offsite hosts into the home LAN. Skips hosts until their UniFi peer values are filled in. | `wireguard.yml` | `wireguard` |
+| **storage** | Encrypted drives, MergerFS pool, SnapRAID parity, the media data tree, NFS export of the pool, HDD spin-down. Exports on `[storage]`; NFS client step on `[nfs_client]` (the Docker fleet). | `disk-encrypt.yml`, `snapraid-mergerfs.yml`, `media-storage.yml`, `nfs.yml`, `disk-spindown.yml` | `storage` / `media` / `nfs_server` / `nfs_client` |
+| **ingress** | Traefik reverse proxy with ACME wildcard certificates via Cloudflare DNS-01. | `traefik.yml` | `ingress` |
+| **service-infra** | Docker runtime + Garage S3 object storage — a shared backend other services consume (e.g. Authentik DB backups). | `docker.yml`, `garage.yml` | `services` / `garage` |
+| **auth** | Authentik SSO/OIDC identity provider. Backs up to Garage. | `authentik.yml` | `authentik` |
+| **applications** | End-user services on the full platform. Nextcloud, Vaultwarden, and the media (arr) stack — see [Application notes](#application-notes) below. | `nextcloud.yml`, `vaultwarden.yml`, `media-network.yml`, `media-forward-auth.yml`, `qbittorrent.yml`, `prowlarr.yml`, `radarr.yml`, `sonarr.yml`, `jellyfin.yml`, `jellyseerr.yml` | `nextcloud` / `vaultwarden` / `media` / `qbittorrent` / `prowlarr` / `radarr` / `sonarr` / `jellyfin` / `jellyseerr` |
+| **monitoring** | node_exporter everywhere, smartctl_exporter on `[storage]`, Prometheus + Alertmanager + Grafana on `[monitoring]`. Alert rules for host/drive faults route to email; Grafana at `grafana.jardoole.xyz`. | `node-exporter.yml`, `smartctl-exporter.yml`, `prometheus.yml`, `grafana.yml` | `all` / `storage` / `monitoring` |
 | **security** | Hardening: automatic security updates (firewall, SSH hardening to come). | `unattended-upgrades.yml` | `all` |
 
-**Order matters:** `system` first (patched OS and host hardware before anything
-else), then `networking` (establish cross-site reachability so later layers can
-manage offsite hosts), then `storage` (functional setup before security rules
-can interfere with package downloads and drive operations), then `ingress`
-(Traefik must be running before any service routing configs land), then
-`service-infra` (the Docker runtime and Garage S3 — both are dependencies of the
-layers above: Docker runs the app containers, and Garage is the backend
-Authentik backs its database up to, so it must exist before `auth`), then `auth`
-(Authentik provisions its backup bucket/key on the now-live Garage, then deploys
-with its restic backup sidecars), then `applications` (end-user services that
-depend on every platform layer below them — ingress, Docker, NFS, and a live
-Authentik for any SSO), then `monitoring` (it scrapes the services the
-`applications` layer deploys, so it runs after them; Traefik must also be running
-for the Grafana routing config and Authentik live for Grafana SSO), then
-`security` last. Hardening is the most likely step to lock an operator out, so
-it always runs after the host is fully configured.
+**Ordering principle:** a dependency belongs in a layer *below* the things that
+consume it, and hardening runs last (it is the most likely step to lock an
+operator out). Concretely: `system` (patched OS + hardware first) → `networking`
+(reachability to offsite hosts) → `storage` (before security rules interfere with
+package/drive operations) → `ingress` (Traefik up before any routing config) →
+`service-infra` (Docker runs the app containers; Garage is the backend `auth`
+backs up to) → `auth` (live before any service configures OIDC) → `applications`
+(depend on every layer below — ingress, Docker, NFS, SSO) → `monitoring` (scrapes
+the services `applications` deploys) → `security`.
 
-A dependency belongs in a layer *below* the things that consume it. That is why
-Garage sits in `service-infra` (other services use it as a backend) rather than
-in a leaf services layer, and why the media stack's GPU drivers and data tree
-live in `system` and `storage` rather than alongside the media apps. The
-`applications` layer holds only the actual services (and their auth middleware):
-it is where a service that consumes OIDC belongs, sequenced after `auth` and
-before `monitoring`.
+This is also why the media stack's GPU drivers and data tree live in `system` and
+`storage` rather than alongside the media apps: they are host hardware and storage
+state, consumed by the apps above.
+
+#### Application notes
+
+- **Nextcloud** — compute on a Pi, bulk file data on valen's pool over an NFS host
+  mount, behind a co-located Traefik. Postgres DB and NFS file data both backed up
+  offsite to Garage (pg_dump→restic and restic). Uses native Authentik OIDC —
+  forward-auth would break the sync/WebDAV clients.
+- **Vaultwarden** — password manager co-located with Nextcloud on the same Pi
+  (Postgres backend + data dir all local), behind the co-located Traefik. Postgres
+  DB and data dir both backed up offsite to Garage (pg_dump→restic and restic).
+  Uses native Authentik OIDC SSO — forward-auth would break the Bitwarden clients.
+- **Media (arr) stack** — on valen (compute + storage + Intel iGPU transcoding
+  co-located, local bind mounts). Foundations first (`media-network.yml` cross-stack
+  Docker network, then `media-forward-auth.yml` SSO middleware), then services in
+  dependency order: qBittorrent+VPN, Prowlarr, Radarr, Sonarr, Jellyfin (QuickSync),
+  Jellyseerr. The *arr apps sit behind forward-auth; Jellyfin and Jellyseerr use
+  their own auth (forward-auth breaks Jellyfin native clients). See
+  `docs/media-stack-migration.md`.
 
 ### Service host targeting
 
@@ -85,17 +92,14 @@ to a new host is a single-line `hosts.ini` change with no playbook edits.
 
 **Variables live in `group_vars/<service>/`, not in the role.** A service role
 (`roles/nextcloud`, `roles/authentik`, the *arr roles, …) holds **no**
-`defaults/main.yml` or `vars/main.yml` and no inline `vars:`/`default()`
-fallbacks — every value it consumes is defined once in `group_vars/<service>/`.
-Do not split a service's config across both places: a default in the role plus an
-override in `group_vars` is the duplication this convention exists to prevent
-(two sources of truth, and the role default silently wins when the `group_vars`
-entry is renamed). If the role needs a structural constant that is not host/env
-config (e.g. an `argv` command prefix shared across tasks), still define it in
-`group_vars/<service>/main.yml` so there is one home for everything the service
-references. The **only** role carrying `defaults/` is `pi_cm5_config`, and that
-is deliberate: it is a generic, parameterized hardware role (geerlingguy-style)
-whose defaults are meant to be overridden per group/host, not a service.
+`defaults/main.yml`, `vars/main.yml`, or inline `vars:`/`default()` fallbacks —
+every value it consumes, including structural constants like a shared `argv`
+prefix, is defined once in `group_vars/<service>/`. Splitting config across both
+places is the exact duplication this prevents: two sources of truth, with the
+role default silently winning when the `group_vars` entry is renamed. The **only**
+role carrying `defaults/` is `pi_cm5_config` — deliberately, as a generic
+parameterized hardware role (geerlingguy-style) meant to be overridden per
+group/host, not a service.
 
 Infrastructure groups (`[ingress]`, `[services]`, `[monitoring]`) describe *what
 infrastructure runs where* and are targets for infrastructure playbooks only
@@ -121,34 +125,29 @@ that group). Never use infrastructure groups as service targets.
 
 ## Backups: verify & restore
 
-Backups are codified as two generic, manifest-driven playbooks that work for
-**any** service — there are no service-specific backup playbooks. Every backup
-is a **restic** snapshot (a database is a `pg_dump` captured in restic), so
-databases and file volumes share one grandfather-father-son retention policy and
-the same restore-any-snapshot behaviour.
+Two generic, manifest-driven playbooks back up **any** service — no
+service-specific backup playbooks. Every backup is a **restic** snapshot (a
+database is a `pg_dump` captured in restic), so DBs and file volumes share one
+grandfather-father-son retention policy and the same restore-any-snapshot path.
 
 ```bash
-make verify-backups  SERVICE=authentik   # non-destructive: exist + fresh? + list every restore point
+make verify-backups  SERVICE=authentik   # non-destructive: exist + fresh? + list restore points
 make restore-backups SERVICE=authentik   # DESTRUCTIVE (typed-confirm): restore each backup's latest snapshot
 ```
 
-**Restoring an older (non-latest) snapshot** — `restore-backups` takes an
-optional `TARGETS` map of `name=snapshot-id` pairs:
+To restore an **older** snapshot, pass a `TARGETS` map of `name=snapshot-id`
+pairs (omitted backups restore their latest):
 
 ```bash
 make restore-backups SERVICE=authentik TARGETS='postgres=ab12cd34,volumes=ef56ab78'
 ```
 
-- The **name** (`postgres`, `volumes`, …) is the entry's `name:` in the
-  service's `backups:` manifest — *not* a hostname or compose service.
-- The **snapshot id** is a restic short-ID from `make verify-backups` (or
-  `restic snapshots` on the host).
-- Any backup you omit — or omitting `TARGETS` entirely — restores its **latest**
-  snapshot. The repos are independent (no single cross-backup point-in-time);
-  pick the nearest snapshot in each.
+The **name** is the entry's `name:` in the service's `backups:` manifest (not a
+host or compose service); the **id** is a restic short-ID from `make
+verify-backups`. Repos are independent — pick the nearest snapshot in each.
 
-**Run `/backups`** for the full guide: the manifest schema, how verify/restore
-dispatch per engine, how a restore executes, and how to add a new backup engine.
+**Run `/backups`** for the full guide: manifest schema, per-engine verify/restore
+dispatch, how a restore executes, and adding a new backup engine.
 
 ## Documenting Config Changes
 
