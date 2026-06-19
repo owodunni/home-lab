@@ -1,0 +1,123 @@
+---
+# Deploy Vaultwarden (password manager) as a docker-compose stack with a Postgres
+# backend, back the DB and the data dir up offsite to Garage S3, and route
+# vaultwarden.jardoole.xyz through the co-located Traefik.
+#
+# What: Provisions the offsite backup buckets/keys on Garage (beelink), then
+#       deploys the stack on the [vaultwarden] host and registers the Traefik route.
+# Why:  Self-hosted, Bitwarden-compatible password manager with native Authentik
+#       SSO and the same offsite restic backups the rest of the platform uses.
+# Resolves: A password manager on the platform with codified, restorable backups.
+#
+# Prerequisites:
+#   - Docker runtime (service-infra layer) on the [vaultwarden] host.
+#   - Traefik running with conf.d at /etc/traefik/conf.d (ingress layer) — the
+#     [vaultwarden] host is in [ingress], so Traefik is co-located here.
+#   - Garage up on [garage] (service-infra layer) — the first play needs the
+#     `garage` CLI to provision the backup buckets/keys.
+#   - Authentik live (auth layer) for OIDC SSO, plus a manually-created Authentik
+#     provider/application — see docs/vaultwarden.md.
+#
+# Vault vars required in group_vars/vaultwarden/vault.yml:
+#   vault_vaultwarden_pg_pass                       — Postgres password (hex, no '$')
+#   vault_vaultwarden_oidc_client_secret            — must equal the secret set on
+#       the Authentik provider (docs/vaultwarden.md)
+#   vault_vaultwarden_restic_password               — encrypts BOTH restic repos;
+#       openssl rand -base64 32. Losing it makes snapshots unrecoverable.
+#   vault_vaultwarden_backup_s3_access_key / _secret_key       — DB backup Garage key
+#   vault_vaultwarden_data_backup_s3_access_key / _secret_key  — data backup Garage key
+#       Generate both with: scripts/garage-keygen.sh vault_vaultwarden_backup_s3
+#                           scripts/garage-keygen.sh vault_vaultwarden_data_backup_s3
+# (Mail auth reuses the cluster-wide vault_smtp_username / vault_smtp_password
+#  from group_vars/all/vault.yml — no per-service SMTP secret needed.)
+
+- name: Provision Vaultwarden backup buckets and keys on Garage
+  # Runs on the Garage host (beelink) where the `garage` CLI lives. Creates the
+  # DB and data backup buckets and imports the vaulted keys (bring-your-own
+  # creds, so a rebuilt Garage accepts the same keys unattended). All checks
+  # short-circuit on subsequent runs. Mirrors playbooks/nextcloud.yml.
+  hosts: garage
+  become: true
+  vars:
+    _vaultwarden_host: "{{ groups['vaultwarden'][0] }}"
+    _garage_resources:
+      - bucket: "{{ hostvars[_vaultwarden_host]['vaultwarden_backup_s3_bucket'] }}"
+        access_key: "{{ hostvars[_vaultwarden_host]['vault_vaultwarden_backup_s3_access_key'] }}"
+        secret_key: "{{ hostvars[_vaultwarden_host]['vault_vaultwarden_backup_s3_secret_key'] }}"
+      - bucket: "{{ hostvars[_vaultwarden_host]['vaultwarden_data_backup_s3_bucket'] }}"
+        access_key: "{{ hostvars[_vaultwarden_host]['vault_vaultwarden_data_backup_s3_access_key'] }}"
+        secret_key: "{{ hostvars[_vaultwarden_host]['vault_vaultwarden_data_backup_s3_secret_key'] }}"
+  tasks:
+    - name: List existing Garage buckets
+      ansible.builtin.command:
+        cmd: garage bucket list
+      register: garage_bucket_list
+      changed_when: false
+
+    - name: Create Vaultwarden backup buckets
+      when: item.bucket not in garage_bucket_list.stdout
+      ansible.builtin.command:
+        cmd: garage bucket create {{ item.bucket }}
+      loop: "{{ _garage_resources }}"
+      loop_control:
+        label: "{{ item.bucket }}"
+      changed_when: true
+
+    - name: List existing Garage API keys
+      ansible.builtin.command:
+        cmd: garage key list
+      register: garage_key_list
+      changed_when: false
+
+    - name: Import the vaulted backup API keys
+      when: item.bucket not in garage_key_list.stdout
+      ansible.builtin.command:
+        cmd: >
+          garage key import --yes
+          -n {{ item.bucket }}
+          {{ item.access_key }}
+          {{ item.secret_key }}
+      loop: "{{ _garage_resources }}"
+      loop_control:
+        label: "{{ item.bucket }}"
+      no_log: true # secret key is on the command line
+      changed_when: true
+
+    - name: Read current grants on each backup bucket
+      ansible.builtin.command:
+        cmd: garage bucket info {{ item.bucket }}
+      loop: "{{ _garage_resources }}"
+      loop_control:
+        label: "{{ item.bucket }}"
+      register: garage_bucket_info
+      changed_when: false
+
+    - name: Grant key read/write access to its backup bucket
+      # Keyed on the actual grant state (not key existence) so it is idempotent
+      # and self-healing — see playbooks/authentik.yml for the full rationale.
+      when: item.item.access_key not in item.stdout
+      ansible.builtin.command:
+        cmd: >
+          garage bucket allow {{ item.item.bucket }}
+          --read --write
+          --key {{ item.item.access_key }}
+      loop: "{{ garage_bucket_info.results }}"
+      loop_control:
+        label: "{{ item.item.bucket }}"
+      changed_when: true
+
+- name: Deploy Vaultwarden and register its Traefik route
+  hosts: vaultwarden
+  become: true
+
+  roles:
+    - role: vaultwarden
+
+  tasks:
+    - name: Deploy Traefik routing config for Vaultwarden
+      ansible.builtin.template:
+        src: templates/traefik-vaultwarden.yml.j2
+        dest: /etc/traefik/conf.d/vaultwarden.yml
+        owner: traefik
+        group: traefik
+        mode: "0640"

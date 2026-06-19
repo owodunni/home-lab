@@ -1,0 +1,23 @@
+# Traefik dynamic config for Vaultwarden — managed by Ansible, do not edit manually.
+#
+# The wildcard cert (*.{{ traefik_domain }}) is managed by traefik-wildcard-tls.yml.j2
+# (deployed by the ingress layer). This router just selects it via certResolver.
+# Traefik is co-located with Vaultwarden on this host, so the upstream is loopback.
+#
+# No middleware needed: Vaultwarden serves the web vault, API, identity (OIDC
+# callback) and its WebSocket notifications (/notifications/hub) all on the one
+# port, and Traefik proxies the WebSocket upgrade transparently.
+
+http:
+  routers:
+    vaultwarden:
+      rule: "Host(`{{ vaultwarden_hostname }}`)"
+      service: vaultwarden
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    vaultwarden:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:{{ vaultwarden_port }}"

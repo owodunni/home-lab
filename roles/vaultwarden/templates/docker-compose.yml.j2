@@ -1,0 +1,174 @@
+# Vaultwarden docker-compose stack — managed by Ansible, do not edit manually.
+# Based on the upstream compose example (https://github.com/dani-garcia/vaultwarden)
+# with this lab's additions:
+#   - Postgres backend (not the default SQLite) so the DB reuses the platform's
+#     pg_dump→restic backup engine. DATABASE_URL points the app at the `db` service.
+#   - The Vaultwarden data dir (/data: RSA JWT keys, attachments, sends,
+#     config.json, icons) is a LOCAL host dir bind-mounted in — so the generic
+#     restic restore tooling copies a restored snapshot back into it in place
+#     (see group_vars/vaultwarden/main.yml).
+#   - No web/proxy container: Traefik (co-located on this host) terminates TLS and
+#     the app's port 80 is published on 127.0.0.1 only.
+#   - pg-dump + db-backup + data-backup restic sidecars add offsite Garage backups.
+# Non-secret values come from group_vars/vaultwarden/main.yml (Jinja); runtime
+# secrets come from .env (templated from vault).
+
+services:
+  db:
+    image: {{ vaultwarden_db_image }}
+    container_name: vaultwarden-db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}"]
+      start_period: 20s
+      interval: 30s
+      retries: 5
+      timeout: 5s
+    volumes:
+      - vaultwarden-db:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    networks:
+      - vaultwarden-net
+
+  vaultwarden:
+    image: {{ vaultwarden_image }}
+    container_name: vaultwarden
+    restart: unless-stopped
+    volumes:
+      # RSA JWT signing keys, attachments, sends, config.json, icon cache on the
+      # local host dir (the DB itself lives in Postgres). Bind so the restic
+      # restore copy-back lands here in place.
+      - {{ vaultwarden_data_dir }}:/data
+    environment:
+      # ---- Core (non-secret, from group_vars) ----
+      DOMAIN: "{{ vaultwarden_domain_url }}"
+      # Account self-signup policy; access is otherwise gated at Authentik.
+      SIGNUPS_ALLOWED: "{{ vaultwarden_signups_allowed | lower }}"
+      # ---- SSO / OIDC against Authentik ----
+      SSO_ENABLED: "true"
+      SSO_AUTHORITY: "{{ vaultwarden_sso_authority }}"
+      SSO_CLIENT_ID: "{{ vaultwarden_sso_client_id }}"
+      SSO_SCOPES: "{{ vaultwarden_sso_scopes }}"
+      # Link an SSO login to an existing local account with the same email
+      # (so SSO and the break-glass master-password account converge).
+      SSO_SIGNUPS_MATCH_EMAIL: "true"
+      # ---- SMTP (cluster-wide Gmail relay from group_vars/all) ----
+      SMTP_HOST: "{{ smtp_host }}"
+      SMTP_FROM: "{{ smtp_from }}"
+      SMTP_FROM_NAME: "Vaultwarden"
+      SMTP_PORT: "{{ smtp_port }}"
+      # Gmail relay: 587/STARTTLS, or 465/implicit-TLS if smtp_use_ssl is set.
+      SMTP_SECURITY: "{{ 'force_tls' if smtp_use_ssl else 'starttls' }}"
+      # ---- Secrets (from .env) ----
+      DATABASE_URL: ${DATABASE_URL}
+      SSO_CLIENT_SECRET: ${SSO_CLIENT_SECRET}
+      SMTP_USERNAME: ${SMTP_USERNAME}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+    ports:
+      - "127.0.0.1:{{ vaultwarden_port }}:80"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - vaultwarden-net
+
+  # DB backup, half 1 of 2: produce a logical dump on a schedule. Writes pg_dump
+  # custom-format output to the shared db-dump volume; the db-backup restic
+  # sidecar snapshots that volume to Garage. Image major must match `db` (16) so
+  # pg_dump/pg_restore are wire-compatible. Atomic temp-then-rename so the restic
+  # sidecar never snapshots a half-written dump. Doubles as the pg_restore client
+  # for restores (it carries PGHOST/PGDATABASE/PGUSER/PGPASSWORD).
+  pg-dump:
+    image: {{ vaultwarden_db_image }}
+    container_name: vaultwarden-pg-dump
+    restart: unless-stopped
+    environment:
+      PGHOST: ${POSTGRES_HOST}
+      PGDATABASE: ${POSTGRES_DB}
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - db-dump:/dump
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        while true; do
+          pg_dump -Fc -f /dump/vaultwarden.dump.tmp \
+            && mv -f /dump/vaultwarden.dump.tmp /dump/vaultwarden.dump \
+            && echo "pg-dump: wrote /dump/vaultwarden.dump at $$(date -Is)"
+          sleep {{ vaultwarden_db_dump_interval_seconds }}
+        done
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - vaultwarden-net
+
+  # DB backup, half 2 of 2: restic snapshot of the dump → offsite Garage S3.
+  # Repo lives under the restic/ subpath of the vaultwarden-backup bucket. The
+  # dump mount is read-only — restic only ever reads it.
+  db-backup:
+    image: {{ vaultwarden_restic_image }}
+    container_name: vaultwarden-db-backup
+    restart: unless-stopped
+    environment:
+      RESTIC_REPOSITORY: "s3:{{ vaultwarden_backup_s3_endpoint }}/{{ vaultwarden_backup_s3_bucket }}/restic"
+      RESTIC_PASSWORD: ${RESTIC_PASSWORD}
+      AWS_ACCESS_KEY_ID: ${DB_BACKUP_S3_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${DB_BACKUP_S3_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: "{{ vaultwarden_backup_s3_region }}"
+      RESTIC_TAG: vaultwarden-db
+      BACKUP_CRON: "{{ vaultwarden_db_backup_schedule }}"
+      RESTIC_FORGET_ARGS: "{{ vaultwarden_db_backup_retention_args }}"
+    volumes:
+      - db-dump:/data:ro
+    depends_on:
+      - pg-dump
+
+  # Data-dir backup: restic snapshot of the Vaultwarden data dir → offsite Garage
+  # S3. Mounted at /data/data so snapshots carry /data/data/… and the generic
+  # restore copy-back (restore_paths: [data]) lands at the host data dir in place.
+  # The mount is read-only — restic only reads. RESTIC_CACHE_DIR points at a local
+  # named volume so the metadata cache is bounded and reused, never re-downloaded
+  # to a throwaway container layer (keeps the Pi's disk footprint to metadata).
+  data-backup:
+    image: {{ vaultwarden_restic_image }}
+    container_name: vaultwarden-data-backup
+    restart: unless-stopped
+    environment:
+      RESTIC_REPOSITORY: "s3:{{ vaultwarden_backup_s3_endpoint }}/{{ vaultwarden_data_backup_s3_bucket }}"
+      RESTIC_PASSWORD: ${RESTIC_PASSWORD}
+      RESTIC_CACHE_DIR: /cache
+      AWS_ACCESS_KEY_ID: ${DATA_BACKUP_S3_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${DATA_BACKUP_S3_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: "{{ vaultwarden_backup_s3_region }}"
+      RESTIC_TAG: vaultwarden-data
+      BACKUP_CRON: "{{ vaultwarden_data_backup_schedule }}"
+      RESTIC_FORGET_ARGS: "{{ vaultwarden_data_backup_retention_args }}"
+    volumes:
+      - {{ vaultwarden_data_dir }}:/data/data:ro
+      - restic-cache:/cache
+
+networks:
+  vaultwarden-net:
+    name: vaultwarden-net
+
+volumes:
+  # Postgres data on local disk.
+  vaultwarden-db:
+    driver: local
+  # Shared between pg-dump (writes the dump) and db-backup (reads it for restic).
+  db-dump:
+    driver: local
+  # restic metadata cache for the data-backup sidecar — bounded, local, reused.
+  restic-cache:
+    driver: local

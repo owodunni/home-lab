@@ -19,6 +19,9 @@
 - name: Deploy Nextcloud file sync/share
   ansible.builtin.import_playbook: nextcloud.yml
 
+- name: Deploy Vaultwarden password manager
+  ansible.builtin.import_playbook: vaultwarden.yml
+
 # --- Media stack (on valen) -------------------------------------------------
 # Storage tree (storage layer) and GPU drivers (system layer) are already in
 # place; here we set up the shared foundations (the cross-stack Docker network,

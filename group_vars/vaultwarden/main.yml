@@ -1,0 +1,223 @@
+---
+# Vaultwarden service configuration
+# Secrets (DB password, OIDC client secret, restic + S3 backup creds) live in
+# group_vars/vaultwarden/vault.yml with the vault_ prefix.
+#
+# Vaultwarden is this lab's self-hosted password manager (Bitwarden-compatible,
+# Rust). It runs as a small docker-compose stack on a Pi (pi-cm5-2), behind the
+# co-located Traefik, with native OIDC SSO against Authentik and the same offsite
+# restic-to-Garage backups the rest of the platform uses. Structurally it mirrors
+# Nextcloud (see group_vars/nextcloud/main.yml) minus NFS — the vault dataset is
+# tiny and stays on local disk.
+#
+# DB BACKEND: Postgres (not Vaultwarden's default SQLite). Why: it lets the DB
+# reuse the repo's existing pg_dump→restic backup engine verbatim (the `postgres`
+# backup type), giving guaranteed-consistent logical dumps — restic-ing a live
+# SQLite file risks an inconsistent snapshot. Same engine/rationale as Authentik
+# and Nextcloud.
+
+# ============================================================================
+# Images — pinned upstream tags
+# ============================================================================
+# Vaultwarden server, alpine variant. SSO/OIDC support has been in mainline since
+# v1.34; pinned to a current release. Tags: https://github.com/dani-garcia/vaultwarden/releases
+vaultwarden_image: "vaultwarden/server:1.36.0-alpine"
+
+# Postgres image — pinned to the same major (16) as Authentik/Nextcloud so the
+# pg-dump / pg-restore sidecars are wire-compatible and we reason about one PG
+# version across the lab.
+vaultwarden_db_image: "postgres:16-alpine"
+
+# restic backup sidecar — multi-arch (amd64/arm64), matches the Pi CM5 host.
+# Releases: https://github.com/lobaro/restic-backup-docker/releases
+vaultwarden_restic_image: "ghcr.io/lobaro/restic-backup-docker:v1.4.2"
+
+# ============================================================================
+# Placement and routing
+# ============================================================================
+# Directory on the host holding the compose stack + .env. Persistent state: the
+# Postgres data is a local Docker named volume; the Vaultwarden data dir (RSA JWT
+# signing keys, attachments, sends, config.json, icon cache) is the local host
+# dir {{ vaultwarden_data_dir }} below.
+vaultwarden_dir: /opt/vaultwarden
+
+# Port the app container's HTTP (port 80) is published on, bound to 127.0.0.1.
+# Traefik is co-located on this host (pi-cm5-2 is in [ingress]) and proxies to it
+# over loopback, so the port is never exposed on the LAN. 8002 — Nextcloud, the
+# other stack on this host, uses 8001.
+vaultwarden_port: 8002
+
+# Public hostname. Traefik terminates TLS (Cloudflare DNS-01 wildcard) and routes
+# Host(vaultwarden.jardoole.xyz) → 127.0.0.1:{{ vaultwarden_port }}. DNS for this
+# name must resolve to the Vaultwarden host (pi-cm5-2).
+vaultwarden_hostname: "vaultwarden.{{ traefik_domain }}"
+
+# Vaultwarden's DOMAIN setting — it builds absolute URLs and the OIDC callback
+# (https://<domain>/identity/connect/oidc-signin) from this, so it MUST be the
+# external https URL behind Traefik.
+vaultwarden_domain_url: "https://{{ vaultwarden_hostname }}"
+
+# ============================================================================
+# Storage — local data dir (host path under the stack dir)
+# ============================================================================
+# Vaultwarden's /data: RSA JWT signing keys (rsa_key*), attachments, sends,
+# config.json and the icon cache (the DB itself lives in Postgres, not here).
+# A LOCAL host directory under the stack dir — same reason as Nextcloud's data
+# mount: the generic restic restore (roles/backup_restore/tasks/restic.yml)
+# copies a restored snapshot back to a path under the stack dir, so a host path
+# makes the copy-back land in place with no changes to the shared backup roles.
+vaultwarden_data_dir: "{{ vaultwarden_dir }}/data"
+
+# ============================================================================
+# Database — names only; the password is vaulted (vault_vaultwarden_pg_pass)
+# ============================================================================
+vaultwarden_db_host: "db"
+vaultwarden_db_name: "vaultwarden"
+vaultwarden_db_user: "vaultwarden"
+
+# ============================================================================
+# SSO — native OIDC against Authentik
+#
+# WHAT: Vaultwarden's built-in SSO (SSO_ENABLED) points at an Authentik
+#   OAuth2/OIDC provider. Browser/extension/desktop/mobile logins go through
+#   Authentik; the user's vault stays end-to-end encrypted under a master
+#   password they still set (SSO authenticates identity, the master password
+#   unlocks the vault).
+# WHY native SSO, not a Traefik forward-auth: forward-auth would block the
+#   Bitwarden API/clients (non-browser auth flows), the same reason Nextcloud and
+#   Jellyfin use native auth in this lab.
+# RESOLVES: single sign-on through Authentik without breaking the clients.
+#
+# Authentik side is created in its UI (an OAuth2/OIDC provider + application,
+# redirect URI https://vaultwarden.jardoole.xyz/identity/connect/oidc-signin) —
+# see docs/vaultwarden.md and the `authentik-app` skill. The client secret set on
+# that provider MUST equal vault_vaultwarden_oidc_client_secret.
+# ============================================================================
+# SSO_AUTHORITY: the OIDC issuer base (NO trailing /.well-known — Vaultwarden
+# appends it). The `vaultwarden` slug must match the Authentik application slug.
+vaultwarden_sso_authority: "https://auth.{{ traefik_domain }}/application/o/vaultwarden/"
+
+# OAuth2 client identifier registered on the Authentik provider. Non-secret (the
+# secret is vaulted); kept here so the Authentik app and Vaultwarden agree.
+vaultwarden_sso_client_id: "vaultwarden"
+
+# Requested scopes. offline_access is REQUIRED for refresh tokens (so Vaultwarden
+# can keep the session alive); openid/profile/email carry identity + the groups
+# claim. Matches Authentik's recommended Vaultwarden scope set.
+vaultwarden_sso_scopes: "openid profile email offline_access"
+
+# Account creation policy. false = no self-service signups; access is gated by
+# the Authentik application binding (only bound users can authenticate).
+# BOOTSTRAP: to enrol the very first user, flip this to true for one SSO login
+# (which creates the account + master password), then set back to false and
+# redeploy — see docs/vaultwarden.md. SSO_SIGNUPS_MATCH_EMAIL (set in the role)
+# links an SSO login to an existing account with the same email.
+vaultwarden_signups_allowed: false
+
+# ============================================================================
+# Database backup — pg_dump → restic → Garage S3 (offsite, beelink at the barn)
+#
+# Identical engine and rationale to Authentik/Nextcloud: a postgres pg-dump
+# sidecar writes a logical dump to a shared volume on a schedule; a lobaro restic
+# db-backup sidecar snapshots that dump to Garage with grandfather-father-son
+# retention and per-snapshot restore.
+#
+# Bucket + key are provisioned by the first play in playbooks/vaultwarden.yml
+# (targets [garage]); bring-your-own credentials generated with
+# scripts/garage-keygen.sh and vaulted before the first run.
+# ============================================================================
+# How often the pg-dump sidecar refreshes the on-disk dump (seconds). 86400 = daily.
+vaultwarden_db_dump_interval_seconds: 86400
+
+# Cron (5-field) for the restic db snapshot run. Offset from the data-backup run
+# (0 4) so the two restic jobs don't compete for upload bandwidth.
+vaultwarden_db_backup_schedule: "0 2 * * *"
+
+# `restic forget` GFS policy after each DB snapshot — a week of dailies, a month
+# of weeklies, a third of a year of monthlies, one yearly, then prune.
+vaultwarden_db_backup_retention_args: "--keep-daily 7 --keep-weekly 4 --keep-monthly 4 --keep-yearly 1 --prune"
+
+# Garage S3 — region label must match garage_s3_region in group_vars/ingress.
+# The DB restic repo lives under the restic/ subpath of this bucket (see compose).
+vaultwarden_backup_s3_region: "garage"
+vaultwarden_backup_s3_bucket: "vaultwarden-backup"
+
+# Garage exposes its S3 API at s3.jardoole.xyz via Traefik on beelink (path-style).
+vaultwarden_backup_s3_endpoint: "https://s3.jardoole.xyz"
+
+# ============================================================================
+# Data-dir backup — lobaro restic sidecar → Garage S3 (offsite)
+#
+# A second restic sidecar snapshots the Vaultwarden data dir (RSA keys,
+# attachments, sends, config.json — everything except the DB, which the postgres
+# backup covers) read-only to its own Garage bucket. Separate bucket/key from the
+# DB backup for independent retention/lifecycle and blast radius, same convention
+# as Authentik's and Nextcloud's two backups.
+# ============================================================================
+# Cron (5-field). Offset from the DB snapshot (0 2) so the two restic uploads
+# don't overlap.
+vaultwarden_data_backup_schedule: "0 4 * * *"
+
+# `restic forget` GFS policy for the data dir — kept identical to the DB policy
+# so both backups age out the same way.
+vaultwarden_data_backup_retention_args: "--keep-daily 7 --keep-weekly 4 --keep-monthly 4 --keep-yearly 1 --prune"
+
+# Separate bucket from the DB repo.
+vaultwarden_data_backup_s3_bucket: "vaultwarden-data-backup"
+
+# ============================================================================
+# Backup manifest — consumed by the generic verify/restore tooling
+# (roles/backup_verify, roles/backup_restore; verify-backups.yml,
+# restore-backups.yml). See CLAUDE.md → "Backups: verify & restore".
+#
+# Both backups are restic-based, so both are first-class in the unified
+# list/verify/restore code path: `make verify-backups SERVICE=vaultwarden` and
+# `make restore-backups SERVICE=vaultwarden`.
+# ============================================================================
+# Compose project dir the restore playbook stops/starts as a whole.
+backup_compose_dir: "{{ vaultwarden_dir }}"
+
+# Compose service(s) that read the DB / data dir. The restore playbook stops these
+# before restoring (so nothing writes mid-restore) and starts the whole stack
+# again afterwards. The db/pg-dump/backup sidecars stay up: pg_restore needs the
+# live DB, and the restic restores run as one-off `compose run` containers.
+backup_consumer_services:
+  - vaultwarden
+
+backups:
+  - name: postgres
+    # type: postgres — a pg_dump captured in a restic repo. Verify = restic
+    # snapshot freshness; restore = restic-restore the chosen snapshot then
+    # pg_restore --clean --if-exists into the live DB.
+    type: postgres
+    compose_dir: "{{ vaultwarden_dir }}"
+    # restic sidecar holding the DB snapshots (list/verify/restic-restore run
+    # through it).
+    compose_service: db-backup
+    # postgres-client sidecar used to run pg_restore against the live DB.
+    pg_restore_service: pg-dump
+    bucket: "{{ vaultwarden_backup_s3_bucket }}"
+    schedule: "{{ vaultwarden_db_backup_schedule }}" # 0 2 * * *
+    # Dump filename inside each snapshot (restic restores it to
+    # /restore/data/<dump_file>). Matches what the pg-dump sidecar writes.
+    dump_file: vaultwarden.dump
+    # Slack over the snapshot cron: the dump can lag the snapshot by up to one
+    # dump interval.
+    max_age_hours: 30
+
+  - name: data
+    # type: restic — the Vaultwarden data dir, snapshotted read-only. Restore
+    # copies the chosen snapshot back over the live data dir in place (it is a
+    # host dir under the stack dir, so the generic copy-back lands correctly —
+    # see vaultwarden_data_dir above for the WHY).
+    type: restic
+    compose_dir: "{{ vaultwarden_dir }}"
+    compose_service: data-backup
+    bucket: "{{ vaultwarden_data_backup_s3_bucket }}"
+    schedule: "{{ vaultwarden_data_backup_schedule }}" # 0 4 * * *
+    max_age_hours: 27
+    # Path (relative to compose_dir) the restic restore copies back over. The
+    # data-backup sidecar mounts the data dir at /data/data, so snapshots carry
+    # /data/data/… and restore lands at compose_dir/data (= the data dir).
+    restore_paths:
+      - data
