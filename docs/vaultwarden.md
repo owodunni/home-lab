@@ -82,6 +82,43 @@ Provider** + **Application**:
   only those users can authenticate. Users in no bound group are denied at
   Authentik before reaching Vaultwarden.
 
+### Making the `email_verified` claim true (required, or SSO is rejected)
+
+**Symptom**: SSO redirects through Authentik and back, but Vaultwarden refuses the
+login (logs show an unverified-email error).
+
+**Root cause**: Authentik sets the OIDC `email_verified` claim to `False` by
+default — it has no built-in per-user "verified" flag and so cannot assert it.
+Vaultwarden, with its safe default `SSO_ALLOW_UNKNOWN_EMAIL_VERIFICATION=false`,
+rejects any login whose `email_verified` is not `true`. Note that **SMTP and a
+real email-verification flow do *not* flip this claim** — the default `email`
+scope mapping hardcodes `False` regardless of whether the user verified anything.
+
+**Fix** (Authentik UI → **Customization → Property Mappings**): edit the default
+**OpenID `email`** scope mapping (or add a scope mapping bound to the Vaultwarden
+provider) so it returns `email_verified: True`:
+
+```python
+return {
+    "email": request.user.email,
+    "email_verified": True,
+}
+```
+
+This is Authentik's documented workaround and is safe **here** because this lab is
+closed: users are admin-provisioned and gated by the Vaultwarden application
+binding (above), so there is no open registration where an unverified address
+could slip in. Do **not** also set Vaultwarden's
+`SSO_ALLOW_UNKNOWN_EMAIL_VERIFICATION=true` — combined with the
+`SSO_SIGNUPS_MATCH_EMAIL=true` this role sets, that would open an
+account-takeover vector. Fixing the claim at Authentik is the correct layer.
+
+> If you ever want a *real* per-user signal instead of an always-true constant,
+> set the mapping to
+> `request.user.attributes.get("email_verified", False)` and manage an
+> `email_verified` user attribute (manually, or via an expression policy after an
+> email-verification stage). More moving parts; unnecessary for this lab.
+
 ### Enrolling the first user
 
 `SIGNUPS_ALLOWED` is `false`, so a brand-new SSO user can't create an account.
