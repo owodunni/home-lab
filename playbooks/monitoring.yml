@@ -33,6 +33,9 @@
 - name: Monitoring | Intel GPU exporter on the media host
   ansible.builtin.import_playbook: intel-gpu-exporter.yml
 
+- name: Monitoring | local backup freshness exporter on service hosts
+  ansible.builtin.import_playbook: backup-freshness.yml
+
 - name: Monitoring | Prometheus and Alertmanager on monitoring host
   ansible.builtin.import_playbook: prometheus.yml
 

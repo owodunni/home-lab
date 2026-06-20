@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# Local backup freshness exporter — managed by Ansible (roles/backup_freshness).
+#
+# WHAT: for each backup in {{ backup_freshness_service }}'s manifest, asks the
+#   restic sidecar for its snapshots and exports the newest snapshot's Unix time
+#   (plus the configured freshness window) as node_exporter textfile metrics.
+# WHY: `make verify-backups` checks the SAME thing but is operator-run — nothing
+#   fires if a service's backup sidecar silently stops producing snapshots on
+#   valen. The offsite mirror does NOT catch it either: the additive pull keeps
+#   succeeding (it just copies nothing new), so BackupMirrorStale stays green.
+#   This is the automated, unattended analogue: it makes a stale LOCAL backup
+#   page via the BackupLocalStale alert. Runs where the restic password already
+#   lives (inside the sidecar), so no secret is aggregated — same principle as
+#   verify-backups.
+#
+# The metric is consumed by node_exporter on this host; see the BackupLocalStale
+# / BackupLocalCheckFailed rules in group_vars/monitoring/main.yml.
+set -uo pipefail
+
+SERVICE="{{ backup_freshness_service }}"
+COMPOSE_DIR="{{ backup_compose_dir }}"
+TEXTFILE="{{ backup_freshness_textfile_dir }}/backup_freshness_{{ backup_freshness_service }}.prom"
+
+# One entry per manifest backup: name|compose_service|max_age_hours
+BACKUPS=(
+{% for b in backups %}
+  "{{ b.name }}|{{ b.compose_service }}|{{ b.max_age_hours }}"
+{% endfor %}
+)
+
+cd "${COMPOSE_DIR}" || {
+  echo "backup-freshness: compose dir ${COMPOSE_DIR} missing" >&2
+  exit 1
+}
+
+# Parse the newest snapshot's Unix time from `restic snapshots --json` on stdin.
+# python3 is always present (Ansible needs it) and avoids a jq dependency; it
+# strips restic's fractional seconds and normalises the tz so any 3.7+ parses it.
+newest_epoch() {
+  python3 -c '
+import sys, json, re, datetime as dt
+data = json.load(sys.stdin)
+if not data:
+    sys.exit(1)
+def ep(t):
+    t = re.sub(r"\.\d+", "", t)       # drop fractional seconds
+    t = t.replace("Z", "+00:00")
+    return dt.datetime.fromisoformat(t).timestamp()
+print(int(max(ep(d["time"]) for d in data)))
+'
+}
+
+# Carry forward the previous snapshot timestamp when a check can't reach restic,
+# so the age the alert measures keeps climbing (and eventually fires) instead of
+# the series vanishing on a single failed probe. Same intent as the mirror's
+# "preserve last success" logic.
+declare -A PREV
+if [ -f "${TEXTFILE}" ]; then
+  while IFS= read -r line; do
+    name="$(sed -n 's/.*backup="\([^"]*\)".*/\1/p' <<<"${line}")"
+    [ -n "${name}" ] && PREV["${name}"]="${line##* }"
+  done < <(grep '^backup_local_last_snapshot_timestamp_seconds' "${TEXTFILE}")
+fi
+
+overall=1
+declare -A TS
+for entry in "${BACKUPS[@]}"; do
+  IFS='|' read -r name svc _max <<<"${entry}"
+  if epoch="$(docker compose exec -T "${svc}" restic snapshots --json 2>/dev/null | newest_epoch)"; then
+    TS["${name}"]="${epoch}"
+  else
+    echo "backup-freshness: could not read snapshots for ${SERVICE}/${name}" >&2
+    overall=0
+    [ -n "${PREV[${name}]:-}" ] && TS["${name}"]="${PREV[${name}]}"
+  fi
+done
+
+now="$(date +%s)"
+tmp="$(mktemp)"
+{
+  echo "# HELP backup_local_last_snapshot_timestamp_seconds Unix time of the newest restic snapshot for this backup."
+  echo "# TYPE backup_local_last_snapshot_timestamp_seconds gauge"
+  echo "# HELP backup_local_snapshot_max_age_seconds Configured freshness window (max_age_hours) for this backup."
+  echo "# TYPE backup_local_snapshot_max_age_seconds gauge"
+  for entry in "${BACKUPS[@]}"; do
+    IFS='|' read -r name _svc max_h <<<"${entry}"
+    echo "backup_local_snapshot_max_age_seconds{service=\"${SERVICE}\",backup=\"${name}\"} $(( max_h * 3600 ))"
+    if [ -n "${TS[${name}]:-}" ]; then
+      echo "backup_local_last_snapshot_timestamp_seconds{service=\"${SERVICE}\",backup=\"${name}\"} ${TS[${name}]}"
+    fi
+  done
+  echo "# HELP backup_local_check_success Whether the last freshness check read every repo (1) or hit a failure (0)."
+  echo "# TYPE backup_local_check_success gauge"
+  echo "backup_local_check_success{service=\"${SERVICE}\"} ${overall}"
+  echo "# HELP backup_local_check_timestamp_seconds Unix time of the last freshness check run."
+  echo "# TYPE backup_local_check_timestamp_seconds gauge"
+  echo "backup_local_check_timestamp_seconds{service=\"${SERVICE}\"} ${now}"
+} >"${tmp}"
+chmod 0644 "${tmp}"
+mv "${tmp}" "${TEXTFILE}"
+
+[ "${overall}" -eq 1 ]

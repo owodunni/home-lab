@@ -1,0 +1,100 @@
+---
+# Local backup freshness exporter — deploy the per-service timer that exports
+# newest-snapshot-age metrics, so a LOCAL backup going stale on valen pages via
+# Prometheus instead of only being caught by a manual `make verify-backups`.
+#
+# WHAT: one play per backup-bearing service group, each applying the
+#       backup_freshness role on that service's host(s).
+# WHY:  the manifest (`backups`) and `backup_compose_dir` live in
+#       group_vars/<service>, and a host can run more than one service (e.g.
+#       pi-cm5-2 = nextcloud + vaultwarden), so we target by SERVICE GROUP — not
+#       by host — to load the right manifest. backup_freshness_service drives the
+#       metric labels and the per-service unit/file names.
+# RESOLVES: the monitoring gap where a silently-failed service backup sidecar
+#       produced no alert (the additive offsite mirror kept succeeding, so
+#       BackupMirrorStale never fired). See CLAUDE.md "Backups" and
+#       docs/backup-recovery-testing.md.
+#
+# KEEP IN SYNC: a new service with a `backups` manifest needs a play here (the
+# same deliberate one-list duplication as backup_mirror_buckets).
+
+- name: Backup freshness exporter | authentik
+  hosts: authentik
+  become: true
+  gather_facts: false
+  vars:
+    backup_freshness_service: authentik
+  roles:
+    - role: backup_freshness
+
+- name: Backup freshness exporter | nextcloud
+  hosts: nextcloud
+  become: true
+  gather_facts: false
+  vars:
+    backup_freshness_service: nextcloud
+  roles:
+    - role: backup_freshness
+
+- name: Backup freshness exporter | vaultwarden
+  hosts: vaultwarden
+  become: true
+  gather_facts: false
+  vars:
+    backup_freshness_service: vaultwarden
+  roles:
+    - role: backup_freshness
+
+- name: Backup freshness exporter | prowlarr
+  hosts: prowlarr
+  become: true
+  gather_facts: false
+  vars:
+    backup_freshness_service: prowlarr
+  roles:
+    - role: backup_freshness
+
+- name: Backup freshness exporter | radarr
+  hosts: radarr
+  become: true
+  gather_facts: false
+  vars:
+    backup_freshness_service: radarr
+  roles:
+    - role: backup_freshness
+
+- name: Backup freshness exporter | sonarr
+  hosts: sonarr
+  become: true
+  gather_facts: false
+  vars:
+    backup_freshness_service: sonarr
+  roles:
+    - role: backup_freshness
+
+- name: Backup freshness exporter | jellyfin
+  hosts: jellyfin
+  become: true
+  gather_facts: false
+  vars:
+    backup_freshness_service: jellyfin
+  roles:
+    - role: backup_freshness
+
+- name: Backup freshness exporter | jellyseerr
+  hosts: jellyseerr
+  become: true
+  gather_facts: false
+  vars:
+    backup_freshness_service: jellyseerr
+  roles:
+    - role: backup_freshness
+
+- name: Backup freshness exporter | qbittorrent
+  hosts: qbittorrent
+  become: true
+  gather_facts: false
+  vars:
+    backup_freshness_service: qbittorrent
+  roles:
+    - role: backup_freshness

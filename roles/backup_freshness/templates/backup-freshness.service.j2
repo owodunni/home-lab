@@ -1,0 +1,11 @@
+# Local backup freshness exporter — managed by Ansible (roles/backup_freshness).
+[Unit]
+Description=Export newest-snapshot age for {{ backup_freshness_service }} backups
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/backup-freshness-{{ backup_freshness_service }}.sh
+# Runs as root: needs docker access and writes the node_exporter textfile dir.
+User=root

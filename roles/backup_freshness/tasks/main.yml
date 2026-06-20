@@ -1,0 +1,67 @@
+---
+# Local backup freshness exporter — deploy a per-service systemd timer that
+# writes newest-snapshot-age metrics for node_exporter to scrape.
+#
+# Generic and manifest-driven: the play sets `hosts: <service>` so the service's
+# `backups` manifest and `backup_compose_dir` are in scope, and passes
+# `backup_freshness_service` for the metric labels + unit names. All units are
+# named per service so multiple services on one host (e.g. nextcloud +
+# vaultwarden on pi-cm5-2) don't collide. See group_vars/monitoring/main.yml for
+# the BackupLocalStale / BackupLocalCheckFailed rules that consume the metrics,
+# and group_vars/all/main.yml for the schedule + textfile dir.
+
+- name: Assert the service declares a backup manifest
+  ansible.builtin.assert:
+    that:
+      - backups is defined
+      - backups | length > 0
+      - backup_compose_dir is defined
+    fail_msg: >-
+      backup_freshness needs a 'backups' manifest and 'backup_compose_dir' in
+      group_vars/{{ backup_freshness_service | default('<service>') }}/main.yml.
+
+- name: Ensure the node_exporter textfile directory exists
+  # node_exporter (monitoring layer) owns this dir, but create it defensively so
+  # the exporter works regardless of layer order; node_exporter only reads the
+  # .prom file and re-applies its own ownership when it installs.
+  ansible.builtin.file:
+    path: "{{ backup_freshness_textfile_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deploy the backup freshness export script
+  ansible.builtin.template:
+    src: backup-freshness.sh.j2
+    dest: "/usr/local/bin/backup-freshness-{{ backup_freshness_service }}.sh"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deploy the backup freshness systemd service
+  ansible.builtin.template:
+    src: backup-freshness.service.j2
+    dest: "/etc/systemd/system/backup-freshness-{{ backup_freshness_service }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Deploy the backup freshness systemd timer
+  ansible.builtin.template:
+    src: backup-freshness.timer.j2
+    dest: "/etc/systemd/system/backup-freshness-{{ backup_freshness_service }}.timer"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Flush handlers so the timer unit is loaded before enabling it
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start the backup freshness timer
+  ansible.builtin.systemd:
+    name: "backup-freshness-{{ backup_freshness_service }}.timer"
+    enabled: true
+    state: started

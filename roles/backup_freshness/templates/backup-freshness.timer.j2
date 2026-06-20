@@ -1,0 +1,12 @@
+# Local backup freshness exporter — managed by Ansible (roles/backup_freshness).
+[Unit]
+Description=Schedule the {{ backup_freshness_service }} backup freshness export
+
+[Timer]
+OnCalendar={{ backup_freshness_schedule }}
+# Catch up a run missed while the host was down so the metric does not go stale
+# purely because of a reboot.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

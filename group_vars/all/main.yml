@@ -54,3 +54,22 @@ unattended_remove_new_unused_dependencies: true
 
 # Don't install during shutdown to keep shutdown times fast
 unattended_install_on_shutdown: false
+
+# Local backup freshness exporter
+# ===============================
+# Shared config for roles/backup_freshness (deployed by playbooks/backup-freshness.yml
+# on every backup-bearing service host). The exporter reports each backup's
+# newest-snapshot age so a LOCAL backup going stale on valen pages via the
+# BackupLocalStale alert, instead of only being caught by a manual
+# `make verify-backups`. Per-service manifest + compose dir stay in
+# group_vars/<service>/main.yml.
+
+# node_exporter's textfile collector dir (its role default); the .prom files the
+# exporter writes are read from here.
+backup_freshness_textfile_dir: /var/lib/node_exporter
+
+# How often to re-probe snapshot age. Hourly (at :25, offset from the backup
+# crons and the 06:00 mirror) keeps the metric fresh enough to detect a missed
+# daily backup well inside its max_age_hours window, while only listing
+# snapshots — a cheap, read-only op.
+backup_freshness_schedule: "*-*-* *:25:00"
