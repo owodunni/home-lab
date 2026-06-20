@@ -162,6 +162,47 @@ prometheus_alert_rules:
         least one bucket. Check `journalctl -u backup-mirror` on the mirror
         host.{% endraw %}
 
+  # --- Local backup freshness (backup_freshness on each service host) --------
+  # The LOCAL/valen-side analogue of BackupMirrorStale. roles/backup_freshness
+  # exports each backup's newest-snapshot timestamp + its configured window; the
+  # rule below fires when a service's own backup sidecar stops producing fresh
+  # snapshots. This is the gap the offsite mirror could NOT cover: the additive
+  # pull keeps succeeding even when nothing new arrives, so BackupMirrorStale
+  # stays green while the source backup is silently broken.
+  - alert: BackupLocalStale
+    # Per-backup threshold: compare each backup's age to its own max_age_seconds
+    # (from its manifest max_age_hours). ignoring(__name__) matches the two
+    # series on {service,backup,instance} — the arithmetic on the left already
+    # dropped the metric name.
+    expr: >-
+      (time() - backup_local_last_snapshot_timestamp_seconds)
+      > ignoring(__name__) backup_local_snapshot_max_age_seconds
+    for: 30m
+    labels:
+      severity: critical
+    annotations:
+      summary: "{% raw %}Local backup stale: {{ $labels.service }}/{{ $labels.backup }}{% endraw %}"
+      description: >-
+        {% raw %}The newest local restic snapshot for {{ $labels.service }}
+        backup "{{ $labels.backup }}" on {{ $labels.instance }} is older than its
+        freshness window ({{ $value | humanizeDuration }} since the last
+        snapshot). The service's backup sidecar may have stopped — check it
+        before the offsite copy ages out too.{% endraw %}
+  - alert: BackupLocalCheckFailed
+    # The exporter itself could not query a repo (sidecar down, repo
+    # unreachable) — backups are no longer being verified even if they still run.
+    expr: "backup_local_check_success == 0"
+    for: 1h
+    labels:
+      severity: warning
+    annotations:
+      summary: "{% raw %}Local backup freshness check failing for {{ $labels.service }}{% endraw %}"
+      description: >-
+        {% raw %}The backup freshness exporter on {{ $labels.instance }} could
+        not read every restic repo for {{ $labels.service }}. Backups are not
+        being verified — check the sidecars and
+        `journalctl -u backup-freshness-{{ $labels.service }}`.{% endraw %}
+
   # --- SnapRAID parity health (snapraid_runner on [storage] hosts w/ parity) -
   # The runner (roles/snapraid_runner) diffs → syncs → scrubs daily and writes
   # these textfile metrics. Series only exist where parity is configured, so
