@@ -16,13 +16,27 @@ See also: `CLAUDE.md` → "Backups", the `/backups` skill, `docs/backups-offsite
 | `make drill SERVICE=<g>` | no | the latest snapshot actually **restores** (files recovered / dump parses) | monthly, rotating services |
 | `make restore-backups SERVICE=<g>` | **yes** (typed confirm) | full DR — restore over the live stack | on a real incident, or a deliberate annual full-DR exercise |
 
-Automated, no human needed (already running): the offsite mirror freshness alert
-(`BackupMirrorStale`), SnapRAID sync+scrub with bit-rot alerts
-(`SnapraidScrubStale`/`SnapraidSyncGuardTripped`), and `rclone --checksum` on the
-pull. The `verify`/`drill` make targets stay operator-run because they need
-Ansible + the vault password, which we deliberately keep out of a scheduler; run
-them from your workstation on the cadence above (a personal cron invoking them
-with the vault password is fine, but that is a separate trust decision).
+Automated, no human needed (already running):
+
+- **Local backup freshness** (`BackupLocalStale`) — `roles/backup_freshness`
+  runs an hourly per-service timer on each service host that exports each
+  backup's newest-snapshot age; the alert fires if a service's own sidecar stops
+  producing fresh snapshots on valen. This is the automated half of the
+  `verify-backups` freshness check, and the gap the offsite mirror could **not**
+  cover (its additive pull keeps succeeding even when nothing new arrives, so
+  `BackupMirrorStale` stays green while the source is broken).
+  `BackupLocalCheckFailed` fires if the exporter cannot read a repo at all.
+- **Offsite mirror freshness** (`BackupMirrorStale`) — the offsite copy on
+  beelink stopped updating.
+- **Parity/bit-rot** (`SnapraidSyncStale`/`SnapraidScrubStale`/
+  `SnapraidSyncGuardTripped`) and `rclone --checksum` on the pull.
+
+What stays operator-run: `restic check` (repo integrity) and the restore
+**drill** — both ride `make verify-backups` / `make drill`, which need Ansible +
+the vault password we deliberately keep out of a scheduler. Run them on the
+cadence above (a personal cron invoking them with the vault password is fine, but
+that is a separate trust decision). So freshness is now automated; integrity and
+restorability remain the manual cadence.
 
 ## Post-deploy verification (run once after standing the strategy up)
 
