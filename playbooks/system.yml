@@ -3,8 +3,9 @@
 #
 # What: Establishes the base OS state for every host — applies all pending
 #       package updates, then per-host hardware enablement: Pi CM5
-#       firmware/hardware/power settings, and Intel GPU drivers on the media
-#       host (QuickSync/VA-API for transcoding).
+#       firmware/hardware/power settings, Intel GPU drivers on the media host
+#       (QuickSync/VA-API for transcoding), and WiFi NIC power-save disablement
+#       on WiFi-uplinked hosts.
 # Why:  These are the foundational steps every other layer assumes are already
 #       in place: a fully patched OS and correct hardware configuration. Updates
 #       run before hardware config so a single reboot can settle both. GPU
@@ -24,3 +25,6 @@
 
 - name: Install Intel GPU drivers for transcoding on the media host
   ansible.builtin.import_playbook: gpu-drivers.yml
+
+- name: Disable WiFi NIC power-save on WiFi-uplinked hosts
+  ansible.builtin.import_playbook: wifi-power-save.yml

@@ -12,6 +12,18 @@
 wg_address: "192.168.2.5/32"
 wg_allowed_ips: "192.168.1.0/24, 192.168.2.0/24"
 
+# WiFi uplink interface (hardware fact). Beelink joins the home LAN over WiFi
+# (iwlwifi). Two playbooks key off this var, so it lives here as a host fact
+# rather than under either service:
+#   - system layer: playbooks/wifi-power-save.yml disables NIC power-save (the AP
+#     deauths the sleeping card with Reason 6, flapping the link).
+#   - networking layer: playbooks/wireguard.yml deploys the tunnel-recovery
+#     watchdog, which must drop wg0 before bouncing this interface because the
+#     barn WiFi shares the home 192.168.1.0/24 subnet (wg0's route hijacks the
+#     barn gateway).
+# Leave unset on wired hosts — both behaviours then skip.
+wifi_iface: wlo1
+
 # ============================================================================
 # Drive Layout
 # ============================================================================

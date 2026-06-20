@@ -1,0 +1,14 @@
+# Disable WiFi power-saving on the Intel iwlwifi/iwlmvm NIC.
+#
+# What: Force the WiFi card (AX101, iwlmvm) into continuous-active mode.
+# Why:  Power save was confirmed ON with a strong signal (-58 dBm), so the card
+#       sleeps and the AP drops its association state, then deauthenticates with
+#       Reason 6 (CLASS2_FRAME_FROM_NONAUTH_STA) when the card wakes and sends
+#       data. That repeatedly drops wlo1 and takes the offsite WireGuard tunnel
+#       down with it. Not a range issue — keeping the radio awake stops it.
+# Resolves: Recurring wlo1 deauth/flap that strands the offsite beelink tunnel.
+#
+# Applies at module load (next boot / reload). The play also runs `iw set
+# power_save off` so it takes effect immediately without a disruptive reload.
+options iwlwifi power_save=0
+options iwlmvm power_scheme=1

@@ -1,0 +1,42 @@
+---
+# WiFi NIC power-save disablement (Intel iwlwifi)
+#
+# What: Forces hosts with a WiFi uplink (wifi_iface set) into continuous-active
+#       mode — a persistent modprobe option plus an immediate runtime `iw set`.
+# Why:  On the offsite beelink, iw showed power-save ON at a strong -58 dBm, so
+#       the card slept and the AP deauthenticated it (Reason 6) on wake,
+#       repeatedly dropping the WiFi link — and the WireGuard tunnel riding it.
+#       Power-save is host NIC hardware state — like the GPU drivers and Pi
+#       firmware in this layer — so it is provisioned at the base, present
+#       whatever runs on top.
+# Resolves: Recurring WiFi deauth/flap on WiFi-uplinked hosts.
+#
+# Targets hosts declaring wifi_iface (a hardware fact in host_vars) and skips the
+# rest. Assumes an Intel iwlwifi/iwlmvm NIC. The matching tunnel-recovery
+# watchdog (playbooks/wireguard.yml) recovers from any residual flap.
+
+- name: Disable WiFi NIC power-save on WiFi-uplinked hosts
+  hosts: all
+  become: true
+  tasks:
+    - name: Disable WiFi NIC power-save permanently (module options)
+      ansible.builtin.template:
+        src: templates/iwlwifi-no-powersave.conf.j2
+        dest: /etc/modprobe.d/iwlwifi-no-powersave.conf
+        mode: "0644"
+        owner: root
+        group: root
+      when: (wifi_iface | default('')) | length > 0
+
+    - name: Check current WiFi power-save state
+      ansible.builtin.command: "iw dev {{ wifi_iface }} get power_save"
+      register: wifi_powersave
+      changed_when: false
+      when: (wifi_iface | default('')) | length > 0
+
+    - name: Disable WiFi power-save now (until the module option takes over)
+      ansible.builtin.command: "iw dev {{ wifi_iface }} set power_save off"
+      changed_when: true
+      when:
+        - (wifi_iface | default('')) | length > 0
+        - "'Power save: on' in (wifi_powersave.stdout | default(''))"
