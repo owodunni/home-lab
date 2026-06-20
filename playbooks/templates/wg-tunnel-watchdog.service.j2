@@ -1,0 +1,9 @@
+[Unit]
+# Oneshot fired by wg-tunnel-watchdog.timer; see wg-tunnel-watchdog.sh for what
+# it checks and the recovery sequence it runs.
+Description=WireGuard tunnel recovery watchdog
+After=wg-quick@wg0.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/wg-tunnel-watchdog.sh

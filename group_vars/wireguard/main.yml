@@ -13,3 +13,9 @@ wg_server_public_key: "RsORWyXzXsq4H77U6ynqquEGngw/q9fwfyQv8FIfdVY="
 
 # DDNS hostname of the home network and the WireGuard listen port on Ubiquiti
 wg_server_endpoint: "jardoole.xyz:51820"
+
+# Tunnel recovery watchdog: seconds without a peer handshake before the watchdog
+# declares the tunnel down and runs its recovery sequence. PersistentKeepalive is
+# 25s and WireGuard rekeys ~every 2 min, so a healthy peer always handshakes well
+# within 180s — this avoids false positives while still recovering within ~3 min.
+wg_watchdog_stale_seconds: 180

@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# WireGuard tunnel recovery watchdog.
+#
+# What: When the wg0 peer handshake is stale (tunnel effectively down), replay
+#       the recovery an operator does on-site: drop wg0, re-cycle the WiFi uplink
+#       if it lost its link, then bring wg0 back up (which re-resolves the DDNS
+#       endpoint on the way).
+# Why:  The offsite beelink joins the home LAN over flaky WiFi (iwlwifi; the AP
+#       deauths it with Reason 6) AND the barn WiFi shares the home
+#       192.168.1.0/24 subnet, so wg0's route hijacks the barn gateway. A clean
+#       WiFi re-associate therefore needs wg0 DOWN first. Neither wlo1 nor wg0
+#       "fails" in a way systemd acts on, so without this the tunnel stays dead
+#       after a blip until someone drives ~1.5h to run these commands by hand.
+# Resolves: Offsite tunnel not self-recovering after a WiFi/WAN blip or reboot.
+set -u
+
+WG_IFACE="wg0"
+WIFI_IFACE="{{ wifi_iface | default('') }}"
+STALE_AFTER="{{ wg_watchdog_stale_seconds }}"   # secs without a handshake => down
+
+log() { logger -t wg-tunnel-watchdog -- "$*"; }
+
+# Newest handshake across all peers; empty/0 when wg0 is down or never handshook.
+latest="$(wg show "$WG_IFACE" latest-handshakes 2>/dev/null \
+          | awk '{print $2}' | sort -nr | head -1)"
+now="$(date +%s)"
+
+if [[ -n "$latest" && "$latest" -gt 0 && $((now - latest)) -lt $STALE_AFTER ]]; then
+    exit 0   # tunnel healthy — nothing to do
+fi
+
+log "tunnel stale (last handshake: ${latest:-none}s epoch); starting recovery"
+
+# 1. Drop wg0 first so its 192.168.1.0/24 route stops hijacking the barn gateway;
+#    otherwise the WiFi cannot cleanly re-associate / renew its DHCP lease.
+systemctl stop "wg-quick@${WG_IFACE}" 2>/dev/null || true
+
+# 2. Re-cycle the WiFi uplink, but only if it actually lost its link (no carrier
+#    or no IPv4) — a stale handshake with healthy WiFi just needs a tunnel bounce.
+if [[ -n "$WIFI_IFACE" ]]; then
+    carrier="$(cat "/sys/class/net/${WIFI_IFACE}/carrier" 2>/dev/null || echo 0)"
+    if [[ "$carrier" != "1" ]] || ! ip -4 addr show "$WIFI_IFACE" | grep -q 'inet '; then
+        log "cycling WiFi ${WIFI_IFACE} (carrier=${carrier})"
+        ifdown "$WIFI_IFACE" 2>/dev/null || true
+        sleep 3
+        ifup "$WIFI_IFACE" 2>/dev/null || true
+        # Wait up to ~40s for an IPv4 lease before re-establishing the tunnel.
+        for _ in $(seq 1 20); do
+            ip -4 addr show "$WIFI_IFACE" | grep -q 'inet ' && break
+            sleep 2
+        done
+    fi
+fi
+
+# 3. Bring the tunnel back up (wg-quick re-resolves the DDNS endpoint here).
+systemctl start "wg-quick@${WG_IFACE}" 2>/dev/null || true
+log "recovery sequence complete"

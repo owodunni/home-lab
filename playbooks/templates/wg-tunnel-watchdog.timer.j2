@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodic WireGuard tunnel recovery watchdog
+
+[Timer]
+# First check 2 min after boot — this also rescues a failed boot-time WiFi auth
+# (seen in the logs) — then re-check every 60s. The script no-ops on a healthy
+# tunnel, so a frequent cadence is cheap and keeps recovery time low.
+OnBootSec=120
+OnUnitActiveSec=60
+
+[Install]
+WantedBy=timers.target
