@@ -1,0 +1,99 @@
+---
+# WiFi uplink configuration (Intel iwlwifi, open network)
+#
+# What: For hosts whose uplink is WiFi (wifi_iface set): installs the WiFi
+#       stack, pins the connection to 5 GHz and sets the regulatory domain via
+#       wpa_supplicant, points /etc/network/interfaces at it, and disables NIC
+#       power-save.
+# Why:  The offsite beelink joins the barn WiFi (open SSID) over an iwlwifi
+#       card. On 2.4 GHz it suffered constant deauths (Reason 6 and Reason 34
+#       LOW_ACK) from band interference plus Bluetooth coexistence, dropping the
+#       link — and the WireGuard tunnel riding it — every ~30 s. Pinning to the
+#       AP's 5 GHz radio (strong and uncontended) and disabling power-save makes
+#       the uplink stable. Codified here so the host is reproducible rather than
+#       a hand-configured snowflake.
+# Resolves: Recurring WiFi drops that strand WiFi-uplinked offsite hosts.
+#
+# WiFi NIC config is host hardware state, so it sits in the system layer with the
+# GPU drivers and Pi firmware. Targets hosts declaring wifi_iface and skips the
+# rest. Assumes an Intel iwlwifi/iwlmvm NIC and an open network; for WPA, move
+# the PSK to a host_vars vault var and extend the wpa_supplicant template.
+#
+# NOTE: applying a changed config means re-associating, which drops the very link
+# Ansible reaches the host over. So this play only *writes* the config and warns;
+# it never bounces the interface itself. Reboot the host (or run
+# `ifdown <iface> && ifup <iface>` from a console) to apply — it then comes up on
+# 5 GHz with the new config.
+
+- name: Configure WiFi uplink on WiFi-uplinked hosts
+  hosts: all
+  become: true
+  tasks:
+    - name: Install WiFi stack
+      ansible.builtin.apt:
+        name:
+          - wpasupplicant
+          - wireless-tools
+          - iw
+        state: present
+        update_cache: true
+        cache_valid_time: 86400
+      when: (wifi_iface | default('')) | length > 0
+
+    - name: Deploy wpa_supplicant config (5 GHz pin + regdomain)
+      ansible.builtin.template:
+        src: templates/wpa_supplicant-wifi.conf.j2
+        dest: "/etc/wpa_supplicant/wpa_supplicant-{{ wifi_iface }}.conf"
+        mode: "0600"
+        owner: root
+        group: root
+      register: wifi_wpa_conf
+      when: (wifi_iface | default('')) | length > 0
+
+    - name: Point /etc/network/interfaces at wpa_supplicant
+      ansible.builtin.template:
+        src: templates/wifi-interfaces.j2
+        dest: /etc/network/interfaces
+        mode: "0644"
+        owner: root
+        group: root
+      register: wifi_interfaces
+      when: (wifi_iface | default('')) | length > 0
+
+    # --- Power-save: keep the radio awake ------------------------------------
+    # iwlwifi defaults to power-save on; the card then sleeps and the AP drops
+    # its association, deauthenticating on wake. The modprobe option makes it
+    # permanent (module load / next boot); the runtime `iw set` applies it now
+    # without a disruptive module reload.
+    - name: Disable WiFi NIC power-save permanently (module options)
+      ansible.builtin.template:
+        src: templates/iwlwifi-no-powersave.conf.j2
+        dest: /etc/modprobe.d/iwlwifi-no-powersave.conf
+        mode: "0644"
+        owner: root
+        group: root
+      when: (wifi_iface | default('')) | length > 0
+
+    - name: Check current WiFi power-save state
+      ansible.builtin.command: "iw dev {{ wifi_iface }} get power_save"
+      register: wifi_powersave
+      changed_when: false
+      when: (wifi_iface | default('')) | length > 0
+
+    - name: Disable WiFi power-save now (until the module option takes over)
+      ansible.builtin.command: "iw dev {{ wifi_iface }} set power_save off"
+      changed_when: true
+      when:
+        - (wifi_iface | default('')) | length > 0
+        - "'Power save: on' in (wifi_powersave.stdout | default(''))"
+
+    - name: Warn that a reboot is needed to apply changed WiFi config
+      ansible.builtin.debug:
+        msg: >-
+          WiFi config for {{ wifi_iface }} changed. Reboot the host (or run
+          `ifdown {{ wifi_iface }} && ifup {{ wifi_iface }}` from a console) to
+          apply — it will reconnect on 5 GHz. Not bounced automatically because
+          that would drop the link Ansible is connected over.
+      when:
+        - (wifi_iface | default('')) | length > 0
+        - wifi_wpa_conf is changed or wifi_interfaces is changed

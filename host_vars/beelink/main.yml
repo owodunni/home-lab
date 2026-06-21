@@ -12,17 +12,24 @@
 wg_address: "192.168.2.5/32"
 wg_allowed_ips: "192.168.1.0/24, 192.168.2.0/24"
 
-# WiFi uplink interface (hardware fact). Beelink joins the home LAN over WiFi
-# (iwlwifi). Two playbooks key off this var, so it lives here as a host fact
-# rather than under either service:
-#   - system layer: playbooks/wifi-power-save.yml disables NIC power-save (the AP
-#     deauths the sleeping card with Reason 6, flapping the link).
+# WiFi uplink (hardware fact). Beelink joins the home LAN over WiFi (iwlwifi).
+# Two playbooks key off wifi_iface, so it lives here as a host fact rather than
+# under either service:
+#   - system layer: playbooks/wifi.yml configures the uplink (5 GHz pin, regdomain,
+#     power-save off) — the 2.4 GHz radio deauthed constantly (Reason 6 / LOW_ACK).
 #   - networking layer: playbooks/wireguard.yml deploys the tunnel-recovery
 #     watchdog, which must drop wg0 before bouncing this interface because the
 #     barn WiFi shares the home 192.168.1.0/24 subnet (wg0's route hijacks the
 #     barn gateway).
-# Leave unset on wired hosts — both behaviours then skip.
+# Leave wifi_iface unset on wired hosts — both behaviours then skip.
 wifi_iface: wlo1
+wifi_ssid: Jarden
+wifi_country: SE
+# Pin to 5 GHz UNII-1 non-DFS channels. The barn AP's 5 GHz radio is on ch44
+# (5220); this list (ch36/40/44/48) keeps the card on 5 GHz and off the
+# contended 2.4 GHz band, and omits DFS channels to avoid slow passive-scan
+# association. The network is open (no PSK), so nothing here is secret.
+wifi_freq_list: "5180 5200 5220 5240"
 
 # ============================================================================
 # Drive Layout

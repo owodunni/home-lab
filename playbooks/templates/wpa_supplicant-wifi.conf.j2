@@ -1,0 +1,18 @@
+# Managed by Ansible (playbooks/wifi.yml) — do not edit by hand.
+#
+# 5 GHz-only client config for {{ wifi_iface }}. freq_list pins the band so the
+# card can NEVER fall back to 2.4 GHz, where interference + Bluetooth
+# coexistence caused constant AP deauths (Reason 6 / LOW_ACK 34) that dropped
+# the link and the WireGuard tunnel riding it. country sets the regulatory
+# domain (persisted here, so 5 GHz channels/power are unlocked at every boot).
+ctrl_interface=/run/wpa_supplicant
+country={{ wifi_country }}
+
+network={
+    ssid="{{ wifi_ssid }}"
+    # Open network — no PSK. For a WPA network this becomes psk=... sourced from
+    # a host_vars vault var; key_mgmt then drops to the default.
+    key_mgmt=NONE
+    scan_ssid=1
+    freq_list={{ wifi_freq_list }}
+}

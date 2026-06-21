@@ -1,0 +1,15 @@
+# Managed by Ansible (playbooks/wifi.yml) — do not edit by hand.
+# Network interfaces for this host. Per-interface drop-ins may live in
+# interfaces.d/; the WiFi uplink is defined inline below.
+source /etc/network/interfaces.d/*
+
+# The loopback network interface
+auto lo
+iface lo inet loopback
+
+# WiFi uplink — association and band selection are delegated to wpa_supplicant
+# (5 GHz pin + regdomain) via wpa-conf; see
+# /etc/wpa_supplicant/wpa_supplicant-{{ wifi_iface }}.conf.
+allow-hotplug {{ wifi_iface }}
+iface {{ wifi_iface }} inet dhcp
+    wpa-conf /etc/wpa_supplicant/wpa_supplicant-{{ wifi_iface }}.conf
