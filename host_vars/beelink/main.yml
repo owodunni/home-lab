@@ -31,6 +31,13 @@ wifi_country: SE
 # association. The network is open (no PSK), so nothing here is secret.
 wifi_freq_list: "5180 5200 5220 5240"
 
+# Local (barn) default gateway. Pins a /32 route for it via the WiFi uplink when
+# wg0 is up, so wg-quick's 192.168.1.0/24 AllowedIPs route (the home LAN, which
+# collides with the barn's own 192.168.1.0/24) does not hijack the gateway and
+# black-hole internet + the tunnel handshake. See playbooks/templates/wg0.conf.j2.
+# Update if the barn router's LAN address ever changes.
+wg_local_gateway: 192.168.1.1
+
 # ============================================================================
 # Drive Layout
 # ============================================================================

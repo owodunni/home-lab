@@ -1,6 +1,17 @@
 [Interface]
 PrivateKey = {{ vault_wg_private_key }}
 Address = {{ wg_address }}
+{% if (wg_local_gateway | default('')) | length > 0 %}
+# Subnet-collision guard. AllowedIPs includes 192.168.1.0/24 (the home LAN), but
+# this host's own LAN is also 192.168.1.0/24, so wg-quick's route for it (metric
+# 0) hijacks the local gateway {{ wg_local_gateway }} — killing internet AND the
+# tunnel's own handshake path (the endpoint is reached via that gateway). Pin the
+# gateway to the uplink with a more-specific /32 route so it stays local; the rest
+# of 192.168.1.0/24 still reaches home hosts via wg0. `replace`/`|| true` keep
+# up/down idempotent. See [[beelink-wifi-tunnel-recovery]] and CLAUDE.md notes.
+PostUp = ip route replace {{ wg_local_gateway }}/32 dev {{ wifi_iface }} scope link
+PreDown = ip route del {{ wg_local_gateway }}/32 dev {{ wifi_iface }} scope link || true
+{% endif %}
 
 [Peer]
 PublicKey = {{ wg_server_public_key }}
