@@ -69,27 +69,24 @@
         state: "{{ 'restarted' if wg_config is changed else 'started' }}"
       when: wg_configured | bool
 
-    # --- Tunnel recovery watchdog ---------------------------------------------
-    # The offsite beelink rides flaky WiFi (iwlwifi; the AP deauths it, Reason 6)
-    # and the barn WiFi shares the home 192.168.1.0/24 subnet, so wg0's route
-    # hijacks the barn gateway. After a blip the tunnel stays dead because a clean
-    # WiFi re-associate needs wg0 DOWN first — a sequence systemd never runs on
-    # its own. This timer replays that operator recovery (drop wg0 → cycle WiFi →
-    # wg0 up, which also re-resolves the DDNS endpoint) whenever the peer
-    # handshake goes stale. Deployed only where wifi_iface is set, i.e. peers
-    # whose uplink is the flaky WiFi.
-    - name: Deploy WireGuard tunnel recovery watchdog script
+    # --- Tunnel watchdog ------------------------------------------------------
+    # PersistentKeepalive holds a healthy tunnel up but never re-resolves the
+    # endpoint DNS, so a change of the home public IP strands the peer on a dead
+    # address with no way back. This timer restarts wg-quick@wg0 when the handshake
+    # goes stale, which re-resolves the DDNS endpoint (and re-applies the gateway
+    # pin). It no longer touches WiFi — the 5 GHz pin + gateway pin removed the
+    # reasons the old recovery had to cycle the uplink. Applies to any configured
+    # peer behind the DDNS endpoint.
+    - name: Deploy WireGuard tunnel watchdog script
       ansible.builtin.template:
         src: templates/wg-tunnel-watchdog.sh.j2
         dest: /usr/local/bin/wg-tunnel-watchdog.sh
         mode: "0755"
         owner: root
         group: root
-      when:
-        - wg_configured | bool
-        - (wifi_iface | default('')) | length > 0
+      when: wg_configured | bool
 
-    - name: Deploy WireGuard tunnel recovery watchdog units
+    - name: Deploy WireGuard tunnel watchdog units
       ansible.builtin.template:
         src: "templates/{{ item }}.j2"
         dest: "/etc/systemd/system/{{ item }}"
@@ -100,9 +97,7 @@
         - wg-tunnel-watchdog.service
         - wg-tunnel-watchdog.timer
       register: wg_watchdog_units
-      when:
-        - wg_configured | bool
-        - (wifi_iface | default('')) | length > 0
+      when: wg_configured | bool
 
     - name: Enable wg-tunnel-watchdog timer
       ansible.builtin.systemd:
@@ -110,6 +105,4 @@
         enabled: true
         state: started
         daemon_reload: "{{ wg_watchdog_units is changed }}"
-      when:
-        - wg_configured | bool
-        - (wifi_iface | default('')) | length > 0
+      when: wg_configured | bool
