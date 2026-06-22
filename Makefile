@@ -4,7 +4,7 @@ ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(
 
 .PHONY: help setup lint precommit vault-edit \
         system networking storage ingress service-infra auth applications backup monitoring security site \
-        app verify-backups restore-backups drill
+        app verify-backups restore-backups drill local-drill
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -106,6 +106,14 @@ drill: ## 🧪 Non-destructive restore drill: prove a service's backups restore 
 	@test -n "$(SERVICE)" || { echo "Usage: make drill SERVICE=<service-group>"; exit 1; }
 	@echo "Drilling restore for $(SERVICE) (non-destructive)..."
 	$(ANSIBLE_PLAYBOOK) playbooks/drill-backups.yml -e backup_service=$(SERVICE)
+
+local-drill: ## 🧪 Local restore drill: restore all (or one) service's backups to this workstation (SERVICE=<group>, optional)
+	@echo "Running local restore drill..."
+	@if [ -n "$(SERVICE)" ]; then \
+	  scripts/local-drill.sh "$(SERVICE)"; \
+	else \
+	  scripts/local-drill.sh; \
+	fi
 
 restore-backups: ## ♻️ DESTRUCTIVE restore of a service's backups, typed confirm prompt (SERVICE=<group> [TARGETS='name=snap_id,...'])
 	@test -n "$(SERVICE)" || { echo "Usage: make restore-backups SERVICE=<service-group> [TARGETS='name=snap_id,...']"; exit 1; }
