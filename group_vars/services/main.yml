@@ -4,3 +4,25 @@
 # geerlingguy.docker role overrides
 # docker_edition defaults to 'ce' in the role — not repeated here
 docker_install_compose: true
+
+# ============================================================================
+# cAdvisor (per-container metrics exporter)
+# What: Image/port for the cAdvisor container deployed on every [services] host
+#       by playbooks/cadvisor.yml (roles/cadvisor). The matching scrape targets,
+#       alert rules, and Grafana dashboard live in group_vars/monitoring/main.yml.
+# Why:  cAdvisor is the per-container counterpart to node_exporter — it attributes
+#       CPU/memory/network/disk to individual containers so service placement
+#       across the Pis can be reasoned about with data.
+# Resolves: These deploy-time values live with the targeted [services] group
+#           (not the role) per the no-role-defaults rule in CLAUDE.md.
+# ============================================================================
+cadvisor_dir: /opt/cadvisor
+cadvisor_image: gcr.io/cadvisor/cadvisor
+# v0.55.1 is the newest tag actually published to gcr.io/cadvisor — the project
+# stopped mirroring releases there after it (GitHub has up to v0.60.1, but those
+# tags 404 on this registry). Multi-arch: amd64 (valen) + arm64 (Pi CM5).
+cadvisor_version: v0.55.1
+# Host port for cAdvisor's metrics. 9101 (mnemonic neighbour of node_exporter's
+# 9100), NOT cAdvisor's default 8080 — Traefik's dashboard and qBittorrent
+# already bind 8080 on some fleet hosts. Keep in sync with monitoring_cadvisor_targets.
+cadvisor_port: 9101

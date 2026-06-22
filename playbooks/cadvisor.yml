@@ -1,0 +1,27 @@
+---
+# Deploy cAdvisor on the Docker fleet
+#
+# What: Runs Google cAdvisor as a container on every host in [services] (the
+#       Docker fleet: pi-cm5-1..4, valen). It exposes per-container CPU, memory,
+#       network, and disk-I/O metrics in Prometheus format on host port
+#       {{ cadvisor_port }} (published as 9101 → cAdvisor's in-container 8080).
+# Why:  node_exporter reports each host as a whole and cannot attribute usage to
+#       individual containers. cAdvisor fills that gap — the per-service view
+#       needed to decide whether to move services between Pis.
+# Resolves: Absent per-container metrics. Pairs with the `cadvisor` scrape job
+#           and the container alert rules in group_vars/monitoring/main.yml.
+#
+# Prerequisites:
+#   - Docker runtime on the [services] hosts (service-infra layer).
+#   - Prometheus scrapes the cadvisor job (group_vars/monitoring/main.yml).
+#
+# Port note: published on host 9101, not cAdvisor's usual 8080, because Traefik's
+# insecure dashboard already binds :8080 on the ingress hosts and qBittorrent
+# publishes :8080 on valen's loopback — an 8080 host publish would fail to bind.
+
+- name: Deploy cAdvisor on the Docker fleet
+  hosts: services
+  become: true
+
+  roles:
+    - role: cadvisor

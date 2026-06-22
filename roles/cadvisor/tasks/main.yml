@@ -1,0 +1,25 @@
+---
+- name: Create cAdvisor stack directory
+  # Holds only the compose file. cAdvisor keeps no persistent state — Prometheus
+  # is the time-series store — so there is no config/data bind to manage.
+  ansible.builtin.file:
+    path: "{{ cadvisor_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Template cAdvisor docker-compose.yml
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ cadvisor_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0640"
+
+- name: Start cAdvisor stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ cadvisor_dir }}"
+    state: present
+    pull: always
+    remove_orphans: true

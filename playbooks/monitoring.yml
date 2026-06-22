@@ -2,7 +2,8 @@
 # Monitoring layer
 #
 # What: Deploys the full observability stack — node_exporter on every fleet
-#       host, smartctl_exporter on the [storage] hosts (SMART drive health), and
+#       host, smartctl_exporter on the [storage] hosts (SMART drive health),
+#       cAdvisor on the [services] Docker fleet (per-container metrics), and
 #       Prometheus + Alertmanager + Grafana on the [monitoring] group (pi-cm5-1).
 #       Grafana is exposed at grafana.jardoole.xyz via Traefik.
 # Why:  Monitoring is a distinct concern from the services it watches and from
@@ -11,9 +12,9 @@
 #       so every service it scrapes already exists, and before hardening locks
 #       down network access.
 # Resolves: An ordered composition layer for the monitoring function playbooks:
-#           the exporters first (node_exporter + smartctl_exporter data sources),
-#           then Prometheus + Alertmanager (collection + routing), then Grafana
-#           (visualization).
+#           the exporters first (node_exporter + smartctl_exporter + cAdvisor
+#           data sources), then Prometheus + Alertmanager (collection + routing),
+#           then Grafana (visualization).
 #
 # Order: After applications (it monitors the services they deploy; Traefik must
 #        also be running before the Grafana routing config takes effect, and
@@ -24,6 +25,9 @@
 
 - name: Monitoring | smartctl_exporter on storage hosts
   ansible.builtin.import_playbook: smartctl-exporter.yml
+
+- name: Monitoring | cAdvisor on the Docker fleet
+  ansible.builtin.import_playbook: cadvisor.yml
 
 - name: Monitoring | Prometheus and Alertmanager on monitoring host
   ansible.builtin.import_playbook: prometheus.yml

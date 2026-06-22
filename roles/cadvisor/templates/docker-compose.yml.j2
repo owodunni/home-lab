@@ -1,0 +1,41 @@
+# cAdvisor — per-container resource metrics for this Docker host.
+#
+# What: Reads cgroup/container/disk stats for the whole host and exposes them in
+#       Prometheus format. node_exporter measures the host as a whole; cAdvisor
+#       attributes CPU, memory, network, and disk I/O to individual containers.
+# Why:  This is the data needed to see which service consumes what and decide
+#       whether to rebalance services across the Pis.
+#
+# Managed by Ansible (roles/cadvisor) — do not edit on the host.
+services:
+  cadvisor:
+    image: "{{ cadvisor_image }}:{{ cadvisor_version }}"
+    container_name: cadvisor
+    restart: unless-stopped
+    # privileged + the read-only host mounts below are what cAdvisor needs to
+    # read cgroup, container, and disk stats for every container on the host.
+    privileged: true
+    devices:
+      - /dev/kmsg
+    ports:
+      # Host {{ cadvisor_port }} → cAdvisor's in-container 8080. 8080 is avoided
+      # on the host: Traefik's insecure dashboard binds :8080 on the ingress
+      # hosts and qBittorrent publishes :8080 on valen's loopback, so a host
+      # 8080 publish would fail to bind.
+      - "{{ cadvisor_port }}:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    command:
+      # --docker_only: ignore raw/system cgroups, only report Docker containers.
+      # --store_container_labels=false: drop user-defined compose labels as
+      #   metric labels to avoid cardinality blow-up on the small Pis. The
+      #   built-in name/image labels (which the dashboards use) are unaffected.
+      # --housekeeping_interval: 15s matches Prometheus' scrape_interval; no
+      #   point sampling faster than we scrape.
+      - "--docker_only=true"
+      - "--store_container_labels=false"
+      - "--housekeeping_interval=15s"

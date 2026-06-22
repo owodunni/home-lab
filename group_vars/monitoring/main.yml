@@ -30,6 +30,21 @@ monitoring_smartctl_targets:
   - "192.168.2.5:9633"
 
 # ============================================================================
+# cAdvisor scrape targets (per-container resource metrics)
+# The Docker fleet ([services]: pi-cm5-1..4 + valen). Deployed by cadvisor.yml;
+# published on host port 9101 (NOT cAdvisor's default 8080 — Traefik's dashboard
+# and qBittorrent already bind 8080 on some of these hosts). Prometheus runs on
+# pi-cm5-1, so localhost is pi-cm5-1's own cAdvisor. beelink is absent on purpose:
+# it runs Garage as a binary, not Docker, so it has no containers to scrape.
+# ============================================================================
+monitoring_cadvisor_targets:
+  - "localhost:9101"
+  - "pi-cm5-2:9101"
+  - "pi-cm5-3:9101"
+  - "pi-cm5-4:9101"
+  - "valen:9101"
+
+# ============================================================================
 # Prometheus
 # ============================================================================
 prometheus_version: "3.4.0"
@@ -59,6 +74,9 @@ prometheus_scrape_configs:
   - job_name: "smartctl"
     static_configs:
       - targets: "{{ monitoring_smartctl_targets }}"
+  - job_name: "cadvisor"
+    static_configs:
+      - targets: "{{ monitoring_cadvisor_targets }}"
   - job_name: "alertmanager"
     static_configs:
       - targets:
@@ -199,6 +217,42 @@ prometheus_alert_rules:
         {% raw %}Device {{ $labels.device }} on {{ $labels.instance }} has
         available spare below its threshold — replace soon.{% endraw %}
 
+  # --- Container health (cAdvisor on the [services] Docker fleet) ------------
+  # Deliberately low-noise: capacity itself (is a Pi overloaded?) is read off the
+  # Grafana dashboard, not paged on — sustained CPU/memory thresholds are
+  # workload-specific and noisy, and host-level pressure is already covered by
+  # HighMemoryUsage / HighDiskUsage above. These rules fire only on the
+  # unambiguous failure signals that warrant action. (cAdvisor being down is
+  # already caught by the unlabelled InstanceDown rule: up == 0.)
+  - alert: ContainerOOMKilled
+    # An OOM kill means a container hit a memory ceiling and was reaped. On the
+    # RAM-limited Pis this is the clearest "this host is overcommitted — move a
+    # service off it" signal, which is exactly the placement question cAdvisor
+    # is here to answer.
+    expr: 'increase(container_oom_events_total{name!=""}[10m]) > 0'
+    for: 1m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{% raw %}Container OOM-killed on {{ $labels.instance }} ({{ $labels.name }}){% endraw %}"
+      description: >-
+        {% raw %}Container {{ $labels.name }} on {{ $labels.instance }} was
+        OOM-killed in the last 10 minutes — the host is under memory pressure.
+        Consider moving a service to another Pi.{% endraw %}
+  - alert: ContainerFrequentRestart
+    # container_start_time_seconds jumps to a new value on each (re)start; many
+    # changes in a short window means the container is crash-looping rather than
+    # running steadily.
+    expr: 'changes(container_start_time_seconds{name!=""}[15m]) > 3'
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "{% raw %}Container restarting repeatedly on {{ $labels.instance }} ({{ $labels.name }}){% endraw %}"
+      description: >-
+        {% raw %}Container {{ $labels.name }} on {{ $labels.instance }} has
+        restarted more than 3 times in 15 minutes — likely crash-looping.{% endraw %}
+
 # ============================================================================
 # Alertmanager
 # ============================================================================
@@ -292,4 +346,12 @@ grafana_dashboards:
   # https://grafana.com/grafana/dashboards/22604
   - dashboard_id: 22604
     revision_id: 2
+    datasource: Prometheus
+  # "Cadvisor exporter" — per-container CPU, memory, network, and disk metrics
+  # for the Docker fleet, broken down by container. The view for deciding whether
+  # a service should move to a different Pi. Pairs with the cadvisor scrape job +
+  # container alert rules above.
+  # https://grafana.com/grafana/dashboards/14282
+  - dashboard_id: 14282
+    revision_id: 1
     datasource: Prometheus
