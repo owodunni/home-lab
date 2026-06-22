@@ -7,6 +7,16 @@
 # /main.yml for the WHAT/WHY, and playbooks/backup-mirror.yml for the key+grants
 # that must exist on valen's Garage first.
 
+- name: Pin the Garage S3 hostname to valen's LAN IP in /etc/hosts
+  # Beelink is offsite (barn network) and resolves s3.jardoole.xyz via public
+  # DNS → Cloudflare, which cannot reach the origin (522). This override sends
+  # S3 traffic over the WireGuard tunnel to valen's Traefik instead.
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '\s{{ backup_mirror_garage_host | regex_escape }}$'
+    line: "{{ backup_mirror_garage_ip }}  {{ backup_mirror_garage_host }}"
+    state: present
+
 - name: Install rclone (the pull engine)
   ansible.builtin.apt:
     name: rclone

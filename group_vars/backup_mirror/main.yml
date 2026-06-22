@@ -28,10 +28,19 @@
 # is a deliberate operator action (docs/backups-offsite.md), never automated.
 backup_mirror_dest: "{{ mergerfs_mount_point }}/restic-offsite"
 
-# Garage S3 endpoint to pull from. s3.jardoole.xyz now resolves to valen; the
-# region label must match garage_s3_region (group_vars/ingress/main.yml).
+# Garage S3 endpoint to pull from. s3.jardoole.xyz resolves to valen via
+# Traefik; the region label must match garage_s3_region (group_vars/ingress).
 backup_mirror_endpoint: "https://s3.jardoole.xyz"
 backup_mirror_region: "{{ garage_s3_region }}"
+
+# DNS override so the mirror host resolves the Garage endpoint to valen's LAN IP
+# instead of the public Cloudflare proxy. Without this, traffic goes:
+#   beelink → barn internet → Cloudflare → (522 timeout, origin unreachable)
+# With it, traffic goes over the WireGuard tunnel directly to valen's Traefik:
+#   beelink → WireGuard → 192.168.1.197:443 (Traefik → Garage)
+# TLS still works because the hostname matches the ACME cert on Traefik.
+backup_mirror_garage_host: "s3.jardoole.xyz"
+backup_mirror_garage_ip: "{{ hostvars[groups['garage'][0]]['ansible_host'] }}"
 
 # systemd OnCalendar for the pull. Runs at 06:00 — after every service backup
 # cron (02:00–05:00) has produced fresh snapshots, so the mirror is never a lap
