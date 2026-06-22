@@ -45,6 +45,9 @@
 - name: Media — Sonarr TV series manager
   ansible.builtin.import_playbook: sonarr.yml
 
+- name: Media — Unpackerr archive extractor (Radarr + Sonarr)
+  ansible.builtin.import_playbook: unpackerr.yml
+
 - name: Media — Jellyfin media server (QuickSync transcoding)
   ansible.builtin.import_playbook: jellyfin.yml
 

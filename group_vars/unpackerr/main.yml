@@ -1,0 +1,75 @@
+---
+# Unpackerr service configuration — extracts archived downloads for the *arr stack.
+#
+# What: Deploys Unpackerr on valen. It polls the Sonarr and Radarr queues over the
+#       shared media Docker network, finds completed downloads that are RAR/ZIP/7z
+#       archives (scene releases ship a multi-volume .rar/.r00… set, which the
+#       *arr apps cannot extract themselves), extracts them in place, and lets the
+#       *arr import the extracted media by hardlink.
+# Why:  Sonarr/Radarr only rename/hardlink already-extracted media — an archived
+#       release sits stuck in the queue ("no files eligible for import") forever.
+#       Unpackerr is the purpose-built golift tool that closes that gap.
+# Resolves: TV/movie releases that arrive as RAR archives never importing.
+#
+# Shared media vars (media_data_root, media_puid/pgid, media_time_zone,
+# media_docker_network) come from group_vars/media — valen is in both [unpackerr]
+# and [media].
+#
+# Secrets (the Sonarr/Radarr API keys Unpackerr authenticates with) live in
+# group_vars/unpackerr/vault.yml with the vault_ prefix. Create it with /vault:
+#   vault_unpackerr_sonarr_api_key  — Sonarr  → Settings → General → API Key
+#   vault_unpackerr_radarr_api_key  — Radarr  → Settings → General → API Key
+
+# ============================================================================
+# Image — pinned upstream tag
+# ============================================================================
+# Unpackerr (golift). Releases: https://github.com/unpackerr/unpackerr/releases
+# Pinned (pin-everything convention) rather than :latest so deploys are
+# reproducible; bump deliberately.
+unpackerr_image: "ghcr.io/unpackerr/unpackerr:0.15.2"
+
+# ============================================================================
+# Placement
+# ============================================================================
+# Directory on valen holding the compose stack + .env (not app data — Unpackerr
+# is stateless, all config is env-driven below).
+unpackerr_dir: /opt/unpackerr
+
+# ============================================================================
+# *arr connections — reached by container name over the shared media network
+# ============================================================================
+# Off the public forward-auth'd URL: Unpackerr uses the API key, and the keyless
+# WebUI is loopback-only, so it talks to the apps directly on the media bridge —
+# same model as Sonarr→qBittorrent. Ports match group_vars/{sonarr,radarr}.
+unpackerr_sonarr_url: "http://sonarr:8989"
+unpackerr_radarr_url: "http://radarr:7878"
+
+# Path(s) Unpackerr watches for archives, AS THE *arr APPS REPORT THEM. Unpackerr
+# mounts the media tree at the SAME /data path the *arr apps use, so the download
+# paths in the queue (/data/torrents/tv, /data/torrents/movies) resolve identically
+# inside this container — without matching paths Unpackerr cannot find the files.
+unpackerr_watch_path: "/data/torrents"
+
+# ============================================================================
+# Extraction / cleanup behaviour
+# ============================================================================
+# Seconds after the *arr IMPORTS the extracted media before Unpackerr deletes the
+# files it extracted. The import is a hardlink into the library, so deleting the
+# loose extracted copy frees nothing the library needs; this just stops a duplicate
+# lingering in the download dir. 5 min of slack absorbs import timing.
+unpackerr_delete_delay: "5m"
+
+# NEVER delete the original archive. The .rar/.r00… parts are what qBittorrent
+# seeds — removing them would break seeding. Unpackerr only deletes what it
+# extracted (see unpackerr_delete_delay); originals are left untouched. Pinned
+# false explicitly even though it is the upstream default.
+unpackerr_delete_original: false
+
+# How often Unpackerr polls the *arr queues for new archived downloads.
+unpackerr_poll_interval: "2m"
+
+# ============================================================================
+# Logging
+# ============================================================================
+unpackerr_log_max_size: "20m"
+unpackerr_log_max_file: "3"

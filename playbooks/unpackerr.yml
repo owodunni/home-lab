@@ -1,0 +1,34 @@
+---
+# Deploy Unpackerr — archive extractor for the *arr stack
+#
+# What: Deploys the Unpackerr stack on valen. It polls the Sonarr and Radarr
+#       queues over the shared media Docker network, extracts completed downloads
+#       that arrive as RAR/ZIP/7z archives (scene releases ship a multi-volume
+#       .rar/.r00… set), and lets each *arr import the extracted media by hardlink.
+# Why:  Sonarr/Radarr cannot extract archives themselves — an archived release
+#       sits stuck in the queue ("no files eligible for import") indefinitely.
+#       Unpackerr (golift) is the purpose-built tool that unblocks those imports.
+# Resolves: Archived TV/movie releases never importing into the library.
+#
+# No Traefik route and no config-backup: Unpackerr has no WebUI to expose and is
+# stateless (all config is env-driven from group_vars), so it needs neither.
+#
+# Prerequisites:
+#   - Docker runtime on valen (service-infra layer; valen in [services]).
+#   - The shared media Docker network (playbooks/media-network.yml) so Unpackerr
+#     reaches Sonarr/Radarr by container name.
+#   - Sonarr and Radarr deployed and reachable on that network.
+#   - The media data tree on valen's pool (storage layer; media-storage.yml), so
+#     extracted files land on the same filesystem as the library for hardlink
+#     imports.
+#
+# Vault vars required in group_vars/unpackerr/vault.yml (create with /vault):
+#   vault_unpackerr_sonarr_api_key — Sonarr → Settings → General → API Key
+#   vault_unpackerr_radarr_api_key — Radarr → Settings → General → API Key
+
+- name: Deploy Unpackerr archive extractor
+  hosts: unpackerr
+  become: true
+
+  roles:
+    - role: unpackerr

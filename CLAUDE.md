@@ -29,7 +29,7 @@ the entire site.
 | **ingress** | Traefik reverse proxy with ACME wildcard certificates via Cloudflare DNS-01. | `traefik.yml` | `ingress` |
 | **service-infra** | Docker runtime + Garage S3 object storage — a shared backend other services consume (e.g. Authentik DB backups). | `docker.yml`, `garage.yml` | `services` / `garage` |
 | **auth** | Authentik SSO/OIDC identity provider. Backs up to Garage. | `authentik.yml` | `authentik` |
-| **applications** | End-user services on the full platform. Nextcloud, Vaultwarden, and the media (arr) stack — see [Application notes](#application-notes) below. | `nextcloud.yml`, `vaultwarden.yml`, `media-network.yml`, `media-forward-auth.yml`, `qbittorrent.yml`, `prowlarr.yml`, `radarr.yml`, `sonarr.yml`, `jellyfin.yml`, `jellyseerr.yml` | `nextcloud` / `vaultwarden` / `media` / `qbittorrent` / `prowlarr` / `radarr` / `sonarr` / `jellyfin` / `jellyseerr` |
+| **applications** | End-user services on the full platform. Nextcloud, Vaultwarden, and the media (arr) stack — see [Application notes](#application-notes) below. | `nextcloud.yml`, `vaultwarden.yml`, `media-network.yml`, `media-forward-auth.yml`, `qbittorrent.yml`, `prowlarr.yml`, `radarr.yml`, `sonarr.yml`, `unpackerr.yml`, `jellyfin.yml`, `jellyseerr.yml` | `nextcloud` / `vaultwarden` / `media` / `qbittorrent` / `prowlarr` / `radarr` / `sonarr` / `unpackerr` / `jellyfin` / `jellyseerr` |
 | **monitoring** | node_exporter everywhere, smartctl_exporter on `[storage]`, Prometheus + Alertmanager + Grafana on `[monitoring]`. Alert rules for host/drive faults route to email; Grafana at `grafana.jardoole.xyz`. | `node-exporter.yml`, `smartctl-exporter.yml`, `prometheus.yml`, `grafana.yml` | `all` / `storage` / `monitoring` |
 | **security** | Hardening: automatic security updates (firewall, SSH hardening to come). | `unattended-upgrades.yml` | `all` |
 
@@ -60,7 +60,8 @@ state, consumed by the apps above.
 - **Media (arr) stack** — on valen (compute + storage + Intel iGPU transcoding
   co-located, local bind mounts). Foundations first (`media-network.yml` cross-stack
   Docker network, then `media-forward-auth.yml` SSO middleware), then services in
-  dependency order: qBittorrent+VPN, Prowlarr, Radarr, Sonarr, Jellyfin (QuickSync),
+  dependency order: qBittorrent+VPN, Prowlarr, Radarr, Sonarr, Unpackerr (extracts
+  archived RAR/ZIP downloads so the *arr apps can import them), Jellyfin (QuickSync),
   Jellyseerr. The *arr apps sit behind forward-auth; Jellyfin and Jellyseerr use
   their own auth (forward-auth breaks Jellyfin native clients). See
   `docs/media-stack-migration.md`.

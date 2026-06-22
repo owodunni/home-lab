@@ -1,0 +1,54 @@
+# Unpackerr — extracts archived downloads for the *arr stack. Managed by Ansible,
+# do not edit manually. Non-secret values come from group_vars (Jinja); the *arr
+# API keys come from .env.
+
+services:
+  unpackerr:
+    image: {{ unpackerr_image }}
+    container_name: unpackerr
+    restart: unless-stopped
+    # Run as the pool media account (PUID/PGID 8000) so files Unpackerr extracts
+    # land with the same ownership as the rest of the media tree and the *arr apps
+    # can hardlink them. Unpackerr is a single static binary — no s6/PUID layer.
+    user: "{{ media_puid }}:{{ media_pgid }}"
+    environment:
+      - TZ={{ media_time_zone }}
+      # Global behaviour
+      - UN_INTERVAL={{ unpackerr_poll_interval }}
+      # Log to stdout so Docker's json-file driver captures it (no in-container
+      # log file to mount/rotate).
+      - UN_LOG_FILE=
+      # --- Sonarr instance 0 ---
+      - UN_SONARR_0_URL={{ unpackerr_sonarr_url }}
+      - UN_SONARR_0_API_KEY=${UN_SONARR_0_API_KEY:?Variable is not set or empty}
+      - UN_SONARR_0_PATHS_0={{ unpackerr_watch_path }}
+      - UN_SONARR_0_DELETE_DELAY={{ unpackerr_delete_delay }}
+      - UN_SONARR_0_DELETE_ORIG={{ unpackerr_delete_original | lower }}
+      # --- Radarr instance 0 ---
+      - UN_RADARR_0_URL={{ unpackerr_radarr_url }}
+      - UN_RADARR_0_API_KEY=${UN_RADARR_0_API_KEY:?Variable is not set or empty}
+      - UN_RADARR_0_PATHS_0={{ unpackerr_watch_path }}
+      - UN_RADARR_0_DELETE_DELAY={{ unpackerr_delete_delay }}
+      - UN_RADARR_0_DELETE_ORIG={{ unpackerr_delete_original | lower }}
+    volumes:
+      # The whole media tree at the SAME /data path the *arr apps use, so the
+      # download paths Unpackerr reads from the *arr queues resolve identically
+      # here. Read-write: Unpackerr extracts into the download dir in place.
+      - {{ media_data_root }}:/data
+    networks:
+      # Shared media network so Unpackerr reaches http://sonarr:8989 and
+      # http://radarr:7878 by container name (off the loopback-only WebUI and the
+      # public forward-auth'd URL). See group_vars/media → media_docker_*.
+      - media
+    env_file:
+      - .env
+    logging:
+      driver: json-file
+      options:
+        max-size: "{{ unpackerr_log_max_size }}"
+        max-file: "{{ unpackerr_log_max_file }}"
+
+networks:
+  media:
+    name: "{{ media_docker_network }}"
+    external: true
