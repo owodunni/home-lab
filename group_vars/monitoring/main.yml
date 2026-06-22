@@ -45,6 +45,14 @@ monitoring_cadvisor_targets:
   - "valen:9101"
 
 # ============================================================================
+# Intel GPU exporter scrape target (iGPU transcode load)
+# valen only — it is the single host with an Intel iGPU (Jellyfin QuickSync).
+# Deployed by intel-gpu-exporter.yml on [media]; published on host port 9102.
+# ============================================================================
+monitoring_intel_gpu_targets:
+  - "valen:9102"
+
+# ============================================================================
 # Prometheus
 # ============================================================================
 prometheus_version: "3.4.0"
@@ -77,6 +85,9 @@ prometheus_scrape_configs:
   - job_name: "cadvisor"
     static_configs:
       - targets: "{{ monitoring_cadvisor_targets }}"
+  - job_name: "intel_gpu"
+    static_configs:
+      - targets: "{{ monitoring_intel_gpu_targets }}"
   - job_name: "alertmanager"
     static_configs:
       - targets:
@@ -337,8 +348,17 @@ grafana_datasources:
     jsonData:
       timeInterval: "15s"
 
+# Local dashboard JSON directory (controller-side), provisioned by the
+# grafana.grafana role alongside the grafana.com downloads below. Absolute path
+# via inventory_dir (= repo root, where hosts.ini lives) so the role's fileglob
+# resolves regardless of which playbook imports it. Holds the Intel GPU dashboard,
+# which has no grafana.com ID — it ships only as JSON in the exporter's repo.
+grafana_dashboards_dir: "{{ inventory_dir }}/files/grafana-dashboards"
+
 # Dashboards auto-provisioned from grafana.com by the grafana.grafana role.
 # Each is downloaded at deploy time and wired to the Prometheus datasource.
+# (The Intel GPU dashboard is provisioned from grafana_dashboards_dir above, not
+# here — it is not published on grafana.com.)
 grafana_dashboards:
   # "SMARTctl Exporter Dashboard" — drive health overview (SMART status,
   # temperature, reallocated/pending sectors, NVMe wearout). Pairs with the

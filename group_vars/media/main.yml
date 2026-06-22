@@ -62,3 +62,24 @@ media_pgid: "{{ storage_media_gid }}"
 
 # IANA timezone for all media containers (scheduling, log timestamps).
 media_time_zone: "Etc/UTC"
+
+# ============================================================================
+# Intel GPU exporter (iGPU transcode-load metrics)
+# What: Image/port for the Intel GPU exporter container deployed on the media
+#       host by playbooks/intel-gpu-exporter.yml (roles/intel_gpu_exporter). The
+#       matching scrape job + Grafana dashboard live in group_vars/monitoring.
+# Why:  Surfaces valen's iGPU engine utilisation (esp. the Video/VideoEnhance
+#       engines during Jellyfin QuickSync transcodes) — invisible to cAdvisor and
+#       node_exporter. Deploy-time values live with the targeted [media] group
+#       (not the role) per the no-role-defaults rule in CLAUDE.md.
+# ============================================================================
+intel_gpu_exporter_dir: /opt/intel-gpu-exporter
+# mike1808/igpu-exporter — actively maintained. No semver tags are published, so
+# we pin the current main commit (immutable) rather than the moving :latest, in
+# keeping with the repo's pin-everything convention. Its dashboard is vendored at
+# files/grafana-dashboards/intel-gpu.json (provisioned via grafana_dashboards_dir).
+intel_gpu_exporter_image: ghcr.io/mike1808/igpu-exporter:main-db2dace
+# Port the exporter listens on (set via its PORT env). 9102, NOT the image's
+# default 8080 — Traefik's dashboard and qBittorrent already bind 8080 on valen.
+# Keep in sync with monitoring_intel_gpu_targets in group_vars/monitoring/main.yml.
+intel_gpu_exporter_port: 9102

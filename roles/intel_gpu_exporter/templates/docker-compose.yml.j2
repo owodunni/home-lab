@@ -1,0 +1,39 @@
+# Intel GPU exporter — per-engine iGPU utilisation for valen's QuickSync.
+#
+# What: Wraps `intel_gpu_top` and exposes the i915 engine-busy percentages in
+#       Prometheus format as igpu_engines_busy_percent{engine="..."} — the
+#       "Video/0" and "VideoEnhance/0" engines are what light up during Jellyfin
+#       QuickSync transcodes — plus GPU frequency, power, and per-process usage
+#       (igpu_client_engine_busy_percent{name="...",engine="..."}).
+# Why:  Neither node_exporter nor cAdvisor can see GPU engine load — it is not
+#       exposed through cgroups. This is the only way to graph how hard the iGPU
+#       works while transcoding.
+#
+# Image is ghcr.io/mike1808/igpu-exporter — actively maintained. Its dashboard is
+# vendored at files/grafana-dashboards/intel-gpu.json and provisioned by Grafana
+# (group_vars/monitoring/main.yml: grafana_dashboards_dir).
+#
+# Managed by Ansible (roles/intel_gpu_exporter) — do not edit on the host.
+services:
+  intel-gpu-exporter:
+    image: "{{ intel_gpu_exporter_image }}"
+    container_name: intel-gpu-exporter
+    restart: unless-stopped
+    # privileged + pid:host + the /dev/dri mount are what intel_gpu_top needs to
+    # read the i915 perf counters for the whole GPU (it requires root-equivalent
+    # access to the performance interface, not just the render node). pid:host
+    # also lets it label per-process GPU usage with real host process names.
+    privileged: true
+    pid: host
+    volumes:
+      - /dev/dri:/dev/dri
+    environment:
+      # The exporter honours PORT, so it listens directly on our chosen port —
+      # no host:container remap needed. 9102 (not the image default 8080) because
+      # Traefik's dashboard and qBittorrent already bind 8080 on valen.
+      PORT: "{{ intel_gpu_exporter_port }}"
+      # How often intel_gpu_top samples the GPU. 5s gives responsive transcode
+      # graphs without much overhead; Prometheus scrapes the latest sample at 15s.
+      REFRESH_PERIOD_MS: "5000"
+    ports:
+      - "{{ intel_gpu_exporter_port }}:{{ intel_gpu_exporter_port }}"

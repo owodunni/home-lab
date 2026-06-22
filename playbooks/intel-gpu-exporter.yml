@@ -1,0 +1,32 @@
+---
+# Deploy the Intel GPU exporter on the media host
+#
+# What: Runs mike1808/igpu-exporter as a container on [media] (valen). It wraps
+#       `intel_gpu_top` and exposes per-engine iGPU utilisation, GPU frequency,
+#       power, and per-process GPU usage in Prometheus format on host port
+#       {{ intel_gpu_exporter_port }} (9102).
+# Why:  cAdvisor and node_exporter cannot see GPU engine load (it is not a cgroup
+#       metric). This exporter is the only way to graph how hard valen's Intel
+#       iGPU works — specifically the Video / VideoEnhance engines during Jellyfin
+#       QuickSync transcodes.
+# Resolves: Absent GPU metrics. Pairs with the `intel_gpu` scrape job and the
+#           exporter's own "Intel GPU" dashboard, vendored at
+#           files/grafana-dashboards/intel-gpu.json and provisioned by Grafana.
+#
+# Prerequisites:
+#   - Docker runtime on valen (service-infra layer; valen in [services]).
+#   - Intel iGPU + /dev/dri/renderD128 present (asserted by gpu-drivers.yml,
+#     system layer). The exporter image bundles its own intel_gpu_top, so it does
+#     not depend on the host's intel-gpu-tools — only on the device node.
+#   - Prometheus scrapes the intel_gpu job (group_vars/monitoring/main.yml).
+#
+# Targets [media] (the media-host group, = valen) because the iGPU is media-host
+# hardware — the same group gpu-drivers.yml targets. It moves with the media host
+# in a one-line hosts.ini change, no playbook edit.
+
+- name: Deploy the Intel GPU exporter on the media host
+  hosts: media
+  become: true
+
+  roles:
+    - role: intel_gpu_exporter
