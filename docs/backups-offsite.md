@@ -106,8 +106,17 @@ have built up a comfortable retention window, then:
   corruption; `SnapraidScrubStale`/`SnapraidScrubErrors` alert if it stops.
   `rclone --checksum` verifies each transfer. Logical repo integrity is asserted
   by `make verify-backups` (`restic check`) and `make drill` against the local
-  side; run a drill against the offsite copy periodically too (above) and log it
-  in `docs/backup-recovery-testing.md`.
+  side.
+- **Offsite restore drill** — `make offsite-drill [SERVICE=<svc>]` is the offsite
+  analogue of `make local-drill`: it runs restic **on your workstation**, reaches
+  each mirrored repo on beelink over **SFTP**, and for every backup lists
+  snapshots, runs `restic check`, restores the latest snapshot to a scratch dir,
+  and asserts the result (non-destructive). restic decrypts only on the
+  workstation, so this proves the offsite copy restores **without** installing
+  restic on beelink or putting the restic password there. Run it periodically and
+  log it in `docs/backup-recovery-testing.md`. (It reads the repos as the SSH
+  login user, which the `backup_mirror` role enables by making
+  `{{ backup_mirror_dest }}` world-readable — encrypted packs only.)
 
 ## Pruning the offsite (bounding growth)
 

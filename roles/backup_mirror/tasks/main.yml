@@ -25,12 +25,23 @@
     cache_valid_time: 3600
 
 - name: Create the offsite mirror destination directory
+  # WHAT: world-readable (0755), root-owned. The repo subdirs/files rclone
+  #   creates underneath are already 0755/0644, so this top dir was the only
+  #   thing gating non-root read.
+  # WHY: the workstation offsite-drill (scripts/offsite-drill.sh) restore-tests
+  #   the offsite copy by running restic LOCALLY and reading these repos over
+  #   SFTP as the SSH login user — keeping the restic password off beelink (the
+  #   offsite security model). The repos hold ONLY encrypted restic packs, so
+  #   o+rx exposes no plaintext; restic decrypts only on the workstation.
+  # RESOLVES: 0700 made the repos unreadable to the SSH user, so an offsite
+  #   drill would have needed either restic + the password ON beelink, or a
+  #   broad sudo-sftp grant — both worse than reading encrypted packs.
   ansible.builtin.file:
     path: "{{ backup_mirror_dest }}"
     state: directory
     owner: root
     group: root
-    mode: "0700"  # restic repos — root-only, even though already encrypted
+    mode: "0755"
 
 - name: Create the rclone config directory
   ansible.builtin.file:

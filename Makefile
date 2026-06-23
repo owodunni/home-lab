@@ -4,7 +4,7 @@ ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(
 
 .PHONY: help setup lint precommit vault-edit \
         system networking storage ingress service-infra auth applications backup monitoring security site \
-        app verify-backups restore-backups drill local-drill
+        app verify-backups restore-backups drill local-drill offsite-drill
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -113,6 +113,14 @@ local-drill: ## 🧪 Local restore drill: restore all (or one) service's backups
 	  scripts/local-drill.sh "$(SERVICE)"; \
 	else \
 	  scripts/local-drill.sh; \
+	fi
+
+offsite-drill: ## 🧪 Offsite restore drill: restore all (or one) service's backups from beelink to this workstation over SFTP (SERVICE=<group>, optional)
+	@echo "Running offsite restore drill..."
+	@if [ -n "$(SERVICE)" ]; then \
+	  scripts/offsite-drill.sh "$(SERVICE)"; \
+	else \
+	  scripts/offsite-drill.sh; \
 	fi
 
 restore-backups: ## ♻️ DESTRUCTIVE restore of a service's backups, typed confirm prompt (SERVICE=<group> [TARGETS='name=snap_id,...'])
