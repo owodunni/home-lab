@@ -106,9 +106,13 @@ drill_one() {
   export RESTIC_REPOSITORY="$repo"
   export RESTIC_PASSWORD="$pw"
 
+  # --no-lock on every call: the SSH user has READ-ONLY access to the mirror
+  # (root-owned repos, granted o+rx for encrypted packs only), so restic cannot
+  # write a lock file. Lockless reads are exactly what restic documents for
+  # read-only backends; safe here because the drill never mutates the repo.
   echo "  Repo: ${repo}"
   echo "  Listing snapshots..."
-  if ! restic snapshots --compact 2>&1; then
+  if ! restic --no-lock snapshots --compact 2>&1; then
     echo "  FAIL: cannot list snapshots for ${label}"
     failed=$((failed + 1))
     results+=("FAIL  ${label} — cannot list snapshots")
@@ -116,7 +120,7 @@ drill_one() {
   fi
 
   echo "  Running restic check..."
-  if ! restic check 2>&1; then
+  if ! restic --no-lock check 2>&1; then
     echo "  FAIL: restic check failed for ${label}"
     failed=$((failed + 1))
     results+=("FAIL  ${label} — restic check failed")
@@ -125,7 +129,7 @@ drill_one() {
 
   echo "  Restoring latest snapshot to ${target}..."
   mkdir -p "$target"
-  if ! restic restore latest --target "$target" 2>&1; then
+  if ! restic --no-lock restore latest --target "$target" 2>&1; then
     echo "  FAIL: restore failed for ${label}"
     failed=$((failed + 1))
     results+=("FAIL  ${label} — restore failed")
