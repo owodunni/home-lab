@@ -5,6 +5,30 @@
 # docker_edition defaults to 'ce' in the role — not repeated here
 docker_install_compose: true
 
+# Pin the Docker embedded DNS resolver's upstreams (written to
+# /etc/docker/daemon.json by the geerlingguy.docker role, which restarts the
+# daemon on change).
+# What: Give dockerd's embedded resolver (127.0.0.11, used by every container on
+#       a user-defined network) a fixed upstream list instead of whatever it
+#       infers from the host's /etc/resolv.conf at daemon-start time.
+# Why:  At boot, dockerd starts and launches containers before dhcpcd has
+#       finished writing the real `nameserver 192.168.1.1` into
+#       /etc/resolv.conf. The embedded resolver captured that transient
+#       loopback-only/empty state as its upstream, so containers could resolve
+#       each other's names but every EXTERNAL lookup dead-ended with
+#       getaddrinfo EAI_AGAIN — for the life of the running container. Setting an
+#       explicit list removes the boot-time race entirely (the resolver no longer
+#       reads resolv.conf for upstreams). Router first so any LAN-local names
+#       still resolve; Cloudflare 1.1.1.1 as a fallback so a router DNS hiccup
+#       does not blind every container (all *.jardoole.xyz names are public
+#       Cloudflare records, so the fallback resolves them too).
+# Resolves: Jellyseerr (and every other container on valen) losing all external
+#           DNS after a host reboot until Docker was restarted.
+docker_daemon_options:
+  dns:
+    - "192.168.1.1"
+    - "1.1.1.1"
+
 # ============================================================================
 # cAdvisor (per-container metrics exporter)
 # What: Image/port for the cAdvisor container deployed on every [services] host
