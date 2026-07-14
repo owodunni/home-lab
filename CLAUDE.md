@@ -31,7 +31,7 @@ the entire site.
 | **auth** | Authentik SSO/OIDC identity provider. Backs up to Garage. | `authentik.yml` | `authentik` |
 | **applications** | End-user services on the full platform. Nextcloud, Vaultwarden, and the media (arr) stack — see [Application notes](#application-notes) below. | `nextcloud.yml`, `vaultwarden.yml`, `media-network.yml`, `media-forward-auth.yml`, `qbittorrent.yml`, `prowlarr.yml`, `radarr.yml`, `sonarr.yml`, `unpackerr.yml`, `jellyfin.yml`, `jellyseerr.yml` | `nextcloud` / `vaultwarden` / `media` / `qbittorrent` / `prowlarr` / `radarr` / `sonarr` / `unpackerr` / `jellyfin` / `jellyseerr` |
 | **backup** | Offsite copy of every service backup: beelink pulls each Garage bucket from valen into local restic repos with a read-only key. The decoupled "something else" that makes the offsite copy — apps only write locally to valen. See the Backups section below. | `backup-mirror.yml` | `garage` / `backup_mirror` |
-| **monitoring** | node_exporter everywhere, smartctl_exporter on `[storage]`, a per-service local-backup-freshness exporter on each service host, then Prometheus + Alertmanager + Grafana on `[monitoring]`. Alert rules for host/drive faults and stale backups (local `BackupLocalStale` + offsite `BackupMirrorStale`) route to email; Grafana at `grafana.jardoole.xyz`. | `node-exporter.yml`, `smartctl-exporter.yml`, `backup-freshness.yml`, `prometheus.yml`, `grafana.yml` | `all` / `storage` / service groups / `monitoring` |
+| **monitoring** | node_exporter everywhere, smartctl_exporter on `[storage]`, a per-service local-backup-freshness exporter on each service host, blackbox_exporter on `[monitoring]` HTTP-probing every routed service's front door (liveness + TLS-expiry, IPv4-forced to the LAN), then Prometheus + Alertmanager + Grafana on `[monitoring]`. Alert rules for host/drive faults, stale backups (local `BackupLocalStale` + offsite `BackupMirrorStale`), and app front-door/cert faults (`BlackboxProbeFailed` + `BlackboxCertExpiringSoon`) route to email; Grafana at `grafana.jardoole.xyz`. A pre-commit guard (`scripts/check-blackbox-coverage.py`) fails the build if a routed service is missing from the `monitoring_blackbox_services` registry, so new services can't be silently unmonitored. | `node-exporter.yml`, `smartctl-exporter.yml`, `backup-freshness.yml`, `blackbox-exporter.yml`, `prometheus.yml`, `grafana.yml` | `all` / `storage` / service groups / `monitoring` |
 | **security** | Hardening: automatic security updates (firewall, SSH hardening to come). | `unattended-upgrades.yml` | `all` |
 
 **Ordering principle:** a dependency belongs in a layer *below* the things that
@@ -49,6 +49,21 @@ metric) → `security`.
 This is also why the media stack's GPU drivers and data tree live in `system` and
 `storage` rather than alongside the media apps: they are host hardware and storage
 state, consumed by the apps above.
+
+### DNS resolution (Ubiquiti split-horizon)
+
+`*.jardoole.xyz` names are served by the Ubiquiti router with **split-horizon
+DNS**: each is a CNAME `<service>.jardoole.xyz` → `<host>.jardoole.xyz` whose **A
+record** the router overrides to that host's **LAN IP** (e.g.
+`jellyseerr.jardoole.xyz` → `valen.jardoole.xyz` → `192.168.1.197`). Internal
+clients therefore reach services directly on the LAN over IPv4 — no hairpin through
+Cloudflare.
+
+**Caveat:** the router overrides only the **A** record. The public **AAAA** record
+still resolves to Cloudflare, so an IPv6-preferring client on the LAN reaches
+services via Cloudflare instead of the LAN. Anything that must stay on the LAN path
+(e.g. the blackbox monitoring probes) forces IPv4 (`preferred_ip_protocol: ip4`).
+Fixing the AAAA leak is an open follow-up.
 
 #### Application notes
 
