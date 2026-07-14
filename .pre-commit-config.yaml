@@ -29,3 +29,10 @@ repos:
         language: system
         files: ^apps/.*/values.*\.yml$
         pass_filenames: false
+
+      - id: blackbox-coverage
+        name: blackbox monitoring coverage
+        entry: uv run python scripts/check-blackbox-coverage.py
+        language: system
+        files: ^(playbooks/templates/traefik-.*\.yml\.j2|group_vars/monitoring/main\.yml)$
+        pass_filenames: false
