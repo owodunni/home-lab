@@ -1,0 +1,32 @@
+---
+# Deploy blackbox_exporter on the monitoring host
+#
+# What: Installs the Prometheus blackbox_exporter systemd service on the
+#       [monitoring] host (pi-cm5-1), bound to loopback :9115. It performs HTTP
+#       probes of every routed service's front door and exposes the results
+#       (probe_success, probe_ssl_earliest_cert_expiry, ...) for Prometheus to
+#       scrape via the multi-target /probe pattern.
+# Why:  node_exporter/cadvisor detect a host or container being down, but NOT a
+#       service whose container is Up while its HTTP front door is broken — a 5xx,
+#       a crashed web frontend, a mis-routed Traefik rule, or a silently expired
+#       TLS cert. Blackbox is the missing application-reachability layer.
+# Resolves: No front-door health signal for the routed services. Pairs with the
+#           blackbox scrape job + BlackboxProbeFailed/BlackboxCertExpiringSoon
+#           alerts in group_vars/monitoring/main.yml.
+#
+# Probe path note: the module forces preferred_ip_protocol ip4 so blackbox follows
+# the Ubiquiti split-horizon IPv4 CNAME (*.jardoole.xyz -> <host>.jardoole.xyz ->
+# LAN IP) straight to each app's own Traefik, rather than the IPv6 AAAA record
+# which resolves to Cloudflare. See group_vars/monitoring/main.yml
+# (blackbox_exporter_configuration_modules) and CLAUDE.md "DNS resolution".
+#
+# Prerequisites:
+#   - prometheus.prometheus collection (ships the blackbox_exporter role)
+#   - Prometheus scrapes the blackbox job (group_vars/monitoring/main.yml)
+
+- name: Deploy blackbox_exporter on the monitoring host
+  hosts: monitoring
+  become: true
+
+  roles:
+    - role: prometheus.prometheus.blackbox_exporter

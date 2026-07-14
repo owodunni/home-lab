@@ -36,6 +36,9 @@
 - name: Monitoring | local backup freshness exporter on service hosts
   ansible.builtin.import_playbook: backup-freshness.yml
 
+- name: Monitoring | blackbox_exporter on the monitoring host
+  ansible.builtin.import_playbook: blackbox-exporter.yml
+
 - name: Monitoring | Prometheus and Alertmanager on monitoring host
   ansible.builtin.import_playbook: prometheus.yml
 

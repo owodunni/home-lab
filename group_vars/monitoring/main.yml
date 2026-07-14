@@ -53,6 +53,85 @@ monitoring_intel_gpu_targets:
   - "valen:9102"
 
 # ============================================================================
+# Blackbox exporter (HTTP front-door probes) — prometheus.prometheus role
+# What: Config for the blackbox_exporter on the [monitoring] host (deployed by
+#       blackbox-exporter.yml). It probes each routed service's HTTPS front door
+#       and exports probe_success (liveness) + probe_ssl_earliest_cert_expiry.
+# Why:  node_exporter/cadvisor miss "container Up but the app's HTTP front door is
+#       broken" (5xx, crashed frontend, mis-routed Traefik, expired cert). This is
+#       that application-reachability layer. Bound to loopback — Prometheus scrapes
+#       it locally, same as the rest of the stack.
+# Resolves: These deploy-time values live with the [monitoring] group, not the role
+#           (no-role-defaults rule in CLAUDE.md).
+# ============================================================================
+blackbox_exporter_version: "0.28.0"
+
+# Loopback only — Prometheus scrapes over localhost; no external exposure.
+blackbox_exporter_web_listen_address: "127.0.0.1:9115"
+
+# Single custom probe module used by the blackbox scrape job below.
+blackbox_exporter_configuration_modules:
+  http_app_2xx:
+    prober: http
+    timeout: 5s
+    http:
+      method: GET
+      # Force the IPv4 CNAME to the LAN Traefik, NOT the IPv6/Cloudflare AAAA
+      # (Ubiquiti split-horizon overrides only the A record). Keeps the probe
+      # origin-direct: our Traefik + app + real origin cert, never Cloudflare.
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false
+      # Test the front door's own response; do not chase login redirects into auth
+      # flows (which would turn a 302 login into a 200 and hide a broken app).
+      follow_redirects: false
+      # Every routed endpoint answers with one of these to an unauthenticated,
+      # no-redirect probe (verified: 200 vaultwarden/alertmanager, 302 most,
+      # 307 jellyseerr, 403 garage S3). 301/308/401 kept for future basic-auth /
+      # relocated routes.
+      valid_status_codes: [200, 204, 301, 302, 307, 308, 401, 403]
+      # Verify the real origin wildcard cert (SNI is taken from the target host).
+      tls_config: {}
+
+# --- Blackbox service registry (single source of truth for what is probed) ----
+# Keyed by the Traefik template's service name (traefik-<name>.yml.j2). EVERY
+# routed service MUST appear here — scripts/check-blackbox-coverage.py fails the
+# commit otherwise, so a new service cannot be silently unmonitored.
+#   kind: app  -> own/no auth: probe_success is a trustworthy liveness signal.
+#   kind: edge -> behind Authentik forward-auth: an unauthenticated probe only
+#                 reaches Authentik, so probe_success is a false-green for
+#                 liveness. Probed for CERT coverage only; excluded from the
+#                 liveness alert via the probe_kind label (see the scrape job).
+#   url:  full https:// target (explicit so every probed URL is visible here).
+monitoring_blackbox_services:
+  jellyseerr: {kind: app, url: "https://jellyseerr.{{ traefik_domain }}"}
+  jellyfin: {kind: app, url: "https://jellyfin.{{ traefik_domain }}"}
+  nextcloud: {kind: app, url: "https://nextcloud.{{ traefik_domain }}"}
+  vaultwarden: {kind: app, url: "https://vaultwarden.{{ traefik_domain }}"}
+  grafana: {kind: app, url: "https://grafana.{{ traefik_domain }}"}
+  authentik: {kind: app, url: "https://auth.{{ traefik_domain }}"}
+  prometheus: {kind: app, url: "https://prometheus.{{ traefik_domain }}"}
+  alertmanager: {kind: app, url: "https://alertmanager.{{ traefik_domain }}"}
+  garage: {kind: app, url: "https://s3.{{ traefik_domain }}"}
+  # Forward-auth apps: probed for cert coverage, excluded from the liveness alert.
+  radarr: {kind: edge, url: "https://radarr.{{ traefik_domain }}"}
+  sonarr: {kind: edge, url: "https://sonarr.{{ traefik_domain }}"}
+  prowlarr: {kind: edge, url: "https://prowlarr.{{ traefik_domain }}"}
+  qbittorrent: {kind: edge, url: "https://qbittorrent.{{ traefik_domain }}"}
+
+# Probe target lists DERIVED from the registry (edit the registry, not these).
+# The scrape job labels each group with probe_kind so the liveness alert scopes
+# to app-only.
+monitoring_blackbox_targets:
+  app: >-
+    {{ monitoring_blackbox_services | dict2items
+    | selectattr('value.kind', 'equalto', 'app')
+    | map(attribute='value.url') | list }}
+  edge: >-
+    {{ monitoring_blackbox_services | dict2items
+    | selectattr('value.kind', 'equalto', 'edge')
+    | map(attribute='value.url') | list }}
+
+# ============================================================================
 # Prometheus
 # ============================================================================
 prometheus_version: "3.4.0"
@@ -88,6 +167,27 @@ prometheus_scrape_configs:
   - job_name: "intel_gpu"
     static_configs:
       - targets: "{{ monitoring_intel_gpu_targets }}"
+  # Blackbox multi-target: each target URL is passed to the exporter as
+  # __param_target; instance becomes the URL; probe_kind labels app vs edge so
+  # the liveness alert can exclude forward-auth (edge) targets.
+  - job_name: "blackbox"
+    metrics_path: /probe
+    params:
+      module: [http_app_2xx]
+    static_configs:
+      - targets: "{{ monitoring_blackbox_targets.app }}"
+        labels:
+          probe_kind: app
+      - targets: "{{ monitoring_blackbox_targets.edge }}"
+        labels:
+          probe_kind: edge
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: "127.0.0.1:9115"
   - job_name: "alertmanager"
     static_configs:
       - targets:
@@ -382,6 +482,41 @@ prometheus_alert_rules:
         {% raw %}Container {{ $labels.name }} on {{ $labels.instance }} has
         restarted more than 3 times in 15 minutes — likely crash-looping.{% endraw %}
 
+  # --- Application front-door health (blackbox_exporter on [monitoring]) ------
+  # blackbox probes each routed service's HTTPS front door (see the blackbox
+  # config + registry above). Catches "container Up but the app is not serving"
+  # and near-expiry TLS — the gap node_exporter/cadvisor cannot see.
+  - alert: BlackboxProbeFailed
+    # Scoped to probe_kind="app": forward-auth (edge) targets return Authentik's
+    # redirect without Traefik reaching the backend, so their probe_success is a
+    # false-green for liveness and must NOT page. app targets answer for
+    # themselves, so probe_success == 0 means the front door is genuinely broken.
+    expr: 'probe_success{probe_kind="app"} == 0'
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: "{% raw %}App front door down: {{ $labels.instance }}{% endraw %}"
+      description: >-
+        {% raw %}The blackbox probe of {{ $labels.instance }} has failed for over
+        5 minutes (unreachable or an unexpected HTTP status). The container may be
+        Up while the application is not actually serving.{% endraw %}
+  - alert: BlackboxCertExpiringSoon
+    # Unscoped (app + edge): the TLS handshake completes before any HTTP response,
+    # so cert expiry is a valid signal for every routed service. Safety net for a
+    # stalled Traefik ACME renewal (which normally renews at ~30 days remaining).
+    # Forced to IPv4, so it checks the real origin wildcard cert.
+    expr: "probe_ssl_earliest_cert_expiry - time() < 14 * 24 * 3600"
+    for: 1h
+    labels:
+      severity: warning
+    annotations:
+      summary: "{% raw %}TLS cert expiring soon for {{ $labels.instance }}{% endraw %}"
+      description: >-
+        {% raw %}The origin TLS certificate served for {{ $labels.instance }}
+        expires in {{ $value | humanizeDuration }}. Check Traefik's ACME renewal
+        before it lapses.{% endraw %}
+
 # ============================================================================
 # Alertmanager
 # ============================================================================
@@ -492,4 +627,11 @@ grafana_dashboards:
   # https://grafana.com/grafana/dashboards/14282
   - dashboard_id: 14282
     revision_id: 1
+    datasource: Prometheus
+  # "Prometheus Blackbox Exporter" — per-target probe success, HTTP status, probe
+  # duration, and TLS cert expiry for the routed-service front-door probes. Pairs
+  # with the blackbox scrape job + BlackboxProbeFailed/BlackboxCertExpiringSoon.
+  # https://grafana.com/grafana/dashboards/7587
+  - dashboard_id: 7587
+    revision_id: 3
     datasource: Prometheus
