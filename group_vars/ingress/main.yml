@@ -7,8 +7,10 @@
 # ============================================================================
 traefik_version: "3.7.4"
 
-# Public domain — Traefik issues a wildcard cert for *.jardoole.xyz
-traefik_domain: "jardoole.xyz"
+# Public domain (traefik_domain) moved to group_vars/all/main.yml: it is a
+# lab-global constant (monitoring URLs, blackbox targets, OIDC, and Alloy's Loki
+# push URL on every host all consume it), not Traefik-specific. Traefik still
+# issues the wildcard cert for *.{{ traefik_domain }} using it from there.
 
 # Email registered with Let's Encrypt for expiry notifications
 letsencrypt_email: "alex.o.poole@gmail.com"

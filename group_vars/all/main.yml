@@ -31,6 +31,12 @@ smtp_from: "alert@jardoole.xyz"
 # `valen`), so only ACLs that genuinely need a CIDR live here.
 home_lan_subnet: "192.168.1.0/24"
 
+# Public domain for the lab. Every service is <name>.jardoole.xyz behind the
+# wildcard cert. Lives here (not group_vars/ingress) because it is consumed
+# lab-wide — monitoring URLs, blackbox targets, Grafana/Authentik OIDC, and
+# Alloy's Loki push URL on hosts that are NOT in [ingress] (pi-cm5-3/4).
+traefik_domain: "jardoole.xyz"
+
 # Unattended Upgrades
 # ===================
 # Fleet-wide automatic-update policy consumed by playbooks/unattended-upgrades.yml.
@@ -73,3 +79,83 @@ backup_freshness_textfile_dir: /var/lib/node_exporter
 # daily backup well inside its max_age_hours window, while only listing
 # snapshots — a cheap, read-only op.
 backup_freshness_schedule: "*-*-* *:25:00"
+
+# Grafana Alloy — fleet log shipper
+# =================================
+# What: Alloy on every host (deployed by playbooks/alloy.yml, the log-side twin
+#       of node_exporter) tails host journald everywhere and Docker container
+#       logs where a Docker socket exists, pushing both to Loki on the monitoring
+#       host. Loki stores them in Garage S3 (see group_vars/monitoring).
+# Why:  Metrics see a container down; only logs saw Jellyseerr's container stay
+#       Up while every DNS lookup failed. Alloy is how those logs reach Loki.
+# Resolves: no central log collection + no way to alert on fatal log patterns.
+
+# verify/bump against grafana/alloy releases before deploy (role builds the
+# download URL as v{{ alloy_version }}, so "latest" does not work — must pin).
+alloy_version: "1.5.1"
+
+# Least privilege instead of running Alloy as root: systemd-journal grants read
+# on the journal (every host); docker grants read on the socket, added ONLY on
+# the [services] fleet where that group exists (beelink has no docker group).
+alloy_user_groups: "{{ ['systemd-journal'] + (['docker'] if 'services' in group_names else []) }}"
+
+# Basic-auth username Alloy presents to Loki's push route (paired with the
+# vaulted vault_loki_push_password). Non-secret; the password + Traefik htpasswd
+# hash are the secrets. See group_vars/monitoring (Traefik basic-auth middleware).
+loki_push_username: "alloy"
+
+# Alloy River config. Templated per host: the Docker block is emitted only where
+# Docker runs. auth_enabled is off in Loki, so no tenant header is needed.
+alloy_config: |
+  // Managed by Ansible (group_vars/all/main.yml). Do not edit on the host.
+
+  // Push sink: Loki behind Traefik at loki.<domain>, basic-auth (agents cannot
+  // do the Authentik SSO flow). Split-horizon DNS resolves the hostname to the
+  // monitoring host's LAN IPv4; beelink reaches it over WireGuard. Both TLS.
+  // external_labels stamps every stream with this host's name.
+  loki.write "default" {
+    endpoint {
+      url = "https://loki.{{ traefik_domain }}/loki/api/v1/push"
+      basic_auth {
+        username = "{{ loki_push_username }}"
+        password = "{{ vault_loki_push_password }}"
+      }
+    }
+    external_labels = {host = "{{ inventory_hostname }}"}
+  }
+
+  // Host journald: auth/sshd, systemd unit failures, unattended-upgrades, and the
+  // native (non-container) Traefik/Prometheus/Grafana/Loki services.
+  loki.source.journal "journal" {
+    forward_to = [loki.write.default.receiver]
+    labels     = {job = "journal"}
+    max_age    = "12h"
+  }
+  {% if 'services' in group_names %}
+  // Docker container logs: auto-discovers EVERY container (no per-service list),
+  // so a new service is collected the moment it runs. Labelled by container name
+  // and compose service. Only on the [services] fleet (hosts running Docker).
+  discovery.docker "containers" {
+    host = "unix:///var/run/docker.sock"
+  }
+
+  discovery.relabel "containers" {
+    targets = discovery.docker.containers.targets
+    rule {
+      source_labels = ["__meta_docker_container_name"]
+      regex         = "/(.*)"
+      target_label  = "container"
+    }
+    rule {
+      source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+      target_label  = "compose_service"
+    }
+  }
+
+  loki.source.docker "containers" {
+    host       = "unix:///var/run/docker.sock"
+    targets    = discovery.relabel.containers.output
+    forward_to = [loki.write.default.receiver]
+    labels     = {job = "docker"}
+  }
+  {% endif %}

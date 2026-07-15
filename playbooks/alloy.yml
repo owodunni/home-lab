@@ -1,0 +1,28 @@
+---
+# Deploy Grafana Alloy log shipper on every fleet host.
+#
+# What: Installs Grafana Alloy (grafana.grafana.alloy) on [all] hosts — the
+#       log-side twin of node_exporter. Each agent tails host journald
+#       everywhere and Docker container logs on hosts that run Docker, pushing
+#       both to Loki at loki.jardoole.xyz over TLS + basic-auth. The River config
+#       and version pin live in group_vars/all/main.yml (alloy_config).
+# Why:  node_exporter/cadvisor detect a container or host down, not an app that
+#       is Up while malfunctioning internally — the Jellyseerr DNS failure lived
+#       only in the container's logs. Alloy is how those logs reach Loki so the
+#       ruler can alert on fatal patterns.
+# Resolves: no host/container log collection across the fleet.
+#
+# Prerequisites:
+#   - Loki reachable at loki.jardoole.xyz (playbooks/loki.yml). Ordering is not
+#     strict: Alloy's WAL buffers until Loki is up, so a first run before Loki
+#     exists self-heals (beelink's flaky WireGuard link relies on the same WAL).
+#   - group_vars/all/vault.yml: vault_loki_push_password — the shared basic-auth
+#     password Alloy presents to Loki's push route (paired with the htpasswd hash
+#     in the Traefik middleware, group_vars/monitoring/vault.yml).
+
+- name: Deploy Grafana Alloy on all hosts
+  hosts: all
+  become: true
+
+  roles:
+    - role: grafana.grafana.alloy

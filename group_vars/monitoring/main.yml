@@ -117,6 +117,10 @@ monitoring_blackbox_services:
   sonarr: {kind: edge, url: "https://sonarr.{{ traefik_domain }}"}
   prowlarr: {kind: edge, url: "https://prowlarr.{{ traefik_domain }}"}
   qbittorrent: {kind: edge, url: "https://qbittorrent.{{ traefik_domain }}"}
+  # Loki's push route sits behind a Traefik basic-auth middleware, so an
+  # unauthenticated probe only reaches the 401 challenge (Traefik up, backend
+  # unverified) — same false-green as forward-auth. Cert coverage only.
+  loki: {kind: edge, url: "https://loki.{{ traefik_domain }}"}
 
 # Probe target lists DERIVED from the registry (edit the registry, not these).
 # The scrape job labels each group with probe_kind so the liveness alert scopes
@@ -518,6 +522,112 @@ prometheus_alert_rules:
         before it lapses.{% endraw %}
 
 # ============================================================================
+# Loki (grafana.grafana collection) — log aggregation store
+# ============================================================================
+# What: Loki on the monitoring host stores logs shipped by Alloy (all hosts,
+#       see group_vars/all). Chunks + index live in the existing Garage S3 on
+#       valen — NOT the Pi eMMC — so bulk log data sits on the 11 TB pool.
+#       Loopback-bound; Traefik fronts loki.<domain> for the Alloy push endpoint.
+# Why:  node_exporter/cadvisor see a container down; only logs saw Jellyseerr's
+#       container stay Up while every DNS lookup failed. This is that log layer.
+# Resolves: central queryable logs + log-based alerting (ruler -> Alertmanager).
+# ============================================================================
+# verify/bump against grafana/loki releases before deploy ("latest" does not
+# work — the role builds the URL as v{{ loki_version }}).
+loki_version: "3.4.2"
+
+# Loopback only — Traefik proxies loki.<domain> here; Grafana reads localhost.
+loki_http_listen_address: "127.0.0.1"
+
+# Non-secret S3 coordinates; the key pair is vaulted (vault_loki_s3_*). The
+# bucket is provisioned on Garage by playbooks/loki.yml (garage-keys convention).
+loki_s3_bucket: "loki"
+
+# Store chunks + index in Garage S3 (path-style; Garage is single-node S3). This
+# replaces the role default's filesystem storage wholesale — an Ansible var
+# override is not a deep merge, so the full dict is restated.
+loki_common:
+  instance_addr: 127.0.0.1
+  path_prefix: "{{ loki_working_path }}"
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+  storage:
+    s3:
+      endpoint: "s3.{{ traefik_domain }}"
+      region: "{{ garage_s3_region }}"
+      bucketnames: "{{ loki_s3_bucket }}"
+      access_key_id: "{{ vault_loki_s3_access_key }}"
+      secret_access_key: "{{ vault_loki_s3_secret_key }}"
+      s3forcepathstyle: true
+
+# TSDB index shipped to the same S3 object store (filesystem in the role default).
+loki_schema_config:
+  configs:
+    - from: "2020-10-24"
+      store: tsdb
+      object_store: s3
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+# 30-day retention, matching prometheus_storage_retention. The compactor expires
+# chunks straight from the S3 bucket (delete_request_store: s3 is required once
+# retention is enabled).
+loki_compactor:
+  working_directory: "{{ loki_working_path }}/compactor"
+  retention_enabled: true
+  delete_request_store: s3
+  compaction_interval: 10m
+  retention_delete_delay: 2h
+
+loki_limits_config:
+  retention_period: 720h  # 30 days
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+
+# Log-based alert rules — evaluated by Loki's ruler, which the role already wires
+# to the local Alertmanager (localhost:9093). Selectors are fleet-wide
+# ({job="docker"}), NEVER per-service, so a NEW service is covered the moment its
+# container logs arrive — no registry and no pre-commit guard (the deliberate
+# contrast with blackbox, which enumerates each probe target). Curated
+# high-signal patterns only; a generic error-rate rule would drown in benign
+# "error" lines. Grow the set as new failure modes appear.
+loki_ruler_alerts:
+  - name: logs.fatal
+    rules:
+      - alert: LogDNSResolutionFailure
+        # THE Jellyseerr-class catch: container Up + serving while every outbound
+        # DNS lookup fails. Invisible to every metric — logs are the only signal.
+        expr: 'sum by (container,host) (count_over_time({job="docker"} |~ "(?i)EAI_AGAIN|ENOTFOUND|name resolution" [5m])) > 0'
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{% raw %}DNS resolution failing in {{ $labels.container }} on {{ $labels.host }}{% endraw %}"
+          description: >-
+            {% raw %}{{ $labels.container }} on {{ $labels.host }} has logged DNS
+            resolution failures for over 5 minutes — likely Up and serving while
+            every outbound lookup fails (the Jellyseerr failure mode). Check the
+            container's DNS/upstream reachability.{% endraw %}
+      - alert: LogPanicOrFatal
+        # Runtime crashes an app prints to stdout: Go panics, fatal errors, segv,
+        # C++ bad_alloc (OOM). Recurrence => crash-loop, already covered by the
+        # metric-based container-restart alert, so this does not duplicate it.
+        expr: 'sum by (container,host) (count_over_time({job="docker"} |~ "(?i)panic:|fatal error|SIGSEGV|bad_alloc" [5m])) > 0'
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{% raw %}Panic/fatal logged by {{ $labels.container }} on {{ $labels.host }}{% endraw %}"
+          description: >-
+            {% raw %}{{ $labels.container }} on {{ $labels.host }} logged a
+            panic/fatal/segfault/bad_alloc pattern. A one-off may have
+            self-recovered; if it recurs the app is crash-looping.{% endraw %}
+
+# ============================================================================
 # Alertmanager
 # ============================================================================
 alertmanager_version: "0.28.1"
@@ -616,6 +726,13 @@ grafana_datasources:
     access: proxy
     jsonData:
       timeInterval: "15s"
+  # Loki runs on this same host (see the Loki section above), so Grafana reads it
+  # over loopback — no Traefik/basic-auth hop (that route is for remote Alloy
+  # push only). Powers Explore log search and the logs dashboard below.
+  - name: Loki
+    type: loki
+    url: "http://localhost:3100"
+    access: proxy
 
 # Local dashboard JSON directory (controller-side), provisioned by the
 # grafana.grafana role alongside the grafana.com downloads below. Absolute path
@@ -651,3 +768,10 @@ grafana_dashboards:
   - dashboard_id: 7587
     revision_id: 3
     datasource: Prometheus
+  # "Logs / App" — general Loki log viewer (label/search/live tail over the
+  # container + journald streams Alloy ships). The overview companion to
+  # ad-hoc Grafana Explore; pairs with the Loki datasource + ruler alerts above.
+  # https://grafana.com/grafana/dashboards/13639
+  - dashboard_id: 13639
+    revision_id: 2
+    datasource: Loki

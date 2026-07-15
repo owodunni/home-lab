@@ -1,0 +1,32 @@
+---
+# Traefik dynamic config for Loki — managed by Ansible, do not edit manually.
+#
+# Routes loki.{{ traefik_domain }} to the loopback Loki, guarded by a basic-auth
+# middleware: the Alloy agents (machines, not Authentik SSO users) authenticate
+# with the shared push credential. Grafana does NOT use this route — it reads
+# Loki over localhost. The wildcard cert (*.{{ traefik_domain }}) is managed by
+# traefik-wildcard-tls.yml.j2 (ingress layer); this router just selects it.
+
+http:
+  routers:
+    loki:
+      rule: "Host(`loki.{{ traefik_domain }}`)"
+      service: loki
+      middlewares:
+        - loki-push-auth
+      tls:
+        certResolver: letsencrypt
+
+  middlewares:
+    # htpasswd line from vault (htpasswd -nbB alloy '<password>'). The plaintext
+    # half is the agents' vault_loki_push_password in group_vars/all.
+    loki-push-auth:
+      basicAuth:
+        users:
+          - "{{ vault_loki_push_htpasswd }}"
+
+  services:
+    loki:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:3100"

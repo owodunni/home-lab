@@ -1,12 +1,14 @@
 ---
 # Monitoring layer
 #
-# What: Deploys the full observability stack — node_exporter on every fleet
-#       host, smartctl_exporter on the [storage] hosts (SMART drive health),
-#       cAdvisor on the [services] Docker fleet (per-container metrics), the Intel
-#       GPU exporter on [media] (valen's iGPU transcode load), and
-#       Prometheus + Alertmanager + Grafana on the [monitoring] group (pi-cm5-1).
-#       Grafana is exposed at grafana.jardoole.xyz via Traefik.
+# What: Deploys the full observability stack — node_exporter and Grafana Alloy
+#       (log shipper) on every fleet host, smartctl_exporter on the [storage]
+#       hosts (SMART drive health), cAdvisor on the [services] Docker fleet
+#       (per-container metrics), the Intel GPU exporter on [media] (valen's iGPU
+#       transcode load), blackbox_exporter (front-door probes), and
+#       Prometheus + Alertmanager + Loki + Grafana on the [monitoring] group
+#       (pi-cm5-1). Loki (log store, Garage S3-backed) alerts on fatal log
+#       patterns via its ruler. Grafana is exposed at grafana.jardoole.xyz.
 # Why:  Monitoring is a distinct concern from the services it watches and from
 #       security. A separate layer keeps observability independently runnable
 #       (make monitoring) and clearly ordered: it comes after the applications
@@ -24,6 +26,9 @@
 - name: Monitoring | node_exporter on all fleet hosts
   ansible.builtin.import_playbook: node-exporter.yml
 
+- name: Monitoring | Grafana Alloy log shipper on all fleet hosts
+  ansible.builtin.import_playbook: alloy.yml
+
 - name: Monitoring | smartctl_exporter on storage hosts
   ansible.builtin.import_playbook: smartctl-exporter.yml
 
@@ -38,6 +43,9 @@
 
 - name: Monitoring | blackbox_exporter on the monitoring host
   ansible.builtin.import_playbook: blackbox-exporter.yml
+
+- name: Monitoring | Loki log store on the monitoring host
+  ansible.builtin.import_playbook: loki.yml
 
 - name: Monitoring | Prometheus and Alertmanager on monitoring host
   ansible.builtin.import_playbook: prometheus.yml
