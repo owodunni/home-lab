@@ -25,9 +25,12 @@
 #   vault_loki_s3_secret_key   — Garage secret, 64 hex chars
 #     Generate the pair yourself before first run (no copy-paste from a created
 #     key): scripts/garage-keygen.sh vault_loki_s3
-#   vault_loki_push_htpasswd   — htpasswd line for the Traefik basic-auth
-#     middleware: htpasswd -nbB alloy '<password>' (same password as the Alloy
-#     agents' vault_loki_push_password in group_vars/all/vault.yml).
+#   vault_loki_push_htpasswd   — the BARE password hash for the Traefik
+#     basic-auth middleware (NO "user:" prefix — the traefik-loki.yml.j2 template
+#     prepends loki_push_username). Generate with:
+#       openssl passwd -apr1 '<password>'
+#     using the same password as the Alloy agents' vault_loki_push_password in
+#     group_vars/all/vault.yml.
 
 - name: Provision the Loki bucket and key on Garage
   # Runs on the Garage host (valen) — the `garage` CLI lives there. Credentials

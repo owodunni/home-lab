@@ -18,12 +18,15 @@ http:
         certResolver: letsencrypt
 
   middlewares:
-    # htpasswd line from vault (htpasswd -nbB alloy '<password>'). The plaintext
-    # half is the agents' vault_loki_push_password in group_vars/all.
+    # Traefik basicAuth needs each entry as "user:hash". The username is prepended
+    # here from loki_push_username (the SAME var Alloy authenticates with, one
+    # source of truth), so vault_loki_push_htpasswd holds ONLY the bare hash —
+    # exactly what `openssl passwd -apr1 '<password>'` emits. The plaintext
+    # password is the agents' vault_loki_push_password in group_vars/all.
     loki-push-auth:
       basicAuth:
         users:
-          - "{{ vault_loki_push_htpasswd }}"
+          - "{{ loki_push_username }}:{{ vault_loki_push_htpasswd }}"
 
   services:
     loki:
