@@ -576,6 +576,22 @@ grafana_ini:
     admin_user: admin
     admin_password: "{{ vault_grafana_admin_password }}"
 
+  auth:
+    # What: match a returning SSO user by email when Authentik's OIDC subject
+    #   (`sub`) no longer matches the stored one.
+    # Why:  Grafana keys each OAuth account on `auth_id` = the Authentik `sub`
+    #   (a hash that rotates if the Authentik provider/application is recreated
+    #   or its subject settings change). When the `sub` changes, Grafana finds
+    #   no linked account, tries to *create* a new user, and the insert collides
+    #   with the existing account's email — surfacing in the UI as the
+    #   misleading "user sync failed" (logs: `Failed to create user: user not
+    #   found`). Email lookup instead re-links the existing user to the new
+    #   `sub`, so a subject change no longer locks the operator out.
+    # Resolves: Grafana↔Authentik SSO login failing with "user sync failed".
+    # Safe here: a single trusted IdP (Authentik) with unique, validated,
+    #   non-editable emails — the single-tenant case Grafana documents this for.
+    oauth_allow_insecure_email_lookup: true
+
   auth.generic_oauth:
     enabled: true
     name: Authentik
