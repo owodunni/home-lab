@@ -26,3 +26,24 @@
 
   roles:
     - role: grafana.grafana.alloy
+
+  tasks:
+    - name: Pin the Loki push hostname to the monitoring host's LAN IP (offsite peers)
+      # What: on WireGuard (offsite) hosts only, pin loki.<domain> -> the
+      #   monitoring host's LAN IP in /etc/hosts.
+      # Why: offsite peers (beelink, at the barn) do NOT use the home router's
+      #   split-horizon DNS, so loki.<domain> resolves to the public Cloudflare
+      #   record and the Alloy push times out — Cloudflare has no origin for this
+      #   LAN-only service. Pinning to the LAN IP sends the push over WireGuard
+      #   straight to pi-cm5-1's Traefik; TLS still validates because the hostname
+      #   matches the wildcard ACME cert. Exactly mirrors the backup_mirror role's
+      #   s3.<domain> -> valen pin (roles/backup_mirror/tasks/main.yml).
+      # Resolves: beelink shipping zero logs (Alloy push Client.Timeout).
+      # LAN hosts skip this: the Ubiquiti resolver already maps loki.<domain> to
+      #   the same IP for them. The monitoring host's IP is read from its gathered
+      #   facts (this play targets all, so those facts are present).
+      when: "'wireguard' in group_names"
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: '\sloki\.{{ traefik_domain | regex_escape }}$'
+        line: "{{ hostvars[groups['monitoring'][0]]['ansible_default_ipv4']['address'] }}  loki.{{ traefik_domain }}"
