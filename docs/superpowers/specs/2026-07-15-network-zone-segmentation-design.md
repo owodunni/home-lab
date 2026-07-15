@@ -1,7 +1,8 @@
 # Network Zone Segmentation — Design Spec
 
 **Date:** 2026-07-15
-**Status:** Approved design, pre-implementation
+**Status:** Implemented & verified 2026-07-15 (positive + negative ping tests
+against `valen` from a trusted vs. de-listed device)
 **Author:** Alexander Poole (with Claude)
 
 ## Goal
@@ -93,17 +94,27 @@ Replies to client-initiated traffic still flow (stateful).
 ## Exception rules (Home → Homelab pair, ordered: allows above the block)
 
 In a single flat zone, "specific devices reach the homelab" is enforced by
-**source-IP allow-rules**, which requires each privileged device to have a
-**DHCP reservation** (stable IP).
+**per-device allow-rules**, ordered above a catch-all block. Each privileged
+device has a **DHCP reservation** (stable IP) so its identity is unambiguous.
 
-1. **`trusted-clients` (IP group) → Homelab: allow**
-   - `trusted-clients` = desktop + laptops + phones (their reserved IPs).
-   - One rule covers the whole personal fleet; maintenance = editing group
-     membership as devices come and go.
-2. **`TV-IP → 192.168.1.197 tcp/443`: allow**
-   - Jellyfin's front door via `valen`'s Traefik.
-3. **Home → Homelab: block** (backstop) — IoT gadgets and any un-listed device
-   die here.
+As-built in the Policy Engine (`Home → Internal` direction), highest priority
+first:
+
+1. **TV → Jellyfin: allow** — Source device `TIZEN …a9:74` (the Samsung TV),
+   Destination `192.168.1.197`, TCP/UDP `443`. (Matched by device, which is even
+   more stable than the reserved `192.168.10.20`.)
+2. **Trusted devices → Internal: allow** — Source = the two trusted clients
+   (`Lenovo-T14s` `192.168.10.11`, `Pixel 10 Pro` `192.168.10.12`), Destination
+   any, all protocols.
+3. **Block all `Home → Internal`** (backstop) — IoT gadgets and any un-listed
+   device die here. The zone-matrix default between `Home` and `Internal` is
+   *also* block, so this is belt-and-suspenders.
+
+**UI note:** this Policy Engine build does **not** let a policy reference an
+`Objects` IP group as its source — source matching is by IP / MAC / **Device** /
+Identity. So the `trusted-clients` object we created is unused; devices are
+matched directly (by Device for the roster and TV). Keep the DHCP reservations
+regardless — they make the Device/IP identities stable.
 
 ### Shared-Traefik caveat (TV rule)
 
@@ -121,8 +132,9 @@ and point the TV rule there.
 ### Maintenance cost to accept
 
 Every new phone/laptop that should reach the homelab needs a DHCP reservation +
-its IP added to `trusted-clients`. This is the ongoing tax of the merged model —
-the work a separate Trusted VLAN would have done implicitly by SSID membership.
+adding to the "Trusted devices → Internal" allow policy (Device or IP). This is
+the ongoing tax of the merged model — the work a separate Trusted VLAN would have
+done implicitly by SSID membership.
 
 ## DNS & IPv6 on the new VLAN
 
@@ -148,20 +160,32 @@ the work a separate Trusted VLAN would have done implicitly by SSID membership.
   and the Pis — all **within** the Homelab zone (intra-zone allowed), so
   unaffected. Verify green after cutover.
 
-## Cutover order
+## Cutover order (as-built, override-free)
 
-1. **Create VLAN 10** network `192.168.10.0/24`, DHCP on, **IPv6 off**.
-2. **Gather MACs** of desktop, laptops, phones, TV (UniFi already lists them as
-   current clients).
-3. **Pre-create DHCP reservations** (fixed IPs) on VLAN 10 for those devices by
-   MAC, so their IPs are known before they move.
-4. **Build the `trusted-clients` IP group** (desktop + laptops + phones) and note
-   the TV's reserved IP.
-5. **Define zones** (Homelab ⊇ default LAN; Home ⊇ VLAN 10) and the **firewall
-   policies** from the Firewall + Exceptions sections.
-6. **Retarget the SSID** from the default LAN to VLAN 10 — the cutover moment;
-   WiFi clients reconnect onto VLAN 10.
-7. **Verify** (acceptance criteria below).
+The homelab zone is the **built-in `Internal` zone** (leaving the servers there
+auto-preserves the `VPN → Internal` WireGuard policy). The order below moves all
+Wi-Fi clients to VLAN 10 *first*, while VLAN 10 is still in `Internal` (so nothing
+is isolated and the admin laptop never loses access), then pins IPs and stages the
+policies, then flips VLAN 10 into the `Home` zone as the single atomic activation.
+This avoids UniFi's per-client **Virtual Network Override** (setting a Fixed IP on
+a not-yet-joined network yanks that one client onto the VLAN immediately — not
+what we want for staging).
+
+1. **Create VLAN 10** network `192.168.10.0/24`, DHCP on, **IPv6 = None**. It
+   lands in the `Internal` zone by default — fine.
+2. **Retarget the SSID** (`Hi-Fi`) from the default LAN to VLAN 10. All Wi-Fi
+   clients reconnect onto VLAN 10; still `Internal`, so full access, no isolation
+   yet, admin laptop keeps talking to the controller.
+3. **Pin Fixed IPs** on the trusted devices + TV — now override-free, since
+   they're already on the `Home` network. Reconnect each to grab its reserved IP.
+4. **Create the `Home` zone empty** (Policy Engine → Zones), and stage the three
+   `Home → Internal` **policies** (Exception rules section). Confirm the zone
+   matrix shows `Home → Internet` and `Home → Gateway` = **Allow**, and
+   `Home ↔ Internal` = **Block**.
+5. **Final flip:** assign the VLAN 10 network to the `Home` zone. Isolation
+   activates atomically — trusted devices stay in via the allow policy, everyone
+   else is walled off, TV gets Jellyfin only.
+6. **Verify** (acceptance criteria below).
 
 ## Acceptance criteria
 
@@ -177,9 +201,11 @@ the work a separate Trusted VLAN would have done implicitly by SSID membership.
 
 ## Rollback
 
-Repoint the SSID back to the default LAN. The network returns to flat instantly;
-the zones and firewall policies sit inert with nothing in the Home zone. Created
-VLAN 10, reservations, and IP groups can be deleted at leisure.
+Move the VLAN 10 network's zone back from `Home` to `Internal` (instant
+de-isolation — everything shares the homelab zone again), or repoint the `Hi-Fi`
+SSID back to the default LAN to return to a fully flat network. The zones and
+policies then sit inert. Created VLAN 10, reservations, and the (unused)
+`trusted-clients` object can be deleted at leisure.
 
 ## Out of scope / future follow-ups
 
