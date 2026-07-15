@@ -167,6 +167,35 @@ Alertmanager → email. Starter set (curated, high-signal — grow over time):
 Thresholds/`for:` windows tuned during implementation to avoid flapping. Exact
 LogQL and label selectors finalized against real log samples on first deploy.
 
+## Secrets
+
+Four new vaulted values — two logical credentials. The basic-auth one needs two
+representations because Traefik consumes a hash while Alloy needs the plaintext.
+Claude cannot create these (vault files are off-limits); all are operator actions.
+The **var names are fixed by this spec** so the playbooks and the vault entries
+agree.
+
+| Var name                     | Vault file                        | Consumed by                              | Generate with                              |
+|------------------------------|-----------------------------------|------------------------------------------|--------------------------------------------|
+| `vault_loki_s3_access_key`   | `group_vars/monitoring/vault.yml` | Loki storage config + Garage provisioning play | `scripts/garage-keygen.sh vault_loki_s3` (emits both keys) |
+| `vault_loki_s3_secret_key`   | `group_vars/monitoring/vault.yml` | same                                     | ↑ same command                             |
+| `vault_loki_push_password`   | `group_vars/all/vault.yml`        | Alloy on **every** host (push auth header) | operator-chosen strong password            |
+| `vault_loki_push_htpasswd`   | `group_vars/monitoring/vault.yml` | Traefik basic-auth middleware on pi-cm5-1 | `htpasswd -nbB alloy '<that password>'` (or `openssl passwd -apr1` fallback) |
+
+Non-secret companions in `main.yml` (not vault): the `loki` bucket name, the S3
+endpoint/region, and `loki_push_username: alloy`. The S3 keys sit in `monitoring`
+vault because the garage-keys convention keeps credentials with the consuming
+service and Loki's inventory home is `[monitoring]`; `vault_loki_push_password` is
+in `all` vault because Alloy runs on `all`. `vault_loki_push_password` and
+`vault_loki_push_htpasswd` are the **same** username+password, plaintext vs. hashed
+— generate the password once and derive both.
+
+**Timing.** Locking the var names (above) is the only hard dependency for
+implementation. Generating and vaulting can happen any time before the first deploy
+and is best done up front: the Garage key must pre-exist (provisioning is unattended
+and will not mint one — a missing vault var is an operator error the play does not
+paper over), and doing it early avoids a deploy-time stall.
+
 ## Grafana
 
 - New **Loki datasource** (`type: loki`, `url: http://localhost:3100`, `access:
@@ -207,8 +236,10 @@ LogQL and label selectors finalized against real log samples on first deploy.
   retention, ruler → Alertmanager), the LogQL alert rules, the Loki Grafana
   datasource, the logs dashboard, and a **`loki` entry in
   `monitoring_blackbox_services`**.
-- `group_vars/monitoring/vault.yml` — Loki S3 access/secret key and the basic-auth
-  credential (secrets; `vault_` prefix).
+- `group_vars/monitoring/vault.yml` — Loki S3 access/secret key + the Traefik
+  basic-auth htpasswd hash. `group_vars/all/vault.yml` — the Alloy basic-auth
+  plaintext password. All `vault_`-prefixed; see the Secrets section for the full
+  list and who consumes each.
 - `playbooks/monitoring.yml` — import `alloy.yml` (after node-exporter) and
   `loki.yml` (before prometheus).
 - `CLAUDE.md` — monitoring-layer table row (Loki + Alloy + log alerts), the new
