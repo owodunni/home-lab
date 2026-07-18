@@ -123,10 +123,30 @@ No hard ordering dependency on `jellyfin.yml` itself (this playbook doesn't
 read any state Jellyfin's deploy produces), but ingress (Traefik on beelink)
 must already be up, which the existing layer order guarantees.
 
-**4. valen / WireGuard / UniFi: unchanged.** valen's existing
-`Host(jellyfin.jardoole.xyz)` router already does the right thing once it
-receives a request with that Host header; beelink's `wg_allowed_ips` already
-routes `192.168.1.0/24` over `wg0`.
+**4. `wg0.conf.j2` (networking layer, discovered during testing): a routing
+fix on beelink, not a relay-specific change.** valen's existing
+`Host(jellyfin.jardoole.xyz)` router needs no changes — it already does the
+right thing once it receives a request with that Host header — but reaching
+beelink at all from a barn-local peer (the TV, or anyone testing from a
+laptop) turned out to be broken independently of the relay: beelink's own
+`wg_allowed_ips` route for `192.168.1.0/24` (metric 0, via `wg0`) beats the
+local `wlo1` DHCP route for every address in that /24 except the one `/32`
+already pinned for the barn gateway. So any reply beelink sends to a barn-local
+peer other than the gateway — regardless of Traefik or this feature — was
+getting routed into the tunnel instead of answered locally, and silently
+dropped. Confirmed directly: `ip route get <barn-peer-ip>` on beelink showed
+`dev wg0 src 192.168.2.5` instead of `dev wlo1`.
+
+Fixed by extending the existing gateway-pin pattern in `wg0.conf.j2` with
+source-based policy routing: a second table (100) holds only the local,
+non-tunnel path for `192.168.1.0/24`, and an `ip rule` sends any packet already
+sourced from beelink's own WiFi address through it. This only affects replies
+to traffic beelink *receives* locally — connections beelink itself initiates
+(e.g. the relay's own hop to valen) are unaffected, since a new connection's
+source address isn't fixed until after the routing decision the fix targets.
+Without this, the relay would work for nothing on the barn network, TV
+included — it is a prerequisite for this design, not an optional hardening
+step.
 
 ## Request flow
 
@@ -163,6 +183,9 @@ routes `192.168.1.0/24` over `wg0`.
 
 ## Testing
 
+- From beelink (via the tunnel, e.g. `ansible beelink -a "ip route get <barn-peer-ip>"`):
+  confirm the route is `dev wlo1`, not `dev wg0 src 192.168.2.5` — verifies the
+  policy-routing fix from item 4 above before testing anything relay-specific.
 - From beelink itself: `curl -vk https://jellyfin.jardoole.xyz` should return
   Jellyfin's login page with a valid cert chain (verifies the `/etc/hosts` +
   tunnel routing + valen's router).

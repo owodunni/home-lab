@@ -11,6 +11,25 @@ Address = {{ wg_address }}
 # up/down idempotent. See [[beelink-wifi-tunnel-recovery]] and CLAUDE.md notes.
 PostUp = ip route replace {{ wg_local_gateway }}/32 dev {{ wifi_iface }} scope link
 PreDown = ip route del {{ wg_local_gateway }}/32 dev {{ wifi_iface }} scope link || true
+
+# Same collision, different symptom: a REPLY this host sends to any OTHER local
+# peer on its own 192.168.1.0/24 (not just the gateway above — e.g. a barn
+# relay client) also matches wg0's route and gets shoved into the tunnel
+# instead of answered locally. A reply's source address is fixed to the
+# address the request was sent to before the routing table is consulted, so a
+# per-peer /32 pin does not scale (every new local client would need one) —
+# route by SOURCE instead. Table 100 holds only the local, non-tunnel path for
+# 192.168.1.0/24; the rule sends anything already sourced from this host's own
+# WiFi address through it. Only affects replies to locally received traffic —
+# new connections this host itself initiates (e.g. the jellyfin-relay's own
+# hop to valen) still resolve their source via the main table (wg0), same as
+# today. The address is looked up at PostUp time, not baked in at Ansible
+# render time, so a DHCP lease change self-heals on the next tunnel-recovery
+# restart with no re-run needed. See
+# docs/superpowers/specs/2026-07-18-jellyfin-barn-relay-design.md.
+PostUp = ip route replace 192.168.1.0/24 dev {{ wifi_iface }} scope link table 100
+PostUp = ip rule add from $(ip -4 -o addr show dev {{ wifi_iface }} | awk '{print $4}' | cut -d/ -f1) lookup 100 priority 100 2>/dev/null || true
+PreDown = ip rule del table 100 2>/dev/null || true
 {% endif %}
 
 [Peer]
