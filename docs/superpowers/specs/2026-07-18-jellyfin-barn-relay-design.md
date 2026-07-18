@@ -60,9 +60,12 @@ wrinkle: the TV connects by raw IP, so its TLS ClientHello carries no SNI (SNI
 cannot legally be an IP literal, so well-behaved clients omit it). Traefik
 supports a **default fallback certificate** for exactly this case
 (`tls.stores.default.defaultGeneratedCert`), so beelink can still present its
-real wildcard cert. The TV/Jellyfin app will show a one-time hostname-mismatch
-warning (cert is for `*.jardoole.xyz`, connection was by IP) — expected and
-accepted.
+real wildcard cert. A browser accepts this with a one-time hostname-mismatch
+warning — but **testing found the native Jellyfin TV app hard-fails on it with
+no click-through option** (unlike a browser), so there is a second, TLS-free
+path: a plain-HTTP entrypoint (`:8096`) carrying the identical catch-all relay
+with no certificate involved at all. Barn-local only, so dropping TLS on this
+one path doesn't expose anything the HTTPS path didn't already.
 
 ## Components
 
@@ -106,9 +109,14 @@ tls:
 http:
   routers:
     jellyfin-relay:
+      entryPoints: ["websecure"]
       rule: "PathPrefix(`/`)"   # catch-all: TV connects by raw IP, no Host to match
       service: jellyfin-relay
       tls: {}
+    jellyfin-relay-plain:      # same relay, no TLS — see "Plain-HTTP fallback" below
+      entryPoints: ["jellyfin-relay-plain"]
+      rule: "PathPrefix(`/`)"
+      service: jellyfin-relay
   services:
     jellyfin-relay:
       loadBalancer:
@@ -116,6 +124,11 @@ http:
         servers:
           - url: "https://jellyfin.jardoole.xyz:443"
 ```
+
+The `jellyfin-relay-plain` entrypoint (`:8096`) is defined in
+`traefik-static.yml.j2`, gated behind `{% if 'jellyfin_relay' in group_names %}`
+so it only exists on beelink, not on other `[ingress]` hosts. See "Plain-HTTP
+fallback" below.
 
 Imported into the `applications` layer aggregator, right after `jellyfin.yml`
 — it exposes that app to a second network, so it belongs with it thematically.
@@ -147,6 +160,23 @@ source address isn't fixed until after the routing decision the fix targets.
 Without this, the relay would work for nothing on the barn network, TV
 included — it is a prerequisite for this design, not an optional hardening
 step.
+
+**5. Plain-HTTP fallback (discovered during TV testing): a second, TLS-free
+entrypoint on beelink.** With the routing fix in place, a browser hitting
+`https://<beelink-barn-ip>` worked correctly — but the actual TV's native
+Jellyfin app reported "connection failed" against the same URL. Root-caused by
+comparing a no-SNI `curl` against the working browser request: both got a
+valid response from Traefik (confirming the relay itself was fine), but a
+browser silently accepts the `defaultGeneratedCert` fallback's hostname
+mismatch with a click-through warning, while the native TV client validates
+the cert strictly and hard-fails with no override. Fixed by adding a second
+entrypoint, `jellyfin-relay-plain` on `:8096` (`traefik-static.yml.j2`, gated
+to beelink only), carrying an unencrypted duplicate of the same catch-all
+router. No certificate is involved on this path at all, so there is nothing
+for the TV app to reject. The existing HTTPS path is unchanged and still
+scoped explicitly to `websecure` (routers with no `entryPoints` listed
+otherwise bind to every entrypoint by default, which would have pulled in the
+new plain one too).
 
 ## Request flow
 
@@ -193,5 +223,11 @@ step.
   `curl -vk https://<beelink-barn-ip>` should return the same page, with a
   cert presented for `*.jardoole.xyz` (verifies the fallback cert + catch-all
   router + Host-header rewrite).
-- On the TV: add `https://<beelink-barn-ip>` as a server in the Jellyfin app,
-  accept the certificate warning, confirm login and playback.
+- Same, but no-SNI and plain HTTP, to mimic the TV exactly:
+  `curl -vk http://<beelink-barn-ip>:8096` should return the same page with no
+  certificate involved (verifies `jellyfin-relay-plain`).
+- On the TV: add `http://<beelink-barn-ip>:8096` as a server in the Jellyfin
+  app — no certificate warning to accept, since this path is unencrypted —
+  confirm login and playback. (`https://<beelink-barn-ip>` also works from a
+  browser, with a one-time cert warning, but native TV apps were found to
+  hard-fail on that warning with no override — hence the plain-HTTP path.)

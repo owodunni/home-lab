@@ -35,6 +35,21 @@ entryPoints:
 {% for ip in traefik_forwarded_trusted_ips %}
         - "{{ ip }}"
 {% endfor %}
+{% if 'jellyfin_relay' in group_names %}
+  # Plain-HTTP entrypoint, dedicated to jellyfin-relay.yml's catch-all router.
+  # What:  A second, unencrypted listener — no redirect to websecure, unlike
+  #        `web` above.
+  # Why:   The TV's native Jellyfin app connects by raw IP (no hostname), so
+  #        its TLS ClientHello has no SNI and it gets the defaultGeneratedCert
+  #        fallback — which is valid for *.{{ traefik_domain }} but
+  #        hostname-mismatched for a bare IP. A browser lets you click through
+  #        that; the TV app hard-fails with no override. Dropping TLS
+  #        entirely for this barn-local-only path sidesteps cert validation.
+  # Resolves: TV app "connection failed" against https://<beelink-barn-ip>.
+  #        See docs/superpowers/specs/2026-07-18-jellyfin-barn-relay-design.md.
+  jellyfin-relay-plain:
+    address: ":8096"
+{% endif %}
 
 # Dynamic config directory — each application drops a .yml file here
 providers:

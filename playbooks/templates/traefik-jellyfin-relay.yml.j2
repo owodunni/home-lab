@@ -9,7 +9,12 @@
 # defaultGeneratedCert store below serves beelink's real *.{{ traefik_domain }}
 # wildcard cert as the fallback for that case, so the client still gets a
 # valid (if hostname-mismatched) certificate rather than Traefik's
-# auto-generated self-signed one.
+# auto-generated self-signed one — good enough for a browser, which lets you
+# click through the hostname mismatch.
+#
+# Some native TV apps hard-fail on that mismatch with no click-through option,
+# so jellyfin-relay-plain below is the same relay again with TLS dropped
+# entirely, on its own plain-HTTP entrypoint (traefik-static.yml.j2).
 
 tls:
   stores:
@@ -24,12 +29,25 @@ tls:
 http:
   routers:
     jellyfin-relay:
+      # Scoped explicitly to websecure: a router with no entryPoints listed
+      # binds to every entrypoint by default, which would otherwise also pull
+      # in the plain-HTTP one below.
+      entryPoints:
+        - websecure
       # Catch-all: the client has no hostname to send, so there is no Host()
       # to match on. Safe as a catch-all because this is the only router
       # beelink's Traefik carries.
       rule: "PathPrefix(`/`)"
       service: jellyfin-relay
       tls: {}
+
+    jellyfin-relay-plain:
+      # Same relay, no TLS — for TV apps that hard-fail on the hostname
+      # mismatch above with no click-through option. Barn-local only.
+      entryPoints:
+        - jellyfin-relay-plain
+      rule: "PathPrefix(`/`)"
+      service: jellyfin-relay
 
   services:
     jellyfin-relay:
