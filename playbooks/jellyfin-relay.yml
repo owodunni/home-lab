@@ -1,0 +1,50 @@
+---
+# Relay Jellyfin to beelink's local barn network over the existing WireGuard tunnel
+#
+# What: On beelink, adds a host-local /etc/hosts override for
+#       jellyfin.jardoole.xyz -> valen's LAN IP, and deploys a Traefik dynamic
+#       config that reverse-proxies jellyfin.jardoole.xyz to valen over wg0.
+# Why:  beelink's local barn network and the home LAN both use 192.168.1.0/24
+#       (see wireguard-subnet-collision history), so a device on the barn
+#       network (e.g. a TV) can never route to valen's real IP directly —
+#       beelink has to relay it over the tunnel it already has.
+# Resolves: Lets a barn-network client add beelink's own IP as its Jellyfin
+#       server (no DNS or barn-router changes needed) and reach the real
+#       Jellyfin on valen.
+#
+# Full design: docs/superpowers/specs/2026-07-18-jellyfin-barn-relay-design.md
+#
+# Prerequisites:
+#   - beelink already has WireGuard up (networking layer) and Traefik with its
+#     ACME wildcard cert (ingress layer; beelink is in [ingress]).
+#   - valen already serves jellyfin.jardoole.xyz via its own Traefik
+#     (applications layer; playbooks/jellyfin.yml) — this play does not
+#     configure valen or Jellyfin itself.
+
+- name: Relay Jellyfin to beelink's barn network
+  hosts: jellyfin_relay
+  become: true
+
+  vars:
+    # Looked up from hostvars (not hardcoded) so this stays correct if
+    # Jellyfin ever moves to a different host — no edit needed here.
+    _jellyfin_host_ip: "{{ hostvars[groups['jellyfin'] | first].ansible_host }}"
+
+  tasks:
+    - name: Add host-local override for jellyfin.jardoole.xyz
+      # Private to this host only — never exposed to the barn network or any
+      # DNS system. Exists so Traefik's outbound leg to valen resolves the
+      # hostname (and derives the correct TLS SNI from it) instead of dialing
+      # a bare IP.
+      ansible.builtin.blockinfile:
+        path: /etc/hosts
+        marker: "# {mark} ANSIBLE MANAGED BLOCK (jellyfin-relay)"
+        block: "{{ _jellyfin_host_ip }} jellyfin.jardoole.xyz"
+
+    - name: Deploy Traefik dynamic config for the Jellyfin barn relay
+      ansible.builtin.template:
+        src: templates/traefik-jellyfin-relay.yml.j2
+        dest: /etc/traefik/conf.d/jellyfin-relay.yml
+        owner: traefik
+        group: traefik
+        mode: "0640"

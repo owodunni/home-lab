@@ -1,0 +1,42 @@
+# Traefik dynamic config — Jellyfin barn relay — managed by Ansible, do not edit.
+#
+# Relays jellyfin.jardoole.xyz to valen over the WireGuard tunnel, for devices
+# on beelink's local barn network that can never route to valen directly (the
+# barn LAN and home LAN both use 192.168.1.0/24 — see the design spec).
+#
+# The client here (e.g. a TV) connects by raw IP, not hostname, so its TLS
+# ClientHello carries no SNI (SNI cannot legally be an IP literal). The
+# defaultGeneratedCert store below serves beelink's real *.{{ traefik_domain }}
+# wildcard cert as the fallback for that case, so the client still gets a
+# valid (if hostname-mismatched) certificate rather than Traefik's
+# auto-generated self-signed one.
+
+tls:
+  stores:
+    default:
+      defaultGeneratedCert:
+        resolver: letsencrypt
+        domain:
+          main: "{{ traefik_domain }}"
+          sans:
+            - "*.{{ traefik_domain }}"
+
+http:
+  routers:
+    jellyfin-relay:
+      # Catch-all: the client has no hostname to send, so there is no Host()
+      # to match on. Safe as a catch-all because this is the only router
+      # beelink's Traefik carries.
+      rule: "PathPrefix(`/`)"
+      service: jellyfin-relay
+      tls: {}
+
+  services:
+    jellyfin-relay:
+      loadBalancer:
+        # false: forwards the backend URL's own host (jellyfin.jardoole.xyz)
+        # as the Host header, instead of whatever the client sent (its IP) —
+        # required for valen's Host(`jellyfin.jardoole.xyz`) router to match.
+        passHostHeader: false
+        servers:
+          - url: "https://jellyfin.jardoole.xyz:443"

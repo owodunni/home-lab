@@ -53,3 +53,6 @@
 
 - name: Media — Jellyseerr request/discovery UI
   ansible.builtin.import_playbook: jellyseerr.yml
+
+- name: Media — Jellyfin barn relay (beelink -> valen over WireGuard)
+  ansible.builtin.import_playbook: jellyfin-relay.yml

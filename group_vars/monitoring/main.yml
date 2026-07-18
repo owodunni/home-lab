@@ -105,6 +105,11 @@ blackbox_exporter_configuration_modules:
 monitoring_blackbox_services:
   jellyseerr: {kind: app, url: "https://jellyseerr.{{ traefik_domain }}"}
   jellyfin: {kind: app, url: "https://jellyfin.{{ traefik_domain }}"}
+  # Relay of the jellyfin entry above, not a distinct service: only reachable
+  # from beelink's barn-local network, which [monitoring] (on the home LAN)
+  # cannot route to, and jellyfin's own liveness is already covered by the
+  # entry above.
+  jellyfin-relay: {probe: false, reason: "relay of jellyfin; barn-local only, unreachable from [monitoring]"}
   nextcloud: {kind: app, url: "https://nextcloud.{{ traefik_domain }}"}
   vaultwarden: {kind: app, url: "https://vaultwarden.{{ traefik_domain }}"}
   grafana: {kind: app, url: "https://grafana.{{ traefik_domain }}"}

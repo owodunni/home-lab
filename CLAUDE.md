@@ -29,7 +29,7 @@ the entire site.
 | **ingress** | Traefik reverse proxy with ACME wildcard certificates via Cloudflare DNS-01. | `traefik.yml` | `ingress` |
 | **service-infra** | Docker runtime + Garage S3 object storage — a shared backend other services consume (e.g. Authentik DB backups). Garage runs on valen, so services back up to a *local* S3 target; the offsite copy is the `backup` layer's job. | `docker.yml`, `garage.yml` | `services` / `garage` |
 | **auth** | Authentik SSO/OIDC identity provider. Backs up to Garage. | `authentik.yml` | `authentik` |
-| **applications** | End-user services on the full platform. Nextcloud, Vaultwarden, and the media (arr) stack — see [Application notes](#application-notes) below. | `nextcloud.yml`, `vaultwarden.yml`, `media-network.yml`, `media-forward-auth.yml`, `qbittorrent.yml`, `prowlarr.yml`, `radarr.yml`, `sonarr.yml`, `unpackerr.yml`, `jellyfin.yml`, `jellyseerr.yml` | `nextcloud` / `vaultwarden` / `media` / `qbittorrent` / `prowlarr` / `radarr` / `sonarr` / `unpackerr` / `jellyfin` / `jellyseerr` |
+| **applications** | End-user services on the full platform. Nextcloud, Vaultwarden, and the media (arr) stack — see [Application notes](#application-notes) below. | `nextcloud.yml`, `vaultwarden.yml`, `media-network.yml`, `media-forward-auth.yml`, `qbittorrent.yml`, `prowlarr.yml`, `radarr.yml`, `sonarr.yml`, `unpackerr.yml`, `jellyfin.yml`, `jellyseerr.yml`, `jellyfin-relay.yml` | `nextcloud` / `vaultwarden` / `media` / `qbittorrent` / `prowlarr` / `radarr` / `sonarr` / `unpackerr` / `jellyfin` / `jellyseerr` / `jellyfin_relay` |
 | **backup** | Offsite copy of every service backup: beelink pulls each Garage bucket from valen into local restic repos with a read-only key. The decoupled "something else" that makes the offsite copy — apps only write locally to valen. See the Backups section below. | `backup-mirror.yml` | `garage` / `backup_mirror` |
 | **monitoring** | node_exporter and Grafana Alloy (log shipper) everywhere, smartctl_exporter on `[storage]`, a per-service local-backup-freshness exporter on each service host, blackbox_exporter on `[monitoring]` HTTP-probing every routed service's front door (liveness + TLS-expiry, IPv4-forced to the LAN), then Prometheus + Alertmanager + Loki + Grafana on `[monitoring]`. Alloy tails journald (all hosts) + Docker container logs (the `[services]` fleet) into Loki, whose chunks/index live in Garage S3 on valen (not the Pi eMMC), 30-day retention. Loki's ruler alerts on fatal log patterns (`LogDNSResolutionFailure` — the Jellyseerr class — + `LogPanicOrFatal`); metric alert rules cover host/drive faults, stale backups (local `BackupLocalStale` + offsite `BackupMirrorStale`), and app front-door/cert faults (`BlackboxProbeFailed` + `BlackboxCertExpiringSoon`). All route to email; Grafana at `grafana.jardoole.xyz`, Loki's push endpoint at `loki.jardoole.xyz` (Traefik basic-auth). A pre-commit guard (`scripts/check-blackbox-coverage.py`) fails the build if a routed service is missing from the `monitoring_blackbox_services` registry, so new services can't be silently unmonitored; log alerting needs no such guard because Alloy auto-discovers every container and the LogQL rules are fleet-wide, so a new service is covered automatically. | `node-exporter.yml`, `alloy.yml`, `smartctl-exporter.yml`, `backup-freshness.yml`, `blackbox-exporter.yml`, `loki.yml`, `prometheus.yml`, `grafana.yml` | `all` / `storage` / service groups / `monitoring` |
 | **security** | Hardening: automatic security updates (firewall, SSH hardening to come). | `unattended-upgrades.yml` | `all` |
@@ -85,6 +85,13 @@ Fixing the AAAA leak is an open follow-up.
   Jellyseerr. The *arr apps sit behind forward-auth; Jellyfin and Jellyseerr use
   their own auth (forward-auth breaks Jellyfin native clients). See
   `docs/media-stack-migration.md`.
+- **Jellyfin barn relay** — `jellyfin-relay.yml` runs on beelink (the offsite
+  barn node, `[jellyfin_relay]`/`[ingress]`), not valen. beelink's local barn
+  network collides with the home LAN's subnet (both `192.168.1.0/24`, see
+  `docs/superpowers/specs/2026-07-18-jellyfin-barn-relay-design.md`), so a
+  device there can't route to valen directly. beelink's own Traefik (already
+  holding the `*.jardoole.xyz` wildcard cert) relays `jellyfin.jardoole.xyz`
+  to valen over the existing WireGuard tunnel instead.
 
 ### Service host targeting
 
