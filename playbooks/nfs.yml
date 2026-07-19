@@ -89,6 +89,51 @@
         - Restart NFS server
         - Restart rpc-statd
 
+    # What: pins lockd's ports at the kernel-module level.
+    # Why:  unlike mountd/statd (userspace daemons that read /etc/nfs.conf),
+    #       lockd is a kernel module and takes its ports from module
+    #       parameters — Debian's nfs-utils does NOT translate the [lockd]
+    #       nfs.conf section into the kernel (observed live 2026-07-19:
+    #       mountd/statd pinned fine, nlockmgr still random). The [lockd]
+    #       section stays in the nfs.conf drop-in for nfs-utils versions that
+    #       do honor it; this file is what actually works today.
+    # Resolves: nlockmgr ignoring the nfs.conf pin, which would leave NFSv3
+    #       locking blocked by the firewall's fixed-port allow rules.
+    - name: Persist lockd port pins as kernel module options
+      ansible.builtin.copy:
+        content: |
+          # Managed by Ansible (playbooks/nfs.yml). Kernel lockd reads its
+          # ports from module parameters at load time, not from /etc/nfs.conf;
+          # values must match nfs_lockd_port (group_vars/nfs_server) and the
+          # firewall rules that reference it.
+          options lockd nlm_tcpport={{ nfs_lockd_port }} nlm_udpport={{ nfs_lockd_port }}
+        dest: /etc/modprobe.d/homelab-nfs-lockd.conf
+        mode: "0644"
+        owner: root
+        group: root
+
+    # The modprobe options only apply when the module loads (i.e. next boot).
+    # The sysctls below exist while lockd is loaded and take effect when lockd
+    # next rebinds its listeners — which the "Restart NFS server" handler
+    # forces (lockd_down/lockd_up on nfsd stop/start). Read-then-set keeps the
+    # play idempotent; the read fails harmlessly if lockd isn't loaded (then
+    # modprobe.d alone covers the next load).
+    - name: Read the running kernel's lockd TCP port
+      ansible.builtin.command: sysctl -n fs.nfs.nlm_tcpport
+      register: nfs_lockd_running_port
+      changed_when: false
+      failed_when: false
+
+    - name: Apply lockd port pins to the running kernel
+      ansible.builtin.command: >-
+        sysctl -w fs.nfs.nlm_tcpport={{ nfs_lockd_port }}
+        fs.nfs.nlm_udpport={{ nfs_lockd_port }}
+      when:
+        - nfs_lockd_running_port.rc == 0
+        - nfs_lockd_running_port.stdout | trim != nfs_lockd_port | string
+      changed_when: true
+      notify: Restart NFS server
+
     - name: Write NFS exports table
       ansible.builtin.template:
         src: templates/exports.j2
@@ -146,3 +191,41 @@
         group: root
       when: nfs_client_statd_port is defined
       notify: Restart rpc-statd (client)
+
+    # Same kernel-vs-daemon split as the server play: statd honors nfs.conf,
+    # lockd only honors module parameters. On a CLIENT there is no service
+    # restart that rebinds lockd — it re-inits when its refcount hits zero
+    # (unmount + remount of the v3 mount) or at reboot. The sysctl is set now
+    # so whichever of those happens first picks up the pin; until then the
+    # host must not be firewalled (rollout order handles this: nfs.yml + a
+    # remount/reboot before firewall.yml on the v3 client).
+    - name: Persist client lockd port pins as kernel module options
+      ansible.builtin.copy:
+        content: |
+          # Managed by Ansible (playbooks/nfs.yml). Kernel lockd reads its
+          # ports from module parameters at load time, not from /etc/nfs.conf;
+          # values must match nfs_client_lockd_port (declared in the group_vars
+          # of the v3-mounting service) and its firewall callback rules.
+          options lockd nlm_tcpport={{ nfs_client_lockd_port }} nlm_udpport={{ nfs_client_lockd_port }}
+        dest: /etc/modprobe.d/homelab-nfs-lockd.conf
+        mode: "0644"
+        owner: root
+        group: root
+      when: nfs_client_lockd_port is defined
+
+    - name: Read the running kernel's lockd TCP port (client)
+      ansible.builtin.command: sysctl -n fs.nfs.nlm_tcpport
+      register: nfs_client_lockd_running_port
+      changed_when: false
+      failed_when: false
+      when: nfs_client_lockd_port is defined
+
+    - name: Apply client lockd port pins to the running kernel
+      ansible.builtin.command: >-
+        sysctl -w fs.nfs.nlm_tcpport={{ nfs_client_lockd_port }}
+        fs.nfs.nlm_udpport={{ nfs_client_lockd_port }}
+      when:
+        - nfs_client_lockd_port is defined
+        - nfs_client_lockd_running_port.rc == 0
+        - nfs_client_lockd_running_port.stdout | trim != nfs_client_lockd_port | string
+      changed_when: true
