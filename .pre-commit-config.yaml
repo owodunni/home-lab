@@ -36,3 +36,10 @@ repos:
         language: system
         files: ^(playbooks/templates/traefik-.*\.yml\.j2|group_vars/monitoring/main\.yml)$
         pass_filenames: false
+
+      - id: port-inventory
+        name: port inventory drift check
+        entry: uv run python scripts/render-port-inventory.py --check
+        language: system
+        files: ^(hosts\.ini|group_vars/.*\.yml|host_vars/.*\.yml|docs/port-inventory\.md|scripts/render-port-inventory\.py)$
+        pass_filenames: false
