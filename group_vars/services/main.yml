@@ -50,3 +50,24 @@ cadvisor_version: v0.55.1
 # 9100), NOT cAdvisor's default 8080 — Traefik's dashboard and qBittorrent
 # already bind 8080 on some fleet hosts. Keep in sync with monitoring_cadvisor_targets.
 cadvisor_port: 9101
+
+# ============================================================================
+# Host firewall — cAdvisor rule (docs/superpowers/specs/2026-07-19-host-firewalls-design.md)
+# ============================================================================
+# What: Allows Prometheus (pi-cm5-1) to reach cAdvisor's published port.
+# Why:  scope: docker, not host — cAdvisor is published as
+#       "{{ cadvisor_port }}:8080" with no bind address, so Docker publishes it
+#       to 0.0.0.0 and routes it through Docker's own iptables FORWARD chains
+#       (DOCKER-USER), bypassing ufw's INPUT chain entirely. A ufw INPUT rule
+#       (or deny) has no effect on this port; the firewall role templates
+#       scope: docker rules into DOCKER-USER instead.
+# Resolves: cAdvisor being reachable from the whole homelab_subnet with no
+#           host firewall able to restrict it, if it were (wrongly) declared
+#           scope: host.
+firewall_rules_cadvisor:
+  - name: cadvisor
+    port: "{{ cadvisor_port }}"
+    proto: tcp
+    from: [monitoring_host]
+    scope: docker
+    comment: "Per-container metrics scrape (Docker-published port, bypasses ufw INPUT)"

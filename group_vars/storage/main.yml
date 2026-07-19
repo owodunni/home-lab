@@ -121,3 +121,23 @@ smartctl_exporter_version: "0.14.0"
 # a SMART read wakes its spun-down HDD (disk-spindown.yml) and the exporter has
 # no skip-standby flag — hourly lets the drive sleep between brief wakes.
 smartctl_exporter_smartctl_interval: "60s"
+
+# ============================================================================
+# Host firewall — smartctl_exporter rule (docs/superpowers/specs/2026-07-19-host-firewalls-design.md)
+# ============================================================================
+# What: Allows Prometheus (pi-cm5-1) to reach smartctl_exporter's port.
+# Why:  scope: host, unlike cadvisor/intel-gpu-exporter — smartctl_exporter is
+#       a native binary (not a Docker container), so it binds directly and is
+#       reachable through ufw's ordinary INPUT chain.
+# Resolves: SMART drive-health metrics being scrapeable from the whole
+#           homelab_subnet instead of only the monitoring host. Applies on
+#           both [storage] hosts, including beelink — its scrape traffic
+#           arrives over WireGuard, so the source IP Prometheus sees is still
+#           monitoring_host regardless of the tunnel hop.
+firewall_rules_smartctl_exporter:
+  - name: smartctl-exporter
+    port: 9633
+    proto: tcp
+    from: [monitoring_host]
+    scope: host
+    comment: "SMART drive health scrape (native binary, both storage hosts)"

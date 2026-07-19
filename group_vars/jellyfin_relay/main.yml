@@ -1,0 +1,34 @@
+---
+# Variables for hosts in the [jellyfin_relay] group — currently just beelink.
+#
+# What: beelink (the offsite barn node) relays jellyfin.jardoole.xyz to valen
+#       over the existing WireGuard tunnel, for devices on beelink's local
+#       barn network that can never route to valen directly — the barn LAN
+#       and home LAN both use 192.168.1.0/24 (see the wireguard-subnet-
+#       collision history). beelink's own co-located Traefik (already holding
+#       the *.jardoole.xyz wildcard cert) does the relay; this group's
+#       playbook is playbooks/jellyfin-relay.yml.
+# Full design: docs/superpowers/specs/2026-07-18-jellyfin-barn-relay-design.md
+
+# ============================================================================
+# Host firewall (docs/superpowers/specs/2026-07-19-host-firewalls-design.md)
+# ============================================================================
+# What: the plain-HTTP (TLS-free) relay entrypoint, :8096 (see
+#       playbooks/templates/traefik-static.yml.j2), which is separate from
+#       the TLS relay on :443 (already covered by firewall_rules_ingress).
+# Why:  some native TV apps on the barn network hard-fail on the hostname/SNI
+#       mismatch the TLS relay produces (a client connecting by raw IP sends
+#       no SNI) with no click-through option — see
+#       playbooks/templates/traefik-jellyfin-relay.yml.j2 for the full
+#       rationale. jellyfin-relay-plain gives those apps a TLS-free path.
+# Why from: [barn_lan] only: this entrypoint only makes sense for clients on
+#       beelink's local barn network — nothing else should ever reach it.
+# Resolves: barn TV apps that could not play Jellyfin through the TLS relay
+#       being unfirewallable without a scope: host rule on this port.
+firewall_rules_jellyfin_relay:
+  - name: jellyfin-relay-plain
+    port: 8096
+    proto: tcp
+    from: [barn_lan]
+    scope: host
+    comment: "TLS-free Traefik entrypoint for barn TV apps that can't handle the cert/SNI mismatch"

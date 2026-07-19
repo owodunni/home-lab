@@ -49,3 +49,42 @@ garage_admin_port: 3903
 
 # Absolute path to the Garage config template; role requires this but has no default
 garage_local_template: "{{ playbook_dir }}/templates/garage.toml.j2"
+
+# ============================================================================
+# Host firewall — ingress rules (docs/superpowers/specs/2026-07-19-host-firewalls-design.md)
+# ============================================================================
+# What: Traefik's two public entrypoints — 80 (ACME HTTP-01/redirect) and 443
+#       (every routed service).
+# Why 443's source list is broad: it is every service front door on the LAN
+#       for LAN clients, VLAN-10 trusted devices + TV, Alloy pushing logs to
+#       Loki (loki.jardoole.xyz), beelink's rclone offsite backup pull
+#       (s3.jardoole.xyz — see CLAUDE.md Backups section), and the blackbox
+#       exporter's HTTP probes. barn_lan is included so beelink's own Jellyfin
+#       TV relay clients on the barn WiFi (numerically = homelab_subnet, see
+#       the barn_lan alias comment in group_vars/all/main.yml) can still reach
+#       443 on beelink's co-located Traefik.
+# Why 80 is narrower: ACME HTTP-01 challenges and the plain-HTTP→HTTPS
+#       redirect don't need barn_lan — no barn client hits port 80 directly.
+# Resolves: the default-deny baseline would otherwise block every browser,
+#           TV, and automated client from reaching any service.
+#
+# Deliberately ABSENT from this list (do not add without updating the design
+# spec's "Known Docker-published ports" section first):
+#   - Traefik's :8080 insecure dashboard — operator confirmed unused; the
+#     firewall closes it rather than relying on it never being enabled.
+#   - Garage RPC :3901 — inter-node S3 protocol, no external client needs it.
+#   - Loki gRPC :9096 — internal Loki API, not the push route (443 covers
+#     the actual ingest path via Traefik).
+firewall_rules_ingress:
+  - name: traefik-https
+    port: 443
+    proto: tcp
+    from: [homelab_subnet, home_vlan, vpn_subnet, barn_lan]
+    scope: host
+    comment: "Every service front door: LAN, VLAN-10 trusted devices + TV, Alloy->Loki push, beelink's rclone backup pull, blackbox probes"
+  - name: traefik-http
+    port: 80
+    proto: tcp
+    from: [homelab_subnet, home_vlan, vpn_subnet, barn_lan]
+    scope: host
+    comment: "ACME HTTP-01 challenge + HTTP->HTTPS redirect only"

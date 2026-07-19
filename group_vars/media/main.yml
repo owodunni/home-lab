@@ -83,3 +83,21 @@ intel_gpu_exporter_image: ghcr.io/mike1808/igpu-exporter:main-db2dace
 # default 8080 — Traefik's dashboard and qBittorrent already bind 8080 on valen.
 # Keep in sync with monitoring_intel_gpu_targets in group_vars/monitoring/main.yml.
 intel_gpu_exporter_port: 9102
+
+# ============================================================================
+# Host firewall — Intel GPU exporter rule (docs/superpowers/specs/2026-07-19-host-firewalls-design.md)
+# ============================================================================
+# What: Allows Prometheus (pi-cm5-1) to reach the exporter's published port.
+# Why:  scope: docker, same reasoning as cadvisor (group_vars/services) — the
+#       exporter's container publishes its port on 0.0.0.0 with no bind
+#       address, so it is routed through Docker's DOCKER-USER chain rather
+#       than ufw INPUT.
+# Resolves: the exporter being reachable from the whole homelab_subnet with
+#           no host firewall able to restrict it, if declared scope: host.
+firewall_rules_intel_gpu_exporter:
+  - name: intel-gpu-exporter
+    port: "{{ intel_gpu_exporter_port }}"
+    proto: tcp
+    from: [monitoring_host]
+    scope: docker
+    comment: "iGPU transcode-load metrics scrape (Docker-published port, bypasses ufw INPUT)"

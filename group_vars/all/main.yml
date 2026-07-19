@@ -31,6 +31,84 @@ smtp_from: "alert@jardoole.xyz"
 # `valen`), so only ACLs that genuinely need a CIDR live here.
 home_lan_subnet: "192.168.1.0/24"
 
+# ============================================================================
+# Host firewall — source aliases, policy knobs, and the baseline rule set
+# (docs/superpowers/specs/2026-07-19-host-firewalls-design.md)
+# ============================================================================
+# What: Named CIDR sources so firewall_rules_* entries read semantically
+#       (`from: [monitoring_host]`) instead of repeating raw CIDRs. The
+#       firewall role resolves aliases (and passes through literal CIDRs)
+#       when applying rules.
+# Why:  Router zones (see network-zone-segmentation spec) gate who gets INTO
+#       the homelab, but do nothing about a compromised host reaching every
+#       port on every other homelab host. Per-service, source-restricted host
+#       rules are the only control on that lateral movement.
+# Resolves: no host-level defense-in-depth; the router is the only gate.
+firewall_source_aliases:
+  # Wired homelab servers + router. Reused rather than duplicated so
+  # renumbering the LAN stays a one-line change.
+  homelab_subnet: "{{ home_lan_subnet }}"
+  # UniFi VLAN 10 — personal devices, TV, IoT. The router's zone policy
+  # already gates which of these devices reach the homelab at all; host
+  # rules accept the whole VLAN and leave per-device trust to the router
+  # rather than re-implementing that policy here.
+  home_vlan: "192.168.10.0/24"
+  # UniFi WireGuard subnet — beelink (192.168.2.5) and road-warrior clients.
+  # Matches wg_allowed_ips in host_vars/beelink/main.yml.
+  vpn_subnet: "192.168.2.0/24"
+  # beelink's local barn WiFi. Numerically identical to homelab_subnet
+  # because the two subnets collide (see
+  # docs/superpowers/specs/2026-07-18-jellyfin-barn-relay-design.md) — kept
+  # as a separate alias so rules on beelink state intent (barn-local traffic)
+  # rather than reading as a same-CIDR duplicate of homelab_subnet.
+  barn_lan: "192.168.1.0/24"
+  # pi-cm5-1 — the sole Prometheus scraper. Every exporter rule restricts to
+  # just this host instead of the whole homelab_subnet.
+  monitoring_host: "192.168.1.19"
+  # valen — source of NFSv3 lock/status callbacks to clients (see
+  # firewall_rules_nextcloud_nfs_client in group_vars/nextcloud/main.yml).
+  nfs_server_host: "192.168.1.197"
+
+# ufw logging verbosity. "low" logs blocked/allowed packets without the
+# per-packet volume of "medium"/"high" — enough for Alloy to ship drops to
+# Loki (see CLAUDE.md monitoring layer) without flooding journald.
+firewall_logging: "low"
+
+# Minutes the firewall-rollback timer waits before running `ufw disable` if
+# Ansible never reconnects after enabling ufw. Why: beelink is a 1.5h drive
+# away (see project_beelink_offsite_topology memory) — a bad rule that locks
+# out SSH must self-heal, not require a physical visit. Cancelled by the
+# role's own post-enable reconnect task on a normal run.
+firewall_rollback_minutes: 10
+
+# Baseline rules applied to every host (hosts: all, no [firewall] group —
+# see design spec "Play target"). Per-service rules live in each service's
+# own group_vars/<service>/main.yml as firewall_rules_<service>.
+firewall_rules_base:
+  - name: ssh
+    port: 22
+    proto: tcp
+    # homelab_subnet, home_vlan, vpn_subnet: admin + Ansible control access
+    # from every trusted network. On beelink the homelab_subnet CIDR also
+    # numerically matches the colliding barn LAN (see barn_lan above) — that
+    # overlap is deliberate: it is the only local recovery path when the
+    # WireGuard tunnel is down, short of the 1.5h drive to the barn, and SSH
+    # stays key-only auth so the exposure to untrusted barn neighbors is
+    # accepted (see design spec "Risks & accepted trade-offs").
+    from: [homelab_subnet, home_vlan, vpn_subnet]
+    scope: host
+    comment: "Admin + Ansible control access (key-only auth)"
+
+# node_exporter lives in `all` (not a per-service file) because
+# node-exporter.yml targets hosts: all — every host in the fleet runs it.
+firewall_rules_node_exporter:
+  - name: node-exporter
+    port: 9100
+    proto: tcp
+    from: [monitoring_host]
+    scope: host
+    comment: "Prometheus host metrics scrape (pi-cm5-1 only)"
+
 # Public domain for the lab. Every service is <name>.jardoole.xyz behind the
 # wildcard cert. Lives here (not group_vars/ingress) because it is consumed
 # lab-wide — monitoring URLs, blackbox targets, Grafana/Authentik OIDC, and
