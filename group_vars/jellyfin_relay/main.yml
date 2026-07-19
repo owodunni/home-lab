@@ -31,4 +31,4 @@ firewall_rules_jellyfin_relay:
     proto: tcp
     from: [barn_lan]
     scope: host
-    comment: "TLS-free Traefik entrypoint for barn TV apps that can't handle the cert/SNI mismatch"
+    comment: "TLS-free Traefik entrypoint for barn TV apps that cannot handle the cert/SNI mismatch"

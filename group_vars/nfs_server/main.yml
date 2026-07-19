@@ -77,7 +77,7 @@ firewall_rules_nfs_server:
     proto: tcp
     from: [homelab_subnet]
     scope: host
-    comment: "NFS data path — the only port NFSv4 needs; also NFSv3's data path (mount/lock use the helper ports below)"
+    comment: "NFS data path — the only port NFSv4 needs; also the NFSv3 data path (mount/lock use the helper ports below)"
   - name: nfs-mountd-tcp
     port: "{{ nfs_mountd_port }}"
     proto: tcp

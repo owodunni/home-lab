@@ -160,6 +160,25 @@
   ansible.builtin.set_fact:
     firewall_desired_rules: "{{ firewall_rules_by_key.values() | list | sort(attribute='name') }}"
 
+# What: Rejects rule names/comments containing quote characters.
+# Why:  community.general.ufw shell-quotes the comment when it builds the ufw
+#       command line; an embedded quote breaks its shlex parsing with
+#       "ValueError: No closing quotation" — observed live on the first
+#       pi-cm5-2 apply (an apostrophe in the 443 rule comment), failing the
+#       play mid-apply. Failing here, before any rule is touched, keeps a
+#       data typo from stranding a half-applied host.
+# Resolves: quoted characters in firewall_rules_* comments crashing the ufw
+#       module partway through step 5.
+- name: Assert no rule name or comment contains a quote character
+  ansible.builtin.assert:
+    that:
+      - firewall_desired_rules | map(attribute='name') | select('search', "['\"]") | list | length == 0
+      - firewall_desired_rules | map(attribute='comment') | select('search', "['\"]") | list | length == 0
+    fail_msg: >-
+      A firewall_rules_* entry has a quote character (' or ") in its name or
+      comment, which breaks community.general.ufw's internal command quoting.
+      Reword the offending entry in group_vars (e.g. "can't" -> "cannot").
+
 # --- Step 5: apply scope:host rules + reconcile against actual ufw state ---
 # What: Applies every scope:host rule, then fails loudly if ufw has an allow
 #       rule this run did not request.

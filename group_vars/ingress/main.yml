@@ -81,7 +81,7 @@ firewall_rules_ingress:
     proto: tcp
     from: [homelab_subnet, home_vlan, vpn_subnet, barn_lan]
     scope: host
-    comment: "Every service front door: LAN, VLAN-10 trusted devices + TV, Alloy->Loki push, beelink's rclone backup pull, blackbox probes"
+    comment: "Every service front door: LAN, VLAN-10 trusted devices + TV, Alloy->Loki push, beelink rclone backup pull, blackbox probes"
   - name: traefik-http
     port: 80
     proto: tcp
