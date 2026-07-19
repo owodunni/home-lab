@@ -119,14 +119,14 @@
     # play idempotent; the read fails harmlessly if lockd isn't loaded (then
     # modprobe.d alone covers the next load).
     - name: Read the running kernel's lockd TCP port
-      ansible.builtin.command: sysctl -n fs.nfs.nlm_tcpport
+      ansible.builtin.command: /usr/sbin/sysctl -n fs.nfs.nlm_tcpport
       register: nfs_lockd_running_port
       changed_when: false
       failed_when: false
 
     - name: Apply lockd port pins to the running kernel
       ansible.builtin.command: >-
-        sysctl -w fs.nfs.nlm_tcpport={{ nfs_lockd_port }}
+        /usr/sbin/sysctl -w fs.nfs.nlm_tcpport={{ nfs_lockd_port }}
         fs.nfs.nlm_udpport={{ nfs_lockd_port }}
       when:
         - nfs_lockd_running_port.rc == 0
@@ -214,7 +214,7 @@
       when: nfs_client_lockd_port is defined
 
     - name: Read the running kernel's lockd TCP port (client)
-      ansible.builtin.command: sysctl -n fs.nfs.nlm_tcpport
+      ansible.builtin.command: /usr/sbin/sysctl -n fs.nfs.nlm_tcpport
       register: nfs_client_lockd_running_port
       changed_when: false
       failed_when: false
@@ -222,7 +222,7 @@
 
     - name: Apply client lockd port pins to the running kernel
       ansible.builtin.command: >-
-        sysctl -w fs.nfs.nlm_tcpport={{ nfs_client_lockd_port }}
+        /usr/sbin/sysctl -w fs.nfs.nlm_tcpport={{ nfs_client_lockd_port }}
         fs.nfs.nlm_udpport={{ nfs_client_lockd_port }}
       when:
         - nfs_client_lockd_port is defined
