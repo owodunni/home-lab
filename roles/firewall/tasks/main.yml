@@ -1,0 +1,283 @@
+---
+# Host firewall (ufw) — default-deny inbound, per-service allowlists sourced
+# from firewall_rules_* group_vars, with a self-healing rollback if a bad
+# apply would lock out SSH. See
+# docs/superpowers/specs/2026-07-19-host-firewalls-design.md for the full
+# design and rationale; each step below cites the relevant section.
+#
+# Ordering is deliberate and MUST NOT be reshuffled: the rollback timer is
+# armed before the first rule change, and disarmed only after Ansible proves
+# it can reach the host again through the new rules. Every step in between
+# runs inside that safety window.
+
+# --- Step 1: package -------------------------------------------------------
+# What: Installs ufw.
+# Why:  community.general.ufw and the DOCKER-USER templating both assume the
+#       ufw binary + its /etc/ufw/*.rules files already exist.
+# Resolves: `community.general.ufw` failing with "ufw: command not found" on a
+#           fresh host.
+- name: Install ufw
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+    update_cache: true
+
+# --- Step 2: install + arm the rollback safety net (BEFORE any rule change) -
+# What: Deploys the rollback service+timer, then (re)starts the timer.
+# Why:  beelink is a 1.5h drive away (see project_beelink_offsite_topology
+#       memory / design spec "Lockout safety") — a firewall apply that gets
+#       the SSH allow rule wrong must heal itself, not require a physical
+#       visit. Arming BEFORE step 3 onward means every subsequent task in this
+#       role runs inside a bounded blast radius.
+- name: Template the firewall-rollback safety-net systemd service
+  ansible.builtin.template:
+    src: firewall-rollback.service.j2
+    dest: /etc/systemd/system/firewall-rollback.service
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Template the firewall-rollback safety-net systemd timer
+  ansible.builtin.template:
+    src: firewall-rollback.timer.j2
+    dest: /etc/systemd/system/firewall-rollback.timer
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Arm the rollback timer before any rule change
+  # Always RESTART (not just "started"), even if already active from a prior
+  # run: OnActiveSec counts from when the timer unit was last (re)started, so
+  # restarting guarantees a full, fresh firewall_rollback_minutes window every
+  # apply instead of inheriting a nearly-expired one. Deliberately not
+  # `enabled: true`/boot-persistent — see firewall-rollback.timer.j2: this
+  # timer must live only inside a single Ansible run, never survive a reboot.
+  ansible.builtin.systemd:
+    name: firewall-rollback.timer
+    daemon_reload: true
+    state: restarted
+    enabled: false
+
+# --- Step 3: ufw defaults ---------------------------------------------------
+# What: Default-deny inbound, default-allow outbound, low-verbosity logging.
+# Why:  Design spec "Direction" decision — egress filtering is deferred
+#       (cataloguing every legitimate external endpoint breaks silently);
+#       inbound default-deny with per-service allowlists is where nearly all
+#       the defense-in-depth value is. Logging "low" (firewall_logging) is
+#       enough for Alloy to ship drops to Loki without flooding journald.
+- name: Set ufw default policy - deny incoming
+  community.general.ufw:
+    direction: incoming
+    default: deny
+
+- name: Set ufw default policy - allow outgoing
+  community.general.ufw:
+    direction: outgoing
+    default: allow
+
+- name: Set ufw logging verbosity
+  community.general.ufw:
+    logging: "{{ firewall_logging }}"
+
+- name: Read /etc/default/ufw to confirm IPv6 filtering stays enabled
+  # We assert rather than manage this file: IPV6=yes is ufw's own shipped
+  # default, and the DOCKER-USER after6.rules block below assumes IPv6
+  # filtering is active. Rewriting a file we don't otherwise touch would be a
+  # second, redundant source of truth for a value we never intend to change.
+  ansible.builtin.slurp:
+    src: /etc/default/ufw
+  register: firewall_ufw_defaults_file
+
+- name: Assert IPV6=yes in /etc/default/ufw
+  ansible.builtin.assert:
+    that:
+      - "'IPV6=yes' in (firewall_ufw_defaults_file.content | b64decode)"
+    fail_msg: >-
+      /etc/default/ufw does not have IPV6=yes. This role does not manage that
+      file, so this either means the shipped default drifted or was
+      intentionally changed. after6.rules DOCKER-USER rules below assume IPv6
+      filtering is active — investigate before continuing.
+
+# --- Step 4: collect + resolve + dedupe the desired rule set ---------------
+# What: Flattens every firewall_rules_* variable in scope for this host into
+#       one list of concrete (name, port, proto, source, scope, comment)
+#       rules.
+# Why:  Rule data is split across group_vars/all, group_vars/<service>, and
+#       host_vars (see design spec "Rule data model") because group_vars lists
+#       at different precedence levels REPLACE rather than merge, and a host
+#       like valen is in ten groups. Each scope therefore defines its own
+#       firewall_rules_<name> variable; this is the spec-mandated collection
+#       mechanic to reassemble them.
+- name: Discover every firewall_rules_* variable in scope for this host
+  ansible.builtin.set_fact:
+    firewall_rule_var_names: "{{ lookup('varnames', '^firewall_rules_', wantlist=True) }}"
+
+- name: Flatten every firewall_rules_* list into one set of rules
+  ansible.builtin.set_fact:
+    firewall_collected_rules: "{{ firewall_collected_rules | default([]) + lookup('vars', item) }}"
+  loop: "{{ firewall_rule_var_names }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: Resolve each rule's `from` aliases (and pass through literal CIDRs)
+  # subelements() pairs every rule with each entry in its own `from` list, so
+  # a rule with `from: [homelab_subnet, home_vlan]` becomes two resolved
+  # entries — one ufw allow per source. A `from` value not found in
+  # firewall_source_aliases is treated as a literal CIDR/IP (design spec rule
+  # data model: "a rule's `from` may mix aliases and literal CIDRs").
+  ansible.builtin.set_fact:
+    firewall_resolved_rules: "{{ firewall_resolved_rules | default([]) + [firewall_resolved_entry] }}"
+  loop: "{{ firewall_collected_rules | subelements('from') }}"
+  loop_control:
+    label: "{{ firewall_subelement.0.name }} from {{ firewall_subelement.1 }}"
+    loop_var: firewall_subelement
+  vars:
+    firewall_resolved_entry:
+      name: "{{ firewall_subelement.0.name }}"
+      port: "{{ firewall_subelement.0.port }}"
+      proto: "{{ firewall_subelement.0.proto }}"
+      source: "{{ firewall_source_aliases[firewall_subelement.1] | default(firewall_subelement.1) }}"
+      scope: "{{ firewall_subelement.0.scope }}"
+      comment: "{{ firewall_subelement.0.comment }}"
+
+- name: Key each resolved rule by (port, proto, source, scope) to dedupe
+  # Two aliases can resolve to the same CIDR by design (barn_lan ==
+  # homelab_subnet on beelink, see group_vars/all/main.yml) or two service
+  # rules could legitimately overlap. Applying both would make the
+  # reconciliation check below see a "stray" rule with an unrecognized
+  # comment, since ufw would carry two allow lines for one port/proto/source.
+  # Keying by the tuple in a dict collapses duplicates to one representative
+  # (last-write-wins on name/comment — content is identical where it matters).
+  ansible.builtin.set_fact:
+    firewall_rules_by_key: "{{ firewall_rules_by_key | default({}) | combine({firewall_dedupe_key: item}) }}"
+  loop: "{{ firewall_resolved_rules }}"
+  loop_control:
+    label: "{{ item.name }}"
+  vars:
+    firewall_dedupe_key: "{{ item.port }}/{{ item.proto }}/{{ item.source }}/{{ item.scope }}"
+
+- name: Flatten the deduped rules back into a stable, sorted list
+  ansible.builtin.set_fact:
+    firewall_desired_rules: "{{ firewall_rules_by_key.values() | list | sort(attribute='name') }}"
+
+# --- Step 5: apply scope:host rules + reconcile against actual ufw state ---
+# What: Applies every scope:host rule, then fails loudly if ufw has an allow
+#       rule this run did not request.
+# Why:  community.general.ufw is additive by nature (it does not know the
+#       "desired set", only how to add/delete one rule at a time), so a rule
+#       renamed or removed from group_vars would otherwise linger on the host
+#       forever. Reconciliation is manual-but-loud in v1 (design spec
+#       "Reconciliation"): we detect and fail on drift, but never auto-`ufw
+#       reset`, since a stray rule might be something an operator added
+#       intentionally outside Ansible.
+- name: Apply every scope:host allow rule
+  community.general.ufw:
+    rule: allow
+    to_port: "{{ item.port | string }}"
+    proto: "{{ item.proto }}"
+    from_ip: "{{ item.source }}"
+    comment: "{{ item.name }}: {{ item.comment }}"
+  loop: "{{ firewall_desired_rules | selectattr('scope', 'equalto', 'host') | list }}"
+  loop_control:
+    label: "{{ item.name }} {{ item.proto }}/{{ item.port }} from {{ item.source }}"
+
+- name: Compute the exact rule comments this apply should have produced
+  ansible.builtin.set_fact:
+    firewall_expected_comments: "{{ firewall_expected_comments | default([]) + [item.name ~ ': ' ~ item.comment] }}"
+  loop: "{{ firewall_desired_rules | selectattr('scope', 'equalto', 'host') | list }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Capture ufw's currently active allow rules
+  ansible.builtin.command: ufw show added
+  register: firewall_ufw_added
+  changed_when: false
+
+- name: Find allow rules present on the host that this run did not request
+  # A rule matches if its comment contains one of our expected "name: comment"
+  # strings; anything else (a manual `ufw allow`, a renamed/removed rule left
+  # behind, or a comment-less stray) is drift.
+  ansible.builtin.set_fact:
+    firewall_stray_lines: >-
+      {{ firewall_ufw_added.stdout_lines
+      | select('match', '^ufw allow ')
+      | reject('search', firewall_expected_comments | map('regex_escape') | join('|'))
+      | list }}
+
+- name: Fail if ufw has allow rules this playbook does not manage
+  ansible.builtin.assert:
+    that:
+      - firewall_stray_lines | length == 0
+    fail_msg: >-
+      ufw has {{ firewall_stray_lines | length }} allow rule(s) not in the
+      desired firewall_rules_* set: {{ firewall_stray_lines }}. This can be a
+      manually added rule, a rule renamed/removed from group_vars that never
+      got cleaned up, or a stale entry from before this role managed the
+      host. Reconciliation is manual by design (v1 never auto-resets, in case
+      the rule was added intentionally outside Ansible): SSH in, inspect with
+      `ufw status numbered`, remove the stray rule(s) with `ufw delete <num>`
+      (or `ufw reset` to start clean), then rerun this playbook.
+
+# --- Step 6: scope:docker rules -> DOCKER-USER in after.rules/after6.rules -
+# What: Templates (or removes) the managed DOCKER-USER block.
+# Why:  Docker-published ports bypass ufw's INPUT chain entirely (see the
+#       docker-user-block-v4.j2 header comment for the full mechanism);
+#       scope:host rules above do nothing for them. Only touched on hosts that
+#       actually have scope:docker rules, so most hosts never get the block.
+- name: Determine this host's scope:docker rules
+  ansible.builtin.set_fact:
+    firewall_docker_rules: "{{ firewall_desired_rules | selectattr('scope', 'equalto', 'docker') | list }}"
+
+- name: Manage the DOCKER-USER block in after.rules (IPv4)
+  ansible.builtin.blockinfile:
+    path: /etc/ufw/after.rules
+    marker: "# {mark} ANSIBLE MANAGED BLOCK (roles/firewall DOCKER-USER v4)"
+    insertbefore: "^COMMIT"
+    block: "{{ lookup('template', 'docker-user-block-v4.j2') if firewall_docker_rules | length > 0 else '' }}"
+    state: "{{ 'present' if firewall_docker_rules | length > 0 else 'absent' }}"
+  notify: Reload ufw
+
+- name: Manage the DOCKER-USER block in after6.rules (IPv6)
+  ansible.builtin.blockinfile:
+    path: /etc/ufw/after6.rules
+    marker: "# {mark} ANSIBLE MANAGED BLOCK (roles/firewall DOCKER-USER v6)"
+    insertbefore: "^COMMIT"
+    block: "{{ lookup('template', 'docker-user-block-v6.j2') if firewall_docker_rules | length > 0 else '' }}"
+    state: "{{ 'present' if firewall_docker_rules | length > 0 else 'absent' }}"
+  notify: Reload ufw
+
+- name: Apply any pending ufw reload now, before enabling and proving reconnect
+  ansible.builtin.meta: flush_handlers
+
+# --- Step 7: enable -------------------------------------------------------
+# What: Enables ufw (and its boot-persistence).
+# Why:  Nothing above actually enforces until ufw is enabled; deferred to
+#       here so the full rule set (host + docker) is in place first.
+- name: Enable ufw
+  community.general.ufw:
+    state: enabled
+
+# --- Step 8: prove Ansible can still reach the host -------------------------
+# What: Forces a fresh SSH connection through the new rules.
+# Why:  This IS the lockout proof (design spec "Lockout safety"): if the new
+#       rules broke SSH, this task (and everything after it, including the
+#       disarm step) never runs, so the rollback timer armed in step 2 is
+#       never stopped and fires `ufw disable` on its own after
+#       firewall_rollback_minutes.
+- name: Force a fresh connection to verify the new rules allow SSH back in
+  ansible.builtin.meta: reset_connection
+
+- name: Confirm the host is reachable through the new firewall rules
+  ansible.builtin.command: whoami
+  changed_when: false
+
+# --- Step 9: disarm ---------------------------------------------------------
+# What: Stops the rollback timer.
+# Why:  Only reached if step 8 succeeded, i.e. the new rules did not lock out
+#       SSH. If this task never runs, the timer (armed in step 2, never
+#       stopped) fires and `ufw disable` heals the host on its own — the next
+#       playbook run then retries cleanly.
+- name: Disarm the rollback timer
+  ansible.builtin.systemd:
+    name: firewall-rollback.timer
+    state: stopped

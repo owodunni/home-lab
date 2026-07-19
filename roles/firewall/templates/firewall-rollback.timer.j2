@@ -1,0 +1,20 @@
+# Firewall rollback safety net — managed by Ansible (roles/firewall).
+#
+# What: Fires firewall-rollback.service after firewall_rollback_minutes of
+#       being armed, unless the role's own disarm task (last step of
+#       roles/firewall/tasks/main.yml) stops it first.
+# Why:  See firewall-rollback.service for the lockout-safety rationale.
+# Resolves: no remote recovery path if an apply locks out SSH.
+[Unit]
+Description=Roll back the host firewall if not disarmed within {{ firewall_rollback_minutes }} minutes
+
+[Timer]
+OnActiveSec={{ firewall_rollback_minutes }}min
+Unit=firewall-rollback.service
+
+# Deliberately no [Install] section and never `systemctl enable`d (see
+# roles/firewall/tasks/main.yml): this timer is only ever started explicitly,
+# once per playbook run, by the role itself. Enabling it for boot activation
+# would turn every reboot into a ~{{ firewall_rollback_minutes }}-minute countdown to
+# `ufw disable`, which is not the lockout-safety story this is meant to be —
+# the timer must exist only inside a single Ansible run's blast radius.

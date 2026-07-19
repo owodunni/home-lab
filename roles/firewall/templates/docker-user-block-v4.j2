@@ -1,0 +1,24 @@
+# Managed by Ansible (roles/firewall) — DOCKER-USER rules for this host's
+# scope:docker firewall_rules_* entries.
+#
+# What: Filters traffic to Docker-published container ports.
+# Why:  Docker publishes container ports through its own FORWARD-chain
+#       machinery (DNAT + the DOCKER-USER chain), which sits AHEAD of ufw's
+#       INPUT chain — a ufw `deny incoming` alone does NOT protect a published
+#       port (see design spec docs/superpowers/specs/2026-07-19-host-firewalls-design.md
+#       "Docker-published ports"). DOCKER-USER sees traffic AFTER DNAT, so
+#       rules match the ORIGINAL host port via --ctorigdstport, not --dport.
+#       Scoped to traffic entering via {{ ansible_default_ipv4.interface }} only:
+#       Docker's bridge-nf-call-iptables=1 also routes container<->container
+#       traffic on the same bridge through DOCKER-USER, and the media stack's
+#       cross-container calls depend on that intra-bridge traffic passing
+#       through untouched.
+# Resolves: Docker-published ports (cadvisor, intel_gpu_exporter, ...) being
+#           reachable from anywhere despite ufw's default-deny policy.
+:DOCKER-USER - [0:0]
+-A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+{% for rule in firewall_docker_rules %}
+-A DOCKER-USER -i {{ ansible_default_ipv4.interface }} -p {{ rule.proto }} -s {{ rule.source }} -m conntrack --ctorigdstport {{ rule.port }} --ctdir ORIGINAL -j ACCEPT
+{% endfor %}
+-A DOCKER-USER -i {{ ansible_default_ipv4.interface }} -j DROP
+-A DOCKER-USER -j RETURN

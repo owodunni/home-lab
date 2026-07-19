@@ -1,0 +1,9 @@
+---
+# Reload ufw after the DOCKER-USER block in after.rules/after6.rules changes,
+# so the new iptables rules take effect without a full disable/enable cycle.
+# main.yml explicitly flushes handlers before enabling ufw / proving reconnect,
+# so this always runs (or is superseded by the enable task) before the
+# lockout-safety reconnect check.
+- name: Reload ufw
+  community.general.ufw:
+    state: reloaded

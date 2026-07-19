@@ -89,7 +89,10 @@ group_vars). Tasks:
    `firewall_rollback_minutes`).
 3. Set defaults: deny incoming, allow outgoing, logging low.
 4. Apply every collected `scope: host` rule via `community.general.ufw`
-   (idempotent; delete-and-reconcile so removed rules disappear).
+   (idempotent). Reconciliation is detect-and-fail: after applying, the role
+   diffs `ufw show added` against the desired set and fails loudly on any
+   unmanaged allow rule, telling the operator how to remove it — it never
+   auto-resets, since a stray rule might be deliberate.
 5. Template the `scope: docker` rules into the DOCKER-USER section of
    `/etc/ufw/after.rules`: allow established/related, allow intra-Docker
    traffic, allow declared sources to declared container ports, drop other

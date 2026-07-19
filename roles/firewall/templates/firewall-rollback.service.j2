@@ -1,0 +1,16 @@
+# Firewall rollback safety net — managed by Ansible (roles/firewall).
+#
+# What: Disables ufw entirely.
+# Why:  If a host-firewall apply gets the SSH allow rule wrong, this is the
+#       only remote recovery path — beelink alone is a 1.5h drive away (see
+#       docs/superpowers/specs/2026-07-19-host-firewalls-design.md "Lockout
+#       safety"). Triggered only by firewall-rollback.timer, which the role
+#       arms before touching any rule and disarms only after Ansible proves it
+#       can reconnect through the new rules.
+# Resolves: a bad firewall apply locking out SSH with no remote recovery path.
+[Unit]
+Description=Disable ufw if the firewall role's rollback timer was never disarmed
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/ufw disable

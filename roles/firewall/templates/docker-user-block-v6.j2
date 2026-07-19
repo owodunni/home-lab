@@ -1,0 +1,14 @@
+# Managed by Ansible (roles/firewall) — DOCKER-USER IPv6 lockdown.
+#
+# What: Blocks off-host IPv6 traffic to Docker-published ports.
+# Why:  Every scope:docker source in this lab's firewall_rules_* is an IPv4
+#       CIDR (monitoring_host, etc. — see design spec "Known Docker-published
+#       ports"), so there is nothing to allow here, only to deny: any IPv6
+#       traffic arriving via {{ ansible_default_ipv4.interface }} (the interface
+#       name is protocol-agnostic — same NIC, no separate ansible_default_ipv6
+#       fact needed) at DOCKER-USER is off-host and unexpected.
+# Resolves: an IPv6-only path around the IPv4-only allowlist above.
+:DOCKER-USER - [0:0]
+-A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A DOCKER-USER -i {{ ansible_default_ipv4.interface }} -j DROP
+-A DOCKER-USER -j RETURN

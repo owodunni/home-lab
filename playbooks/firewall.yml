@@ -1,0 +1,24 @@
+---
+# Host firewall (ufw), default-deny inbound.
+#
+# What: Applies roles/firewall to every host in the fleet.
+# Why:  The router's UniFi zone firewall (see
+#       docs/superpowers/specs/2026-07-15-network-zone-segmentation-design.md)
+#       gates who gets into the homelab, but does nothing about lateral
+#       movement between homelab hosts, and beelink (on an untrusted barn LAN)
+#       has no zone protection at all. See
+#       docs/superpowers/specs/2026-07-19-host-firewalls-design.md for the
+#       full design.
+# Resolves: no host-level defense-in-depth — a compromised host could reach
+#           every port on every other homelab host.
+#
+# hosts: all, no [firewall] group (design spec "Play target"): a firewall is a
+# host property, not a service that moves, so fail-closed coverage means a new
+# host cannot be forgotten. Temporary exclusion is `--limit`, not an inventory
+# edit.
+- name: Apply the host firewall
+  hosts: all
+  become: true
+
+  roles:
+    - firewall
