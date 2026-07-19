@@ -1,0 +1,14 @@
+# {{ ansible_managed }}
+# Static ports for the NFSv3 helper daemons — values from group_vars/nfs_server.
+# Why: unpinned, these bind random ports at boot and cannot be firewalled; the
+# security layer's default-deny rules reference exactly these numbers.
+# NFSv4 uses only 2049 and ignores all of this.
+[mountd]
+port = {{ nfs_mountd_port }}
+
+[statd]
+port = {{ nfs_statd_port }}
+
+[lockd]
+port = {{ nfs_lockd_port }}
+udp-port = {{ nfs_lockd_port }}

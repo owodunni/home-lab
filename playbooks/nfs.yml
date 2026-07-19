@@ -48,6 +48,20 @@
       ansible.builtin.command: exportfs -ra
       changed_when: true
 
+    # Pinned helper ports only take effect when the daemons re-exec. nfs-server
+    # restart re-launches mountd and (with it) kernel lockd; rpc-statd is a
+    # separate unit. A v3 client mid-operation sees a brief stall and retries
+    # (hard mount semantics) — apply during the firewall rollout window.
+    - name: Restart NFS server
+      ansible.builtin.systemd:
+        name: nfs-server
+        state: restarted
+
+    - name: Restart rpc-statd
+      ansible.builtin.systemd:
+        name: rpc-statd
+        state: restarted
+
   tasks:
     - name: Install NFS server
       ansible.builtin.apt:
@@ -55,6 +69,25 @@
         state: present
         update_cache: true
         cache_valid_time: 86400 # 24h — skip refresh if cache is recent
+
+    # What: fixes mountd/statd/lockd to the static ports declared in
+    #       group_vars/nfs_server (nfs_mountd_port & friends).
+    # Why:  NFSv3 — which Nextcloud's all_squash subtree export requires (see
+    #       group_vars/nextcloud/main.yml) — otherwise binds these helpers to
+    #       random ports at every boot, so no host-firewall port rule can cover
+    #       them. NFSv4 traffic is unaffected (2049 only).
+    # Resolves: stable, firewallable NFS ports for the security layer's
+    #       default-deny rules (2026-07-19-host-firewalls-design.md).
+    - name: Pin NFSv3 helper daemons to static ports
+      ansible.builtin.template:
+        src: templates/nfs-server-ports.conf.j2
+        dest: /etc/nfs.conf.d/homelab-ports.conf
+        mode: "0644"
+        owner: root
+        group: root
+      notify:
+        - Restart NFS server
+        - Restart rpc-statd
 
     - name: Write NFS exports table
       ansible.builtin.template:
@@ -76,6 +109,12 @@
   hosts: nfs_client
   become: true
 
+  handlers:
+    - name: Restart rpc-statd (client)
+      ansible.builtin.systemd:
+        name: rpc-statd
+        state: restarted
+
   tasks:
     # nfs-common provides /sbin/mount.nfs, which Docker's local volume driver
     # shells out to when mounting a type=nfs volume. Without it, container start
@@ -87,3 +126,23 @@
         state: present
         update_cache: true
         cache_valid_time: 86400 # 24h — skip refresh if cache is recent
+
+    # What: fixes the client-side statd/lockd callback ports to static values.
+    # Why:  an NFSv3 server (valen) makes NLM/NSM callbacks TO the client for
+    #       blocking-lock grants and reboot notification; unpinned, the client
+    #       binds them randomly and the client host's firewall cannot allow
+    #       them, so locks would hang under default-deny. Only hosts that mount
+    #       v3 declare the pin vars (today: pi-cm5-2 via group_vars/nextcloud —
+    #       the only v3 client; the Docker-fleet v4 volumes need no callbacks),
+    #       hence the `when`.
+    # Resolves: NFSv3 locking surviving the host firewall
+    #       (2026-07-19-host-firewalls-design.md).
+    - name: Pin NFSv3 client callback ports
+      ansible.builtin.template:
+        src: templates/nfs-client-ports.conf.j2
+        dest: /etc/nfs.conf.d/homelab-client-ports.conf
+        mode: "0644"
+        owner: root
+        group: root
+      when: nfs_client_statd_port is defined
+      notify: Restart rpc-statd (client)

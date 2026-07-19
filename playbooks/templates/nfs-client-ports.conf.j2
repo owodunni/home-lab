@@ -1,0 +1,12 @@
+# {{ ansible_managed }}
+# Static ports for the client-side NFSv3 callback daemons — values from the
+# group_vars of the service that mounts v3 (today: nextcloud on pi-cm5-2).
+# Why: the NFS server (valen) connects BACK to these for NLM lock grants and
+# NSM reboot notification; the client host's firewall allows them from
+# nfs_server_host only, which requires fixed numbers.
+[statd]
+port = {{ nfs_client_statd_port }}
+
+[lockd]
+port = {{ nfs_client_lockd_port }}
+udp-port = {{ nfs_client_lockd_port }}

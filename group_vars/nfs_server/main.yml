@@ -26,3 +26,91 @@ nfs_export_clients: "{{ home_lan_subnet }}"
 # root_squash   — (default, stated explicitly) map remote root to nobody so a
 #                 rogue/compromised client root cannot own pool files.
 nfs_export_options: "rw,sync,no_subtree_check,crossmnt,fsid=0,root_squash"
+
+# ============================================================================
+# NFSv3 helper port pins (docs/superpowers/specs/2026-07-19-host-firewalls-design.md)
+# ============================================================================
+# What: fixed ports for rpc.mountd, rpc.statd, and lockd — the NFSv3 helper
+#       daemons that otherwise bind an ephemeral port chosen at boot.
+# Why:  a host firewall rule needs a stable port to allow. Without pinning
+#       these, mountd/statd/lockd bind whatever the kernel/rpcbind hands them
+#       at boot, so a port-based firewall rule can't be written for them.
+# Resolves: NFSv3 mount/lock/status calls being unfirewallable (would require
+#           allowing the entire ephemeral range) once the default-deny
+#           baseline goes on. Consumed by playbooks/nfs.yml — being wired
+#           into the export config separately from this rule-seeding pass.
+nfs_mountd_port: 20048
+nfs_statd_port: 662
+nfs_lockd_port: 32768
+
+# ============================================================================
+# Host firewall — NFS server rules
+# ============================================================================
+# What: the full set of ports an NFSv3 client needs to mount, read/write, and
+#       hold locks against the exported pool: rpcbind (service directory),
+#       nfsd (the data path, also serves v4), and the three helper daemons
+#       pinned above.
+# Why NFSv3 exists at all (not just v4): Nextcloud's data export uses
+#       all_squash on a subtree, which NFSv4's single pseudo-filesystem does
+#       not honour below the pseudo-root — only a real per-export NFSv3 mount
+#       applies all_squash correctly (see the detailed explanation at
+#       group_vars/nextcloud/main.yml:107 and nfs_export_options above).
+# Why from: [homelab_subnet] only: matches nfs_export_clients above — the
+#       Docker hosts (Pis) are the only NFS clients; beelink is deliberately
+#       excluded from the export itself, so it needs no firewall allowance
+#       either.
+firewall_rules_nfs_server:
+  - name: nfs-rpcbind-tcp
+    port: 111
+    proto: tcp
+    from: [homelab_subnet]
+    scope: host
+    comment: "RPC portmapper — NFSv3 clients query it to find mountd/statd/lockd ports"
+  - name: nfs-rpcbind-udp
+    port: 111
+    proto: udp
+    from: [homelab_subnet]
+    scope: host
+    comment: "RPC portmapper — NFSv3 clients query it to find mountd/statd/lockd ports"
+  - name: nfs
+    port: 2049
+    proto: tcp
+    from: [homelab_subnet]
+    scope: host
+    comment: "NFS data path — the only port NFSv4 needs; also NFSv3's data path (mount/lock use the helper ports below)"
+  - name: nfs-mountd-tcp
+    port: "{{ nfs_mountd_port }}"
+    proto: tcp
+    from: [homelab_subnet]
+    scope: host
+    comment: "NFSv3 mount protocol — required for the Nextcloud all_squash subtree export"
+  - name: nfs-mountd-udp
+    port: "{{ nfs_mountd_port }}"
+    proto: udp
+    from: [homelab_subnet]
+    scope: host
+    comment: "NFSv3 mount protocol — required for the Nextcloud all_squash subtree export"
+  - name: nfs-statd-tcp
+    port: "{{ nfs_statd_port }}"
+    proto: tcp
+    from: [homelab_subnet]
+    scope: host
+    comment: "NFSv3 status monitor (NSM) — reboot notification for lock recovery"
+  - name: nfs-statd-udp
+    port: "{{ nfs_statd_port }}"
+    proto: udp
+    from: [homelab_subnet]
+    scope: host
+    comment: "NFSv3 status monitor (NSM) — reboot notification for lock recovery"
+  - name: nfs-lockd-tcp
+    port: "{{ nfs_lockd_port }}"
+    proto: tcp
+    from: [homelab_subnet]
+    scope: host
+    comment: "NFSv3 lock manager (NLM) — advisory file locking for NFSv3 clients"
+  - name: nfs-lockd-udp
+    port: "{{ nfs_lockd_port }}"
+    proto: udp
+    from: [homelab_subnet]
+    scope: host
+    comment: "NFSv3 lock manager (NLM) — advisory file locking for NFSv3 clients"

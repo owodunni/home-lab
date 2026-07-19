@@ -132,6 +132,54 @@ nextcloud_container_gid: 33
 # trusted proxy Nextcloud should believe X-Forwarded-* headers from is loopback.
 nextcloud_trusted_proxies: "127.0.0.1"
 
+# ============================================================================
+# Host firewall — NFS client callback ports (docs/superpowers/specs/2026-07-19-host-firewalls-design.md)
+# ============================================================================
+# What: client-side pins for the same statd/lockd ports the NFS server pins
+#       in group_vars/nfs_server/main.yml. Must match valen's
+#       nfs_statd_port/nfs_lockd_port — they name the same protocol ports on
+#       each side of the callback. Named generically (nfs_client_*, not
+#       nextcloud_*) because playbooks/nfs.yml consumes them in its
+#       service-agnostic client play (pins fire on any host whose groups
+#       define them); they live HERE because Nextcloud is what needs NFSv3 —
+#       the vars travel with the service that created the requirement.
+# Why:  NFSv3's lock manager (NLM) and status monitor (NSM) are bidirectional
+#       — valen calls BACK to this client (not just serving inbound mount
+#       traffic) to grant blocking locks and to notify of a server reboot so
+#       the client can reclaim its locks. Without a stable, firewallable port
+#       on the client side, that callback has nowhere allowed to land once
+#       the default-deny baseline is up.
+# Resolves: blocking NFS locks hanging forever after the firewall goes on,
+#       because valen's callback to the client was silently dropped.
+nfs_client_statd_port: 662
+nfs_client_lockd_port: 32768
+
+firewall_rules_nextcloud_nfs_client:
+  - name: nextcloud-nfs-statd-tcp
+    port: "{{ nfs_client_statd_port }}"
+    proto: tcp
+    from: [nfs_server_host]
+    scope: host
+    comment: "NFSv3 NSM callback — valen notifies this client of a server reboot so it can reclaim locks"
+  - name: nextcloud-nfs-statd-udp
+    port: "{{ nfs_client_statd_port }}"
+    proto: udp
+    from: [nfs_server_host]
+    scope: host
+    comment: "NFSv3 NSM callback — valen notifies this client of a server reboot so it can reclaim locks"
+  - name: nextcloud-nfs-lockd-tcp
+    port: "{{ nfs_client_lockd_port }}"
+    proto: tcp
+    from: [nfs_server_host]
+    scope: host
+    comment: "NFSv3 NLM callback — valen grants blocking lock requests back to this client"
+  - name: nextcloud-nfs-lockd-udp
+    port: "{{ nfs_client_lockd_port }}"
+    proto: udp
+    from: [nfs_server_host]
+    scope: host
+    comment: "NFSv3 NLM callback — valen grants blocking lock requests back to this client"
+
 # Nextcloud sits behind the proxy, not serving TLS itself; these make it build
 # correct absolute (https) URLs and CLI URLs for the public hostname.
 nextcloud_overwrite_protocol: "https"
