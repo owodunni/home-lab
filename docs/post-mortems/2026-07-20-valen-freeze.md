@@ -1,6 +1,8 @@
 # Post-mortem: valen hard freeze, 2026-07-20
 
-**Status:** Resolved (host power-cycled 2026-07-22 11:54; all services healthy).
+**Status:** Service **restored** (host power-cycled 2026-07-22 11:54; all services
+healthy). **Root cause UNCONFIRMED** — a trigger and timing are established, the exact
+mechanism is not (no crash trace; see Root cause). Follow-up: "recover + diagnose" spec.
 **Severity:** High — the entire application platform was offline for ~55 hours.
 **Author:** reconstructed from metrics + the frozen on-disk journal (see Evidence).
 
@@ -38,7 +40,7 @@ Nothing auto-recovered.
 
 | Time | Event |
 |---|---|
-| 07-19 20:52, 22:01 | Two planned reboots (the `dist-upgrade` from the security-layer work). Lab healthy afterwards. |
+| 07-19 21:29–22:02 | Security-layer work lands **three changes at once**: ufw enabled; `dist-upgrade` installs a **new kernel `6.12.95`** (up from 6.12.94) plus **docker-ce 29.6.0→29.6.2 / containerd 2.2.5→2.2.6**; two reboots. The 22:01 reboot booted the new kernel. Lab healthy afterwards. |
 | 07-20 02:00–04:00 | Nightly backup window opens: postgres dumps (02:00), authentik volumes (03:00). Garage begins its nightly block **prune/resync** — thousands of `DELETE`/offload ops visible in the journal. |
 | 07-20 **04:00** | **Three data-backup crons fire at once**: `nextcloud_data`, `vaultwarden_data`, `qbittorrent` (all `0 4 * * *`). Each restic-reads the pool and writes to Garage, whose store is on the *same* disk. |
 | 07-20 04:10:46 | **Last journal entry.** journald's file is left dirty. System froze here. |
@@ -48,46 +50,66 @@ Nothing auto-recovered.
 | 07-22 11:54 | Physical power-cycle. Clean boot; all services auto-start and recover. |
 | 07-22 ~13:00 | Confirmed healthy: 17 containers up, all probes green, storage responsive, disk SMART `PASSED`. Alertmanager silences removed. |
 
-## Root cause
+## Root cause — NOT yet confirmed
 
-**Trigger:** an I/O convergence that saturated the single FUSE storage path.
-Everything below funnels through **one** stack — `mergerfs` (FUSE, userspace) →
-`dm-crypt`/LUKS → one 10.9 TB SATA disk (`sda`); the "pool" is currently a
-single disk:
+**Root cause is unconfirmed.** We have a well-supported *trigger* (the nightly I/O
+load) and a well-supported *timing* (a change bundle landed hours before), but no
+crash trace to prove the mechanism. Do not treat the sections below as settled.
 
-- 04:00: `nextcloud_data` + `vaultwarden_data` + `qbittorrent` restic snapshots
-  fire simultaneously. restic walks the pool (reads) **and** uploads to Garage,
-  whose object store is on the same pool (writes).
-- Concurrently, Garage runs its nightly prune: thousands of block `DELETE` +
-  resync/offload operations against that same disk.
-- SnapRAID's full-pool sync+scrub is scheduled 04:30 on top of all this.
+**Trigger (the load) — confirmed.** An I/O convergence saturated the single FUSE
+storage path. Everything funnels through **one** stack — `mergerfs` (FUSE,
+userspace) → `dm-crypt`/LUKS → one 10.9 TB SATA disk (`sda`); the "pool" is a single
+disk. At 04:00 three data-backup crons (`nextcloud_data` + `vaultwarden_data` +
+`qbittorrent`, all `0 4 * * *`) restic-read the pool **and** upload to Garage, whose
+object store is on the same pool; concurrently Garage runs its nightly prune
+(thousands of block `DELETE`/resync) and SnapRAID's full scan is queued 04:30. Under
+that load tasks piled into uninterruptible sleep and the box livelocked — the
+near-zero disk *I/O-time* during the `D`-state spike shows tasks were blocked in
+FUSE, not on the platter.
 
-Under that concurrent load the FUSE (`mergerfs`) layer stopped making forward
-progress; work piled into uninterruptible sleep waiting on the userspace daemon,
-and the box livelocked. The near-zero disk *I/O-time* during the `D`-state spike is
-the tell: the disk wasn't pegged — tasks were blocked in FUSE, not on the platter.
+**But this load is nightly.** It ran fine on 07-18 and 07-19-morning. So the load
+alone does **not** explain why valen froze on *this* night — something changed that
+turned a survivable load fatal.
+
+**What changed (the timing) — the open question.** Three things landed together at
+21:29–22:02 on 07-19, and the freeze was the **first night running them**. Ranked by
+how plausibly each could cause a FUSE/block-layer livelock under I/O load:
+
+1. **New kernel `6.12.95`** (booted 22:01, replacing 6.12.94) — *leading suspect*. A
+   kernel regression in FUSE/mergerfs, dm-crypt, or the block layer produces exactly
+   this signature (sustained `D`-state, zero disk I/O-time), and it ran for the first
+   time that night. valen is running this same kernel again as of 2026-07-22.
+2. **docker-ce 29.6.0→29.6.2 / containerd 2.2.5→2.2.6** — possible; an I/O or cgroup
+   behaviour change could contribute.
+3. **ufw enabled** — *least likely as the hang mechanism.* ufw permitted SSH (the
+   handshake completed), the rollback timer is never enabled at boot, and conntrack
+   was ~100/262144. Its only demonstrated effect is unrelated `[UFW BLOCK]` log noise
+   (see Secondary finding). It cannot be fully cleared without a trace, but the hang
+   signature is storage, not network.
+
+An earlier draft of this post-mortem wrongly presented the backup storm as *the*
+root cause and "ruled out" the firewall while never examining valen's own
+`dist-upgrade` (the kernel/docker co-changes were missed — the wrong host's apt log
+was checked). This section corrects that.
 
 **Why it took the whole host down (not just storage):** `systemd-journald` was an
 early casualty (its write path went through the stall), and once journald and the
-init/cgroup machinery couldn't make progress, no new process could be forked. SSH
-on this host is **socket-activated** (`ssh.socket` spawns a per-connection
+init/cgroup machinery couldn't make progress, no new process could be forked. SSH on
+this host is **socket-activated** (`ssh.socket` spawns a per-connection
 `ssh@.service`); with forking wedged, the TCP handshake completed but the session
-service never started — the exact "connection reset before banner" signature we
-saw. This is a host-level hang, **not** an sshd or firewall misconfiguration.
+service never started — the "connection reset before banner" signature we saw. A
+host-level hang, **not** an sshd or firewall misconfiguration.
 
-**Ruled out:**
+**Confidently ruled out:**
 - *Failing disk* — SMART `PASSED`, 0 reallocated / 0 pending / 0 CRC, 990 power-on
   hours (~41 days old), 40 °C. No ATA resets or I/O errors in the kernel log.
 - *OOM* — `node_vmstat_oom_kill` never incremented; MemAvailable *rose* as procs died.
-- *The 2026-07-19 host firewall rollout* — ufw permitted SSH (handshake completed);
-  the rollback timer is never enabled at boot; conntrack was ~100/262144. Not causal
-  to the hang. (It did surface a *separate* chronic issue — see below.)
 
-**Unprovable from available evidence:** the exact kernel-level mechanism (mergerfs
-deadlock vs. soft-lockup vs. dm-crypt worker starvation). journald froze before any
-hung-task trace or call stack was written, and valen has no serial console or
-netconsole. The trigger workload and contributing architecture are well-supported;
-the precise failing lock is not.
+**Why the mechanism is unprovable right now:** journald froze before any hung-task
+trace or call stack was written, and valen has no serial console, netconsole, or
+kdump. **This is the single biggest reason we cannot close the root cause — and the
+primary thing the remediation must fix first** (capture a trace on the next freeze),
+so a recurrence settles kernel-vs-docker-vs-ufw with evidence instead of ranking.
 
 ## Contributing factors
 
@@ -98,9 +120,11 @@ the precise failing lock is not.
    same window, SnapRAID at `04:30`. The crons were offset from *each other* in intent
    (comments say "02:00–05:00") but three still collide at 04:00, and none are
    isolated from the SnapRAID scan or the Garage prune.
-3. **No auto-recovery.** No hardware/software watchdog to reset a livelocked host; no
-   `Restart=` supervision that could have helped (moot once forking wedged, but there
-   was no outer safety net at all).
+3. **No auto-recovery — valen specifically.** valen has an `iTCO_wdt` hardware
+   watchdog but systemd was **not** petting it (`RuntimeWatchdogUSec=0`), so a
+   livelock had no path to a self-reset. Notably the Pis **already** run the systemd
+   runtime watchdog (`RuntimeWatchdogUSec=1min`) — valen was the one host without it,
+   which is why it stayed wedged 55h instead of resetting in ~1 minute.
 4. **Observability blind spot.** Local journald froze *and* valen has never shipped
    logs to Loki (see `project-valen-no-loki-logs`). The only reason this was
    diagnosable was Prometheus metrics from resident exporters. A host can be wedged
@@ -118,21 +142,36 @@ only work by luck. Track separately.
 
 ## Remediation plan (proposed — not yet implemented)
 
-Prioritised; each is a candidate for its own change + spec.
+Prioritised; each is a candidate for its own change + spec. **Sequencing decision
+(2026-07-22):** because the root cause is unconfirmed, do **"recover + diagnose"
+first** — make a wedged host self-recover *and* make the next freeze produce a trace,
+*before* changing the load (P1) or the kernel. Fixing the load now would just mask an
+unproven cause. P0 + crash-capture is the next spec; P1/P2/P3 wait for evidence.
 
-**P0 — make a wedged host recover itself**
-- Enable a **hardware watchdog** (`systemd`'s `RuntimeWatchdog`/`watchdog-device`, or
-  the mini-PC's Intel TCO WDT) so a livelocked kernel triggers a reset instead of a
-  55h manual outage. This is the single highest-leverage fix: it converts "offline
-  until someone drives over" into "self-reboots in minutes."
+**P0 — recover + diagnose (next spec)**
+- **Arm the hardware watchdog** via systemd's `RuntimeWatchdogSec` so a livelocked
+  kernel triggers a hardware reset. valen has `iTCO_wdt` but it's disabled
+  (`RuntimeWatchdogUSec=0`); the Pis already run it at 1min. Applying this fleet-wide
+  closes valen's gap and standardises the fleet. Converts "offline until someone
+  drives over" into "self-resets in ~1min."
+- **Capture a crash trace next time.** Enable **netconsole** (stream kernel messages
+  over UDP to an always-up collector, e.g. the monitoring Pi) plus kernel
+  **lockup-detector sysctls** (`hung_task_timeout_secs`, verbose hung-task/softlockup,
+  and a decision on panic-on-hang) so a recurrence emits the stack traces journald
+  couldn't persist. Optionally **kdump** (heavier — needs a reserved `crashkernel=`
+  and a reboot). This is what lets us finally confirm kernel-vs-docker-vs-ufw.
+- **Surface that a self-recovery happened** so a silent watchdog reboot doesn't hide a
+  recurring problem (e.g. alert on an unexpected `node_boot_time_seconds` reset).
 
-**P1 — de-risk the nightly I/O storm (the trigger)**
+**P1 — de-risk the nightly I/O load (AFTER P0 gives evidence)**
 - **Stagger** the three `0 4` data backups (e.g. 04:00 / 04:20 / 04:40) and ensure
   SnapRAID (04:30) does not overlap the backup window at all.
 - **Throttle** the heavy jobs: `restic --limit-upload`, and/or `IOSchedulingClass`
   (ionice idle) + `CPUWeight` on the SnapRAID and Garage-prune units so backup/maint
   I/O can never starve live serving.
 - Consider decoupling the **Garage prune** from the backup window entirely.
+- **The kernel question:** if a captured trace implicates `6.12.95`, pin back to
+  6.12.94 (still installed) and/or file upstream; this belongs here, not P0.
 
 **P2 — reduce shared-path fragility**
 - Evaluate moving the **Garage S3 store off the mergerfs/FUSE pool** onto the NVMe
@@ -176,4 +215,13 @@ Prioritised; each is a candidate for its own change + spec.
   `node_vmstat_oom_kill` flat at 0; `up{instance="valen:9633"}` → 0 at 04:43.
 - Schedules: `group_vars/{nextcloud,vaultwarden,qbittorrent}/main.yml`
   (`0 4 * * *`), `group_vars/storage/main.yml` (`snapraid_runner_schedule 04:30`).
+- **valen's** `/var/log/apt/history.log` 07-19 21:59 `dist-upgrade`: installed
+  `linux-image-6.12.95+deb13-amd64` (from 6.12.94), upgraded `docker-ce`
+  29.6.0→29.6.2 and `containerd.io` 2.2.5→2.2.6; autoremoved `linux-image-6.12.90`.
+  `uname -r` on 2026-07-22 = `6.12.95+deb13-amd64` (running the suspect kernel again);
+  `linux-image-6.12.94` still installed (rollback target).
+- Watchdog state: valen `/dev/watchdog0` driver `iTCO_wdt`, systemd
+  `RuntimeWatchdogUSec=0` (**not armed**); pi-cm5-1 driver `bcm2835`,
+  `RuntimeWatchdogUSec=1min` (**armed**). No host has kdump/`crashkernel`;
+  `netconsole` module available fleet-wide.
 - Health now: `smartctl -H -A /dev/sda` PASSED; `docker ps` 17 running; `ss -ltnp`.
