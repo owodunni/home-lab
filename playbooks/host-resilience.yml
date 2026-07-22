@@ -1,0 +1,79 @@
+---
+# Host resilience — self-heal + crash capture
+#
+# What: Fleet-wide, makes a host that livelocks recover itself and leave a trace.
+#       (1) sysctls that turn a stuck D-state task into a kernel panic + auto-
+#       reboot; (2) the systemd hardware watchdog as a total-freeze backstop;
+#       (3) systemd-pstore enabled so the panic's dmesg tail (captured to EFI-var
+#       pstore) is archived to /var/lib/systemd/pstore/ across the reboot.
+# Why:  On 2026-07-20 valen livelocked in uninterruptible D-state on its single
+#       FUSE/LUKS pool during the nightly backup window and sat wedged ~55h until
+#       a hand power-cycle — and journald froze, so there was no trace to explain
+#       it. valen had NO watchdog armed (RuntimeWatchdogUSec=0) while the Pis
+#       already ran one, and nothing converted the hang into a recovery. See
+#       docs/post-mortems/2026-07-20-valen-freeze.md and
+#       docs/superpowers/specs/2026-07-22-host-resilience-design.md.
+# Resolves: a storage stall escalating into a multi-day, undiagnosable outage.
+#
+# Host hardware/OS resilience state, so it sits in the system layer alongside the
+# GPU drivers, Pi firmware, and WiFi config. Everything here applies LIVE without
+# rebooting the host, so it protects the very next nightly window immediately.
+#
+# NOTE: this does NOT fix the freeze's root cause (unconfirmed — a new kernel
+# 6.12.95, docker/containerd, or ufw, all under the nightly I/O load). It makes
+# the next occurrence self-heal and produce the trace that will confirm it.
+# Reducing the I/O load (P1) is a separate, later change.
+
+- name: Configure host self-heal + crash capture
+  hosts: all
+  become: true
+
+  handlers:
+    # system.conf [Manager] settings (RuntimeWatchdogSec) are only re-read on a
+    # systemd re-execution — daemon-reload alone does not pick them up.
+    - name: Re-exec systemd to load the watchdog setting
+      ansible.builtin.systemd_service:
+        daemon_reexec: true
+
+  tasks:
+    # --- Self-heal: reboot + capture on a kernel hang ----------------------
+    - name: Set host-resilience sysctls (panic-on-hang + auto-reboot), live
+      ansible.posix.sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        sysctl_file: /etc/sysctl.d/60-host-resilience.conf
+        sysctl_set: true
+        state: present
+        reload: true
+      loop: "{{ host_resilience_sysctls | dict2items }}"
+      loop_control:
+        label: "{{ item.key }} = {{ item.value }}"
+
+    # --- Self-heal backstop: hardware watchdog for a TOTAL freeze -----------
+    - name: Ensure the systemd system.conf.d drop-in dir exists
+      ansible.builtin.file:
+        path: /etc/systemd/system.conf.d
+        state: directory
+        mode: "0755"
+        owner: root
+        group: root
+
+    - name: Arm the systemd hardware watchdog (RuntimeWatchdogSec)
+      ansible.builtin.template:
+        src: templates/watchdog.conf.j2
+        dest: /etc/systemd/system.conf.d/10-watchdog.conf
+        mode: "0644"
+        owner: root
+        group: root
+      notify: Re-exec systemd to load the watchdog setting
+
+    # --- Capture: pstore preserves the panic trace across the reboot --------
+    # systemd-pstore archives EFI-var pstore records to /var/lib/systemd/pstore/
+    # on boot and frees the limited EFI-var space. Harmless where pstore is
+    # absent (nothing to archive). On valen this is already enabled; asserting it
+    # fleet-wide standardises capture.
+    - name: Enable systemd-pstore so panic records are archived to disk on boot
+      ansible.builtin.systemd_service:
+        name: systemd-pstore.service
+        enabled: true
+        state: started

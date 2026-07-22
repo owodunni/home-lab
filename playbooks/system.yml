@@ -28,3 +28,6 @@
 
 - name: Configure WiFi uplink on WiFi-uplinked hosts
   ansible.builtin.import_playbook: wifi.yml
+
+- name: Configure host self-heal + crash capture
+  ansible.builtin.import_playbook: host-resilience.yml

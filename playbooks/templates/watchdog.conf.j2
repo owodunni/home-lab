@@ -1,0 +1,10 @@
+# Managed by Ansible (playbooks/host-resilience.yml). Do not edit on the host.
+#
+# Arm the hardware watchdog as the backstop for a TOTAL freeze (where PID 1
+# itself wedges and the hung_task_panic path never runs). systemd pets
+# /dev/watchdog0 every RuntimeWatchdogSec/2; if it stops petting, the watchdog
+# chip (iTCO_wdt on valen, bcm2835 on the Pis) hard-resets the host. The Pis
+# already ran this at 60s; valen had it disabled (RuntimeWatchdogUSec=0), which
+# is why it stayed wedged ~55h. See the 2026-07-20 valen freeze post-mortem.
+[Manager]
+RuntimeWatchdogSec={{ host_resilience_watchdog_secs }}

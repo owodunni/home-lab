@@ -237,3 +237,39 @@ alloy_config: |
     labels     = {job = "docker"}
   }
   {% endif %}
+
+# Host resilience — self-heal + crash capture
+# ===========================================
+# What: Fleet-wide knobs consumed by playbooks/host-resilience.yml — auto-reboot
+#       on a kernel hang, plus the hardware-watchdog backstop.
+# Why:  On 2026-07-20 valen livelocked in D-state on its single FUSE/LUKS pool
+#       and sat wedged ~55h until a hand power-cycle, with no trace (journald
+#       froze). See docs/post-mortems/2026-07-20-valen-freeze.md and
+#       docs/superpowers/specs/2026-07-22-host-resilience-design.md. These make a
+#       wedged host reboot itself in minutes and leave a panic trace in pstore.
+# Resolves: a storage stall escalating into a multi-day platform outage that is
+#           also undiagnosable.
+
+# Seconds a task may sit uninterruptible (D-state) before the kernel treats it as
+# hung and panics. Kernel default; abnormal to exceed even under heavy I/O.
+host_resilience_hung_task_timeout_secs: 120
+
+# Seconds to wait after a panic before auto-rebooting (the dmesg tail is captured
+# to pstore first). Short so recovery is prompt.
+host_resilience_panic_reboot_secs: 30
+
+# systemd RuntimeWatchdogSec: how often PID 1 pets /dev/watchdog0. If it stops
+# (total freeze), the hardware watchdog resets the host. Matches the Pis' 60s.
+host_resilience_watchdog_secs: 60
+
+# The kernel tunables the playbook writes to /etc/sysctl.d/60-host-resilience.conf
+# (applied live). hung_task_panic converts a stuck D-state task into a panic (the
+# partial-livelock case a plain watchdog misses); panic auto-reboots after N sec;
+# panic_on_oops escalates an oops the same way. hung_task_all_cpu_backtrace is
+# deliberately omitted so the faulting task's own trace stays inside pstore's
+# limited tail. See the host-resilience design spec.
+host_resilience_sysctls:
+  kernel.hung_task_panic: 1
+  kernel.hung_task_timeout_secs: "{{ host_resilience_hung_task_timeout_secs }}"
+  kernel.panic: "{{ host_resilience_panic_reboot_secs }}"
+  kernel.panic_on_oops: 1
