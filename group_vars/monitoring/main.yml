@@ -148,6 +148,18 @@ prometheus_version: "3.4.0"
 # Bind to loopback — Grafana accesses over localhost; no external port exposure needed
 prometheus_web_listen_address: "127.0.0.1:9090"
 
+# What: the public address Prometheus believes it is served at.
+# Why:  Prometheus stamps this into every alert's `generatorURL` — the "Source"
+#   link in Alertmanager's notification emails, which opens the firing
+#   expression in the graph view. Left empty (the role default) Prometheus
+#   derives it from the local hostname and loopback port, producing a link no
+#   mail client can follow. Traefik fronts it at prometheus.<domain>.
+#   Note: prometheus_metrics_path derives from this value, but resolves back to
+#   /metrics for a root-path URL, and every scrape job below sets its target
+#   explicitly — so self-scraping is unaffected.
+# Resolves: unreachable "Source" links in alert emails.
+prometheus_web_external_url: "https://prometheus.{{ traefik_domain }}"
+
 prometheus_storage_retention: "30d"
 
 prometheus_global:
@@ -639,6 +651,17 @@ alertmanager_version: "0.28.1"
 
 # Bind to loopback — not exposed externally
 alertmanager_web_listen_address: "127.0.0.1:9093"
+
+# What: the public address Alertmanager believes it is served at.
+# Why:  Alertmanager builds every self-referencing link from this value — the
+#   "View in AlertManager"/silence URLs in notification emails included. The
+#   role default is `http://localhost:9093/` (the loopback bind above), so the
+#   emails shipped links only reachable from the monitoring host itself. Traefik
+#   already fronts this router at alertmanager.<domain> (traefik-alertmanager.yml.j2),
+#   so point the external URL at the front door.
+# Resolves: alert emails linking to http://localhost:9093/#/alerts instead of
+#   https://alertmanager.jardoole.xyz/#/alerts.
+alertmanager_web_external_url: "https://alertmanager.{{ traefik_domain }}"
 
 alertmanager_smtp:
   from: "{{ smtp_from }}"
