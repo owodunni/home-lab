@@ -133,14 +133,19 @@ monitoring_blackbox_services:
 
 # Probe target lists DERIVED from the registry (edit the registry, not these).
 # The scrape job labels each group with probe_kind so the liveness alert scopes
-# to app-only.
+# to app-only. The `selectattr('value.kind', 'defined')` guard skips opt-out
+# entries that carry no `kind` (e.g. jellyfin-relay `{probe: false, ...}`);
+# without it selectattr dereferences `.kind` on those and raises "'dict object'
+# has no attribute 'kind'".
 monitoring_blackbox_targets:
   app: >-
     {{ monitoring_blackbox_services | dict2items
+    | selectattr('value.kind', 'defined')
     | selectattr('value.kind', 'equalto', 'app')
     | map(attribute='value.url') | list }}
   edge: >-
     {{ monitoring_blackbox_services | dict2items
+    | selectattr('value.kind', 'defined')
     | selectattr('value.kind', 'equalto', 'edge')
     | map(attribute='value.url') | list }}
 
