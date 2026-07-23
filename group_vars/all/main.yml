@@ -68,6 +68,20 @@ firewall_source_aliases:
   # valen — source of NFSv3 lock/status callbacks to clients (see
   # firewall_rules_nextcloud_nfs_client in group_vars/nextcloud/main.yml).
   nfs_server_host: "192.168.1.197"
+  # Docker's default bridge address pool (172.16.0.0/12 spans the individual
+  # per-compose /16 bridge subnets Docker hands out, e.g. valen's media
+  # 172.28.0.0/16 + the arr/jellyfin service bridges 172.18-172.22). Used to
+  # allow a host's OWN containers to reach that host's Traefik :443 front door
+  # over the split-horizon hairpin: a container resolving <svc>.jardoole.xyz
+  # gets the host's LAN IP (router A-record override, see CLAUDE.md DNS
+  # resolution) and connects back to :443 on the host, which lands in ufw's
+  # INPUT chain from a 172.x source. A /12 (not the exact per-bridge /16s)
+  # because Docker allocates those subnets dynamically as compose projects are
+  # (re)created — pinning them would silently break on the next churn. This is
+  # local same-host traffic to the intended public front door, not cross-host
+  # lateral movement, so the broad pool is acceptable under the design spec's
+  # threat model.
+  docker_bridges: "172.16.0.0/12"
 
 # ufw logging verbosity. "low" logs blocked/allowed packets without the
 # per-packet volume of "medium"/"high" — enough for Alloy to ship drops to

@@ -63,6 +63,16 @@ garage_local_template: "{{ playbook_dir }}/templates/garage.toml.j2"
 #       TV relay clients on the barn WiFi (numerically = homelab_subnet, see
 #       the barn_lan alias comment in group_vars/all/main.yml) can still reach
 #       443 on beelink's co-located Traefik.
+# Why docker_bridges is in the 443 list: a Traefik host's OWN containers reach
+#       co-located services (Garage S3 at s3.jardoole.xyz, other *.jardoole.xyz
+#       APIs) by name, which split-horizon DNS resolves to the host's LAN IP;
+#       the container then hairpins back to :443 on the host from a 172.x bridge
+#       source. Without this, ufw's default-deny drops that hairpin (INPUT
+#       chain) — which silently broke every valen-local service backup the
+#       moment ufw was enabled (arr/jellyfin/jellyseerr restic sidecars got
+#       "dial 192.168.1.197:443: i/o timeout" writing to Garage), and was the
+#       [UFW BLOCK] container->host:443 noise called out as the 2026-07-20
+#       post-mortem's secondary finding (docs/post-mortems/2026-07-20-valen-freeze.md).
 # Why 80 is narrower: ACME HTTP-01 challenges and the plain-HTTP→HTTPS
 #       redirect don't need barn_lan — no barn client hits port 80 directly.
 # Resolves: the default-deny baseline would otherwise block every browser,
@@ -79,9 +89,9 @@ firewall_rules_ingress:
   - name: traefik-https
     port: 443
     proto: tcp
-    from: [homelab_subnet, home_vlan, vpn_subnet, barn_lan]
+    from: [homelab_subnet, home_vlan, vpn_subnet, barn_lan, docker_bridges]
     scope: host
-    comment: "Every service front door: LAN, VLAN-10 trusted devices + TV, Alloy->Loki push, beelink rclone backup pull, blackbox probes"
+    comment: "Every service front door (LAN, VLAN-10, VPN, barn) + local container hairpin to co-located services e.g. Garage S3 backups"
   - name: traefik-http
     port: 80
     proto: tcp
