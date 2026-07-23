@@ -184,7 +184,14 @@ backup_freshness_schedule: "*-*-* *:25:00"
 
 # verify/bump against grafana/alloy releases before deploy (role builds the
 # download URL as v{{ alloy_version }}, so "latest" does not work — must pin).
-alloy_version: "1.5.1"
+#
+# NOTE: this pin governs the INITIAL install only. Alloy comes from the rolling
+# apt.grafana.com repo and is NOT apt-held, so the system layer's `apt
+# dist-upgrade` (playbooks/upgrade.yml) rolls it forward on its own. When that
+# happens the alloy role fails with "A later version is already installed"
+# (it will not downgrade) until this pin is bumped to match. pi-cm5-1 drifted to
+# 1.18.0 that way; bump to catch the fleet up. Bumped 2026-07-23.
+alloy_version: "1.18.0"
 
 # Least privilege instead of running Alloy as root: systemd-journal grants read
 # on the journal (every host); docker grants read on the socket, added ONLY on
