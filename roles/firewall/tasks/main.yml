@@ -179,6 +179,30 @@
       comment, which breaks community.general.ufw's internal command quoting.
       Reword the offending entry in group_vars (e.g. "can't" -> "cannot").
 
+# What: Rejects rule names/comments containing any non-ASCII character.
+# Why:  ufw stores comments hex-encoded in user.rules and re-serializes both
+#       user.rules and after.rules with an ascii-only encoder on `ufw default`
+#       (backend_iptables.set_default_policy -> util.write_to_file, which does
+#       bytes(line, 'ascii')). A non-ASCII byte — an em dash (U+2014) in an
+#       NFS/Nextcloud comment was the live culprit — does NOT fail the first
+#       apply (default-deny runs before the rule/after.rules are written) but
+#       crashes every SUBSEQUENT apply with UnicodeEncodeError, stranding the
+#       host mid-play. Failing here, on the data, catches it before ufw is
+#       touched. (The DOCKER-USER templates carry the same constraint — see the
+#       ASCII-ONLY header in docker-user-block-v4.j2.)
+# Resolves: non-ASCII characters in firewall_rules_* names/comments wedging the
+#       ufw module on re-apply.
+- name: Assert no rule name or comment contains a non-ASCII character
+  ansible.builtin.assert:
+    that:
+      - firewall_desired_rules | map(attribute='name') | select('search', '[^\x00-\x7f]') | list | length == 0
+      - firewall_desired_rules | map(attribute='comment') | select('search', '[^\x00-\x7f]') | list | length == 0
+    fail_msg: >-
+      A firewall_rules_* entry has a non-ASCII character in its name or comment
+      (e.g. an em dash "—", en dash "–", or curly quote). ufw re-serializes its
+      rules files as ascii and crashes on the second apply. Replace it with a
+      plain ASCII equivalent (em/en dash -> "-", curly quotes -> straight).
+
 # --- Step 5: apply scope:host rules + reconcile against actual ufw state ---
 # What: Applies every scope:host rule, then fails loudly if ufw has an allow
 #       rule this run did not request.

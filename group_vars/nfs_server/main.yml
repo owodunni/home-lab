@@ -65,52 +65,52 @@ firewall_rules_nfs_server:
     proto: tcp
     from: [homelab_subnet]
     scope: host
-    comment: "RPC portmapper — NFSv3 clients query it to find mountd/statd/lockd ports"
+    comment: "RPC portmapper - NFSv3 clients query it to find mountd/statd/lockd ports"
   - name: nfs-rpcbind-udp
     port: 111
     proto: udp
     from: [homelab_subnet]
     scope: host
-    comment: "RPC portmapper — NFSv3 clients query it to find mountd/statd/lockd ports"
+    comment: "RPC portmapper - NFSv3 clients query it to find mountd/statd/lockd ports"
   - name: nfs
     port: 2049
     proto: tcp
     from: [homelab_subnet]
     scope: host
-    comment: "NFS data path — the only port NFSv4 needs; also the NFSv3 data path (mount/lock use the helper ports below)"
+    comment: "NFS data path - the only port NFSv4 needs; also the NFSv3 data path (mount/lock use the helper ports below)"
   - name: nfs-mountd-tcp
     port: "{{ nfs_mountd_port }}"
     proto: tcp
     from: [homelab_subnet]
     scope: host
-    comment: "NFSv3 mount protocol — required for the Nextcloud all_squash subtree export"
+    comment: "NFSv3 mount protocol - required for the Nextcloud all_squash subtree export"
   - name: nfs-mountd-udp
     port: "{{ nfs_mountd_port }}"
     proto: udp
     from: [homelab_subnet]
     scope: host
-    comment: "NFSv3 mount protocol — required for the Nextcloud all_squash subtree export"
+    comment: "NFSv3 mount protocol - required for the Nextcloud all_squash subtree export"
   - name: nfs-statd-tcp
     port: "{{ nfs_statd_port }}"
     proto: tcp
     from: [homelab_subnet]
     scope: host
-    comment: "NFSv3 status monitor (NSM) — reboot notification for lock recovery"
+    comment: "NFSv3 status monitor (NSM) - reboot notification for lock recovery"
   - name: nfs-statd-udp
     port: "{{ nfs_statd_port }}"
     proto: udp
     from: [homelab_subnet]
     scope: host
-    comment: "NFSv3 status monitor (NSM) — reboot notification for lock recovery"
+    comment: "NFSv3 status monitor (NSM) - reboot notification for lock recovery"
   - name: nfs-lockd-tcp
     port: "{{ nfs_lockd_port }}"
     proto: tcp
     from: [homelab_subnet]
     scope: host
-    comment: "NFSv3 lock manager (NLM) — advisory file locking for NFSv3 clients"
+    comment: "NFSv3 lock manager (NLM) - advisory file locking for NFSv3 clients"
   - name: nfs-lockd-udp
     port: "{{ nfs_lockd_port }}"
     proto: udp
     from: [homelab_subnet]
     scope: host
-    comment: "NFSv3 lock manager (NLM) — advisory file locking for NFSv3 clients"
+    comment: "NFSv3 lock manager (NLM) - advisory file locking for NFSv3 clients"

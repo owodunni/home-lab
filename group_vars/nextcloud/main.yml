@@ -160,25 +160,25 @@ firewall_rules_nextcloud_nfs_client:
     proto: tcp
     from: [nfs_server_host]
     scope: host
-    comment: "NFSv3 NSM callback — valen notifies this client of a server reboot so it can reclaim locks"
+    comment: "NFSv3 NSM callback - valen notifies this client of a server reboot so it can reclaim locks"
   - name: nextcloud-nfs-statd-udp
     port: "{{ nfs_client_statd_port }}"
     proto: udp
     from: [nfs_server_host]
     scope: host
-    comment: "NFSv3 NSM callback — valen notifies this client of a server reboot so it can reclaim locks"
+    comment: "NFSv3 NSM callback - valen notifies this client of a server reboot so it can reclaim locks"
   - name: nextcloud-nfs-lockd-tcp
     port: "{{ nfs_client_lockd_port }}"
     proto: tcp
     from: [nfs_server_host]
     scope: host
-    comment: "NFSv3 NLM callback — valen grants blocking lock requests back to this client"
+    comment: "NFSv3 NLM callback - valen grants blocking lock requests back to this client"
   - name: nextcloud-nfs-lockd-udp
     port: "{{ nfs_client_lockd_port }}"
     proto: udp
     from: [nfs_server_host]
     scope: host
-    comment: "NFSv3 NLM callback — valen grants blocking lock requests back to this client"
+    comment: "NFSv3 NLM callback - valen grants blocking lock requests back to this client"
 
 # Nextcloud sits behind the proxy, not serving TLS itself; these make it build
 # correct absolute (https) URLs and CLI URLs for the public hostname.

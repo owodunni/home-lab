@@ -1,10 +1,16 @@
-# Managed by Ansible (roles/firewall) — DOCKER-USER rules for this host's
+# Managed by Ansible (roles/firewall) - DOCKER-USER rules for this host's
 # scope:docker firewall_rules_* entries.
+#
+# ASCII ONLY: this block is written into /etc/ufw/after.rules, which ufw
+# re-serializes with an ascii-only encoder on every `ufw default ...` call
+# (backend_iptables.set_default_policy). A non-ASCII byte here (e.g. an em
+# dash) crashes that call with UnicodeEncodeError on the SECOND apply. Keep
+# every character in this template within 0x00-0x7F.
 #
 # What: Filters traffic to Docker-published container ports.
 # Why:  Docker publishes container ports through its own FORWARD-chain
 #       machinery (DNAT + the DOCKER-USER chain), which sits AHEAD of ufw's
-#       INPUT chain — a ufw `deny incoming` alone does NOT protect a published
+#       INPUT chain - a ufw `deny incoming` alone does NOT protect a published
 #       port (see design spec docs/superpowers/specs/2026-07-19-host-firewalls-design.md
 #       "Docker-published ports"). DOCKER-USER sees traffic AFTER DNAT, so
 #       rules match the ORIGINAL host port via --ctorigdstport, not --dport.

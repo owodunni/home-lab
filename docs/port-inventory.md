@@ -44,12 +44,12 @@ directly), and the rule's purpose.
 | 22 | tcp | host | homelab_subnet (192.168.1.0/24), home_vlan (192.168.10.0/24), vpn_subnet (192.168.2.0/24) | Admin + Ansible control access (key-only auth) |
 | 80 | tcp | host | homelab_subnet (192.168.1.0/24), home_vlan (192.168.10.0/24), vpn_subnet (192.168.2.0/24), barn_lan (192.168.1.0/24) | ACME HTTP-01 challenge + HTTP->HTTPS redirect only |
 | 443 | tcp | host | homelab_subnet (192.168.1.0/24), home_vlan (192.168.10.0/24), vpn_subnet (192.168.2.0/24), barn_lan (192.168.1.0/24), docker_bridges (172.16.0.0/12) | Every service front door (LAN, VLAN-10, VPN, barn) + local container hairpin to co-located services e.g. Garage S3 backups |
-| 662 | tcp | host | nfs_server_host (192.168.1.197) | NFSv3 NSM callback — valen notifies this client of a server reboot so it can reclaim locks |
-| 662 | udp | host | nfs_server_host (192.168.1.197) | NFSv3 NSM callback — valen notifies this client of a server reboot so it can reclaim locks |
+| 662 | tcp | host | nfs_server_host (192.168.1.197) | NFSv3 NSM callback - valen notifies this client of a server reboot so it can reclaim locks |
+| 662 | udp | host | nfs_server_host (192.168.1.197) | NFSv3 NSM callback - valen notifies this client of a server reboot so it can reclaim locks |
 | 9100 | tcp | host | monitoring_host (192.168.1.19) | Prometheus host metrics scrape (pi-cm5-1 only) |
 | 9101 | tcp | docker* | monitoring_host (192.168.1.19) | Per-container metrics scrape (Docker-published port, bypasses ufw INPUT) |
-| 32768 | tcp | host | nfs_server_host (192.168.1.197) | NFSv3 NLM callback — valen grants blocking lock requests back to this client |
-| 32768 | udp | host | nfs_server_host (192.168.1.197) | NFSv3 NLM callback — valen grants blocking lock requests back to this client |
+| 32768 | tcp | host | nfs_server_host (192.168.1.197) | NFSv3 NLM callback - valen grants blocking lock requests back to this client |
+| 32768 | udp | host | nfs_server_host (192.168.1.197) | NFSv3 NLM callback - valen grants blocking lock requests back to this client |
 
 ## pi-cm5-3
 
@@ -73,20 +73,20 @@ directly), and the rule's purpose.
 |---|---|---|---|---|
 | 22 | tcp | host | homelab_subnet (192.168.1.0/24), home_vlan (192.168.10.0/24), vpn_subnet (192.168.2.0/24) | Admin + Ansible control access (key-only auth) |
 | 80 | tcp | host | homelab_subnet (192.168.1.0/24), home_vlan (192.168.10.0/24), vpn_subnet (192.168.2.0/24), barn_lan (192.168.1.0/24) | ACME HTTP-01 challenge + HTTP->HTTPS redirect only |
-| 111 | tcp | host | homelab_subnet (192.168.1.0/24) | RPC portmapper — NFSv3 clients query it to find mountd/statd/lockd ports |
-| 111 | udp | host | homelab_subnet (192.168.1.0/24) | RPC portmapper — NFSv3 clients query it to find mountd/statd/lockd ports |
+| 111 | tcp | host | homelab_subnet (192.168.1.0/24) | RPC portmapper - NFSv3 clients query it to find mountd/statd/lockd ports |
+| 111 | udp | host | homelab_subnet (192.168.1.0/24) | RPC portmapper - NFSv3 clients query it to find mountd/statd/lockd ports |
 | 443 | tcp | host | homelab_subnet (192.168.1.0/24), home_vlan (192.168.10.0/24), vpn_subnet (192.168.2.0/24), barn_lan (192.168.1.0/24), docker_bridges (172.16.0.0/12) | Every service front door (LAN, VLAN-10, VPN, barn) + local container hairpin to co-located services e.g. Garage S3 backups |
-| 662 | tcp | host | homelab_subnet (192.168.1.0/24) | NFSv3 status monitor (NSM) — reboot notification for lock recovery |
-| 662 | udp | host | homelab_subnet (192.168.1.0/24) | NFSv3 status monitor (NSM) — reboot notification for lock recovery |
-| 2049 | tcp | host | homelab_subnet (192.168.1.0/24) | NFS data path — the only port NFSv4 needs; also the NFSv3 data path (mount/lock use the helper ports below) |
+| 662 | tcp | host | homelab_subnet (192.168.1.0/24) | NFSv3 status monitor (NSM) - reboot notification for lock recovery |
+| 662 | udp | host | homelab_subnet (192.168.1.0/24) | NFSv3 status monitor (NSM) - reboot notification for lock recovery |
+| 2049 | tcp | host | homelab_subnet (192.168.1.0/24) | NFS data path - the only port NFSv4 needs; also the NFSv3 data path (mount/lock use the helper ports below) |
 | 9100 | tcp | host | monitoring_host (192.168.1.19) | Prometheus host metrics scrape (pi-cm5-1 only) |
 | 9101 | tcp | docker* | monitoring_host (192.168.1.19) | Per-container metrics scrape (Docker-published port, bypasses ufw INPUT) |
 | 9102 | tcp | docker* | monitoring_host (192.168.1.19) | iGPU transcode-load metrics scrape (Docker-published port, bypasses ufw INPUT) |
 | 9633 | tcp | host | monitoring_host (192.168.1.19) | SMART drive health scrape (native binary, both storage hosts) |
-| 20048 | tcp | host | homelab_subnet (192.168.1.0/24) | NFSv3 mount protocol — required for the Nextcloud all_squash subtree export |
-| 20048 | udp | host | homelab_subnet (192.168.1.0/24) | NFSv3 mount protocol — required for the Nextcloud all_squash subtree export |
-| 32768 | tcp | host | homelab_subnet (192.168.1.0/24) | NFSv3 lock manager (NLM) — advisory file locking for NFSv3 clients |
-| 32768 | udp | host | homelab_subnet (192.168.1.0/24) | NFSv3 lock manager (NLM) — advisory file locking for NFSv3 clients |
+| 20048 | tcp | host | homelab_subnet (192.168.1.0/24) | NFSv3 mount protocol - required for the Nextcloud all_squash subtree export |
+| 20048 | udp | host | homelab_subnet (192.168.1.0/24) | NFSv3 mount protocol - required for the Nextcloud all_squash subtree export |
+| 32768 | tcp | host | homelab_subnet (192.168.1.0/24) | NFSv3 lock manager (NLM) - advisory file locking for NFSv3 clients |
+| 32768 | udp | host | homelab_subnet (192.168.1.0/24) | NFSv3 lock manager (NLM) - advisory file locking for NFSv3 clients |
 
 ## Notes
 
