@@ -23,7 +23,7 @@ the entire site.
 
 | Layer | Purpose | Function playbooks | Hosts |
 |---|---|---|---|
-| **system** | Base OS + per-host hardware: package updates, then Pi CM5 firmware/power, Intel GPU drivers (QuickSync/VA-API) on the media host, WiFi uplink config on WiFi-uplinked hosts, and host resilience (self-heal + crash capture: panic-on-hang auto-reboot, hardware watchdog, pstore) fleet-wide. | `upgrade.yml`, `pi-base-config.yml`, `gpu-drivers.yml`, `wifi.yml`, `host-resilience.yml` | `all` / `pi_cm5` / `media` |
+| **system** | Base OS + per-host hardware: package updates, then Pi CM5 firmware/power, Intel GPU drivers (QuickSync/VA-API) on the media host, WiFi uplink config on WiFi-uplinked hosts, and host resilience (self-heal + crash capture: panic-on-hang auto-reboot, hardware watchdog, pstore) on the always-on server/storage fleet — `all:!desktop`, since the 1-min hardware watchdog reboot-loops the interactive `[desktop]` node. | `upgrade.yml`, `pi-base-config.yml`, `gpu-drivers.yml`, `wifi.yml`, `host-resilience.yml` | `all` / `all:!desktop` / `pi_cm5` / `media` |
 | **networking** | WireGuard peers tunneling offsite hosts into the home LAN. Skips hosts until their UniFi peer values are filled in. | `wireguard.yml` | `wireguard` |
 | **storage** | Encrypted drives, MergerFS pool, SnapRAID parity, the media data tree, NFS export of the pool, HDD spin-down. Exports on `[storage]`; NFS client step on `[nfs_client]` (the Docker fleet). | `disk-encrypt.yml`, `snapraid-mergerfs.yml`, `media-storage.yml`, `nfs.yml`, `disk-spindown.yml` | `storage` / `media` / `nfs_server` / `nfs_client` |
 | **ingress** | Traefik reverse proxy with ACME wildcard certificates via Cloudflare DNS-01. | `traefik.yml` | `ingress` |

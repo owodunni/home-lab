@@ -1,7 +1,8 @@
 ---
 # Host resilience — self-heal + crash capture
 #
-# What: Fleet-wide, makes a host that livelocks recover itself and leave a trace.
+# What: On the always-on server/storage fleet, makes a host that livelocks
+#       recover itself and leave a trace.
 #       (1) sysctls that turn a stuck D-state task into a kernel panic + auto-
 #       reboot; (2) the systemd hardware watchdog as a total-freeze backstop;
 #       (3) systemd-pstore enabled so the panic's dmesg tail (captured to EFI-var
@@ -24,8 +25,21 @@
 # the next occurrence self-heal and produce the trace that will confirm it.
 # Reducing the I/O load (P1) is a separate, later change.
 
+# hosts: all EXCEPT the [desktop] group.
+# What: Excludes the interactive desktop node (pi-cm5-4) from the self-heal.
+# Why:  The 1-minute systemd hardware watchdog + panic-on-oops here is sized for
+#       headless, always-on server/storage hosts. On the desktop node (a
+#       Raspberry Pi OS GUI build, not the server image) systemd stopped
+#       servicing /dev/watchdog0 a few minutes into each boot, so the bcm2835
+#       watchdog hard-reset the SoC on a ~4.5-minute cycle — a reboot LOOP, not a
+#       recovery (confirmed via Loki: silent-then-reset with no panic/oops/clean
+#       shutdown, from 2026-07-22 18:14 when this play was first applied fleet-
+#       wide). The server Pis run the identical watchdog without issue, so the
+#       fault is specific to this interactive node, whose availability the valen
+#       remediation was never about.
+# Resolves: host-resilience turning the desktop node into a watchdog reboot loop.
 - name: Configure host self-heal + crash capture
-  hosts: all
+  hosts: "all:!desktop"
   become: true
 
   handlers:
