@@ -1,0 +1,28 @@
+---
+# Trigger a service's backups immediately — runs the same per-sidecar backup the
+# nightly cron runs, on demand.
+#
+# Usage:
+#   make run-backups SERVICE=authentik     # one service
+#   make run-backups                       # every service, then the offsite mirror
+#   # or directly:
+#   ansible-playbook playbooks/run-backups.yml -e backup_service=authentik
+#
+# Targets the host(s) in the named service group, so that service's group_vars
+# (including its `backups` manifest) are in scope. The backup_run role loops the
+# manifest and triggers each backup sidecar's `backup` command — identical to
+# the code path its internal cron runs on schedule. Only writes a new snapshot;
+# it never touches live service data. Confirm the result with
+# `make verify-backups SERVICE=<group>`.
+#
+# See CLAUDE.md → "Backups: 3-2-1, verify & restore".
+
+- name: Trigger backups for a service
+  # Set at runtime via -e backup_service=<group> (see Makefile run-backups).
+  # The default is a placeholder group that matches no host, so `--syntax-check`
+  # passes and a forgotten -e is a safe no-op rather than an error.
+  hosts: "{{ backup_service | default('undefined_service_group') }}"
+  become: true
+  gather_facts: false
+  roles:
+    - role: backup_run

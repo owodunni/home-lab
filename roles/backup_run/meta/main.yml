@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  role_name: backup_run
+  author: home-lab
+  description: >-
+    Trigger a service's backups on demand. Loops the service's `backups`
+    manifest and dispatches each entry to a per-type handler (tasks/<type>.yml),
+    which runs the same per-sidecar backup its internal cron runs on schedule.
+    Only writes a new snapshot — it never touches live service data.
+  license: MIT
+  min_ansible_version: "2.15"
+dependencies: []

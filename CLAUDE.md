@@ -190,10 +190,16 @@ database is a `pg_dump` captured in restic), so DBs and file volumes share one
 grandfather-father-son retention policy and the same restore-any-snapshot path.
 
 ```bash
+make run-backups     SERVICE=authentik   # non-destructive: trigger this service's backups now (same code path as the nightly cron)
+make run-backups                         # non-destructive: trigger EVERY service's backups, then the offsite mirror pull
 make verify-backups  SERVICE=authentik   # non-destructive: fresh? + restic check (integrity) + list restore points
 make drill           SERVICE=authentik   # non-destructive: restore latest to scratch & assert it restores
 make restore-backups SERVICE=authentik   # DESTRUCTIVE (typed-confirm): restore each backup's latest snapshot
 ```
+
+`run-backups` fires the same per-sidecar `backup` its internal cron runs — for
+validating a fix or forcing an off-schedule capture. It only writes new
+snapshots; confirm them with `verify-backups`.
 
 To restore an **older** snapshot, pass a `TARGETS` map of `name=snapshot-id`
 pairs (omitted backups restore their latest):

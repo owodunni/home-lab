@@ -1,0 +1,34 @@
+---
+# Run handler — type: restic (lobaro/restic-backup-docker snapshots).
+# Also the trigger for type: postgres, whose snapshot step is an identical
+# restic sidecar run (see tasks/postgres.yml — it delegates here).
+#
+# Triggers an immediate backup by invoking the sidecar's `backup` entrypoint
+# command — the exact script its internal BACKUP_CRON runs on schedule — so a
+# manual run and a nightly run take the identical code path. `exec` on the
+# running sidecar (it runs cron in the foreground, so it is up) reuses the
+# container's RESTIC_*/AWS_* env, so no credentials are handled here.
+
+- name: "Trigger an immediate backup for {{ backup.name }}"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - exec
+      - -T
+      - "{{ backup.compose_service }}"
+      - backup
+    chdir: "{{ backup.compose_dir }}"
+  register: backup_run_result
+  # A backup always writes a new snapshot, so it is a change by definition.
+  changed_when: true
+  # The lobaro `backup` script exits non-zero when the run fails (e.g. the
+  # "dial 192.168.1.197:443: i/o timeout" the firewall block produced), so a
+  # non-zero rc is a real failure to surface, not noise.
+  failed_when: backup_run_result.rc != 0
+
+- name: "Report the backup run for {{ backup.name }}"
+  ansible.builtin.debug:
+    msg: >-
+      {{ backup.name }} -> {{ backup.bucket }}: backup triggered OK. Confirm
+      the new snapshot with `make verify-backups SERVICE={{ backup_service }}`.

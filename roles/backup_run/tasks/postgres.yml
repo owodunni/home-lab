@@ -1,0 +1,16 @@
+---
+# Run handler — type: postgres (a pg_dump captured in a restic repo).
+#
+# The pg-dump sidecar writes the logical dump to a shared volume continuously
+# (its own loop, not a cron), so the dump on disk is already current. The
+# nightly cron only triggers the restic SNAPSHOT of that dump — so a manual run
+# does exactly what the nightly run does: trigger the restic sidecar, which
+# snapshots the current dump. Delegate to the shared restic trigger rather than
+# duplicate it — the only difference between `postgres` and `restic` is how they
+# RESTORE (pg_restore vs file copy-back), not how they are triggered.
+#
+# Contract a type handler must satisfy: given `backup` (one manifest entry),
+# fire that backup now and fail the play if the trigger errors.
+
+- name: "Trigger the DB restic snapshot for {{ backup.name }}"
+  ansible.builtin.include_tasks: restic.yml

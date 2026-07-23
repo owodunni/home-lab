@@ -1,0 +1,31 @@
+---
+# Generic backup trigger. Targets the service host (the play sets
+# `hosts: {{ backup_service }}`), so the service's group_vars — including its
+# `backups` manifest — are automatically in scope. Each manifest entry is routed
+# to a per-type handler; adding an engine means adding tasks/<type>.yml, never
+# touching this file. This mirrors roles/backup_verify: one dispatch table,
+# composed per service.
+#
+# What: runs the SAME per-sidecar backup the nightly cron runs, on demand.
+# Why:  validate a fix (e.g. confirm valen->Garage works after the firewall
+#       change) or force an off-schedule capture, without waiting for the
+#       nightly window.
+# Non-destructive to live data — it only writes a new snapshot. Confirm the
+# result afterwards with `make verify-backups SERVICE=<group>`.
+
+- name: Assert the service declares a backup manifest
+  ansible.builtin.assert:
+    that:
+      - backups is defined
+      - backups | length > 0
+    fail_msg: >-
+      No 'backups' manifest found for '{{ backup_service | default("?") }}'.
+      Declare it in group_vars/<service>/main.yml
+      (see CLAUDE.md → "Backups: 3-2-1, verify & restore").
+
+- name: "Trigger each declared backup"
+  ansible.builtin.include_tasks: "{{ backup.type }}.yml"
+  loop: "{{ backups }}"
+  loop_control:
+    loop_var: backup
+    label: "{{ backup.name }} ({{ backup.type }})"
