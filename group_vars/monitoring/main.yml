@@ -555,7 +555,15 @@ prometheus_alert_rules:
 # ============================================================================
 # verify/bump against grafana/loki releases before deploy ("latest" does not
 # work — the role builds the URL as v{{ loki_version }}).
-loki_version: "3.4.2"
+#
+# NOTE: like alloy_version, this pin governs the INITIAL install only. Loki comes
+# from the rolling apt.grafana.com repo and is NOT apt-held, so the system layer's
+# `apt dist-upgrade` (playbooks/upgrade.yml) rolls it forward on its own — the
+# loki role then fails with "A later version is already installed" (it will not
+# downgrade) until this pin is bumped to match. pi-cm5-1 drifted to 3.7.2 that
+# way; verified Loki active + ingesting on 3.7.2 with the current config before
+# bumping. Bumped 2026-07-23.
+loki_version: "3.7.2"
 
 # Loopback only — Traefik proxies loki.<domain> here; Grafana reads localhost.
 loki_http_listen_address: "127.0.0.1"
