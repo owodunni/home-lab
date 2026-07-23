@@ -9,6 +9,11 @@ http:
     prometheus:
       rule: "Host(`prometheus.{{ traefik_domain }}`)"
       service: prometheus
+      # Gated by the shared Authentik forward-auth middleware (deployed by
+      # playbooks/prometheus.yml on this host) since Prometheus has no native
+      # auth/OIDC. Internal scrape/query paths use loopback and bypass this.
+      middlewares:
+        - authentik-forward-auth@file
       tls:
         certResolver: letsencrypt
 

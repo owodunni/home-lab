@@ -114,10 +114,14 @@ monitoring_blackbox_services:
   vaultwarden: {kind: app, url: "https://vaultwarden.{{ traefik_domain }}"}
   grafana: {kind: app, url: "https://grafana.{{ traefik_domain }}"}
   authentik: {kind: app, url: "https://auth.{{ traefik_domain }}"}
-  prometheus: {kind: app, url: "https://prometheus.{{ traefik_domain }}"}
-  alertmanager: {kind: app, url: "https://alertmanager.{{ traefik_domain }}"}
   garage: {kind: app, url: "https://s3.{{ traefik_domain }}"}
   # Forward-auth apps: probed for cert coverage, excluded from the liveness alert.
+  # Prometheus/Alertmanager sit behind the same Authentik forward-auth as the
+  # *arr apps (they have no native auth), so an unauthenticated probe only reaches
+  # Authentik's 302 redirect — a false-green for the service. Liveness is instead
+  # covered by up{job="prometheus"|"alertmanager"} (loopback scrape) + InstanceDown.
+  prometheus: {kind: edge, url: "https://prometheus.{{ traefik_domain }}"}
+  alertmanager: {kind: edge, url: "https://alertmanager.{{ traefik_domain }}"}
   radarr: {kind: edge, url: "https://radarr.{{ traefik_domain }}"}
   sonarr: {kind: edge, url: "https://sonarr.{{ traefik_domain }}"}
   prowlarr: {kind: edge, url: "https://prowlarr.{{ traefik_domain }}"}

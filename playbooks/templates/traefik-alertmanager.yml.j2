@@ -9,6 +9,12 @@ http:
     alertmanager:
       rule: "Host(`alertmanager.{{ traefik_domain }}`)"
       service: alertmanager
+      # Gated by the shared Authentik forward-auth middleware (deployed by
+      # playbooks/prometheus.yml on this host) since Alertmanager has no native
+      # auth/OIDC. Prometheus reaches Alertmanager over loopback, bypassing this,
+      # so alert delivery is unaffected when Authentik is down — only the UI is.
+      middlewares:
+        - authentik-forward-auth@file
       tls:
         certResolver: letsencrypt
 

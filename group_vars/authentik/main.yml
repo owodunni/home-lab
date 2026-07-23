@@ -9,7 +9,7 @@
 # patch of each), backing up the DB and re-running the auth layer at each step,
 # and verify the stack is healthy before advancing. Check each release's notes
 # for breaking changes that need compose/config edits before bumping.
-authentik_version: "2026.5.3"
+authentik_version: "2026.5.6"
 
 # Directory on the target host where the docker-compose stack and persistent
 # data subdirs (media, certs, custom-templates) are stored.
@@ -158,7 +158,7 @@ backups:
     # The postgres-client sidecar used to run pg_restore against the live DB.
     pg_restore_service: pg-dump
     bucket: "{{ authentik_backup_s3_bucket }}"
-    schedule: "{{ authentik_db_backup_schedule }}"   # 0 2 * * *
+    schedule: "{{ authentik_db_backup_schedule }}" # 0 2 * * *
     # Filename of the dump inside each snapshot (restic restores it to
     # /restore/data/<dump_file>). Matches what the pg-dump sidecar writes.
     dump_file: authentik.dump
@@ -171,7 +171,7 @@ backups:
     compose_dir: "{{ authentik_dir }}"
     compose_service: volumes-backup
     bucket: "{{ authentik_volumes_backup_s3_bucket }}"
-    schedule: "{{ authentik_volumes_backup_schedule }}"   # 0 3 * * *
+    schedule: "{{ authentik_volumes_backup_schedule }}" # 0 3 * * *
     max_age_hours: 27
     # Paths (relative to compose_dir) the restic restore copies back over.
     restore_paths:

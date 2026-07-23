@@ -25,6 +25,25 @@
     - prometheus.prometheus.alertmanager
 
   tasks:
+    # What: drop the shared Authentik forward-auth middleware on THIS host's
+    #   Traefik (pi-cm5-1), reusing the same template the media host uses.
+    # Why: Prometheus and Alertmanager have no native auth, so their routers
+    #   (below) gate on `authentik-forward-auth@file`. That middleware must exist
+    #   on the Traefik fronting them. The media stack deploys it on valen
+    #   (playbooks/media-forward-auth.yml); the monitoring UIs live on pi-cm5-1,
+    #   which needs its own copy. Template is host-agnostic (auth.<domain>), so it
+    #   is reused verbatim. pi-cm5-1 also runs Authentik's embedded outpost, so
+    #   the forward-auth check and the outpost answering it are the same host.
+    # Resolves: prometheus.jardoole.xyz / alertmanager.jardoole.xyz reachable
+    #   unauthenticated on the LAN.
+    - name: Deploy Traefik forward-auth middleware config
+      ansible.builtin.template:
+        src: templates/traefik-forward-auth.yml.j2
+        dest: /etc/traefik/conf.d/forward-auth.yml
+        owner: traefik
+        group: traefik
+        mode: "0640"
+
     - name: Deploy Traefik routing config for Prometheus
       ansible.builtin.template:
         src: templates/traefik-prometheus.yml.j2
