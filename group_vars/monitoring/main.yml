@@ -170,6 +170,11 @@ prometheus_web_listen_address: "127.0.0.1:9090"
 prometheus_web_external_url: "https://prometheus.{{ traefik_domain }}"
 
 prometheus_storage_retention: "30d"
+# Hard safety cap on TSDB size — under a label-cardinality explosion Prometheus
+# drops oldest blocks instead of filling pi-cm5-1's eMMC (Authentik's host = lab
+# SSO). Measured 4.1 GB at 30d steady state on 2026-07-24; 8GB is ~2× headroom,
+# never triggers normally. Flag: --storage.tsdb.retention.size (prometheus role).
+prometheus_storage_retention_size: "8GB"
 
 prometheus_global:
   scrape_interval: 15s
@@ -607,9 +612,11 @@ loki_schema_config:
         prefix: index_
         period: 24h
 
-# 30-day retention, matching prometheus_storage_retention. The compactor expires
-# chunks straight from the S3 bucket (delete_request_store: s3 is required once
-# retention is enabled).
+# 90-day retention for outage archaeology — long log history is cheap because
+# chunks/index live in Garage S3 (valen), not pi-cm5-1's eMMC. Local Loki
+# footprint measured 2 MB. The loki bucket is not in backup_mirror_buckets, so
+# this does not inflate beelink's offsite mirror. The compactor expires chunks
+# straight from the S3 bucket (delete_request_store: s3 is required).
 loki_compactor:
   working_directory: "{{ loki_working_path }}/compactor"
   retention_enabled: true
@@ -618,7 +625,7 @@ loki_compactor:
   retention_delete_delay: 2h
 
 loki_limits_config:
-  retention_period: 720h  # 30 days
+  retention_period: 2160h  # 90 days
   reject_old_samples: true
   reject_old_samples_max_age: 168h
 
