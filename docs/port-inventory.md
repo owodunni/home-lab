@@ -56,8 +56,8 @@ directly), and the rule's purpose.
 | Port | Proto | Scope | Allowed sources | Purpose |
 |---|---|---|---|---|
 | 22 | tcp | host | homelab_subnet (192.168.1.0/24), home_vlan (192.168.10.0/24), vpn_subnet (192.168.2.0/24) | Admin + Ansible control access (key-only auth) |
-| 53 | tcp | docker* | 192.168.1.1 | Filtering DNS (TCP) — only the UniFi gateway forwards here (Docker-published, bypasses ufw INPUT) |
-| 53 | udp | docker* | 192.168.1.1 | Filtering DNS (UDP) — only the UniFi gateway forwards here (Docker-published, bypasses ufw INPUT) |
+| 53 | tcp | docker* | 192.168.1.1 | Filtering DNS (TCP) - only the UniFi gateway forwards here (Docker-published, bypasses ufw INPUT) |
+| 53 | udp | docker* | 192.168.1.1 | Filtering DNS (UDP) - only the UniFi gateway forwards here (Docker-published, bypasses ufw INPUT) |
 | 9100 | tcp | host | monitoring_host (192.168.1.19) | Prometheus host metrics scrape (pi-cm5-1 only) |
 | 9101 | tcp | docker* | monitoring_host (192.168.1.19) | Per-container metrics scrape (Docker-published port, bypasses ufw INPUT) |
 

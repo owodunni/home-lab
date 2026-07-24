@@ -79,55 +79,36 @@ adguard_host_fqdns:
 
 adguard_rewrites:
   # valen
-  - {
-      domain: "jellyfin.{{ traefik_domain }}",
-      answer: "valen.{{ traefik_domain }}",
-    }
-  - {
-      domain: "jellyseerr.{{ traefik_domain }}",
-      answer: "valen.{{ traefik_domain }}",
-    }
-  - { domain: "s3.{{ traefik_domain }}", answer: "valen.{{ traefik_domain }}" }
-  - {
-      domain: "radarr.{{ traefik_domain }}",
-      answer: "valen.{{ traefik_domain }}",
-    }
-  - {
-      domain: "sonarr.{{ traefik_domain }}",
-      answer: "valen.{{ traefik_domain }}",
-    }
-  - {
-      domain: "prowlarr.{{ traefik_domain }}",
-      answer: "valen.{{ traefik_domain }}",
-    }
-  - {
-      domain: "qbittorrent.{{ traefik_domain }}",
-      answer: "valen.{{ traefik_domain }}",
-    }
+  - domain: "jellyfin.{{ traefik_domain }}"
+    answer: "valen.{{ traefik_domain }}"
+  - domain: "jellyseerr.{{ traefik_domain }}"
+    answer: "valen.{{ traefik_domain }}"
+  - domain: "s3.{{ traefik_domain }}"
+    answer: "valen.{{ traefik_domain }}"
+  - domain: "radarr.{{ traefik_domain }}"
+    answer: "valen.{{ traefik_domain }}"
+  - domain: "sonarr.{{ traefik_domain }}"
+    answer: "valen.{{ traefik_domain }}"
+  - domain: "prowlarr.{{ traefik_domain }}"
+    answer: "valen.{{ traefik_domain }}"
+  - domain: "qbittorrent.{{ traefik_domain }}"
+    answer: "valen.{{ traefik_domain }}"
   # pi1 (inventory pi-cm5-1)
-  - {
-      domain: "grafana.{{ traefik_domain }}",
-      answer: "pi1.{{ traefik_domain }}",
-    }
-  - { domain: "auth.{{ traefik_domain }}", answer: "pi1.{{ traefik_domain }}" }
-  - {
-      domain: "prometheus.{{ traefik_domain }}",
-      answer: "pi1.{{ traefik_domain }}",
-    }
-  - {
-      domain: "alertmanager.{{ traefik_domain }}",
-      answer: "pi1.{{ traefik_domain }}",
-    }
-  - { domain: "loki.{{ traefik_domain }}", answer: "pi1.{{ traefik_domain }}" }
+  - domain: "grafana.{{ traefik_domain }}"
+    answer: "pi1.{{ traefik_domain }}"
+  - domain: "auth.{{ traefik_domain }}"
+    answer: "pi1.{{ traefik_domain }}"
+  - domain: "prometheus.{{ traefik_domain }}"
+    answer: "pi1.{{ traefik_domain }}"
+  - domain: "alertmanager.{{ traefik_domain }}"
+    answer: "pi1.{{ traefik_domain }}"
+  - domain: "loki.{{ traefik_domain }}"
+    answer: "pi1.{{ traefik_domain }}"
   # pi2 (inventory pi-cm5-2)
-  - {
-      domain: "nextcloud.{{ traefik_domain }}",
-      answer: "pi2.{{ traefik_domain }}",
-    }
-  - {
-      domain: "vaultwarden.{{ traefik_domain }}",
-      answer: "pi2.{{ traefik_domain }}",
-    }
+  - domain: "nextcloud.{{ traefik_domain }}"
+    answer: "pi2.{{ traefik_domain }}"
+  - domain: "vaultwarden.{{ traefik_domain }}"
+    answer: "pi2.{{ traefik_domain }}"
 
 # === Filtering categories ==================================================
 # Ads/trackers: AdGuard's default DNS filter blocklist (id 1). Add more URLs to
@@ -187,10 +168,10 @@ firewall_rules_adguard:
     proto: tcp
     from: ["{{ adguard_router_ip }}"]
     scope: docker
-    comment: "Filtering DNS (TCP) — only the UniFi gateway forwards here (Docker-published, bypasses ufw INPUT)"
+    comment: "Filtering DNS (TCP) - only the UniFi gateway forwards here (Docker-published, bypasses ufw INPUT)"
   - name: adguard-dns-udp
     port: "{{ adguard_dns_port }}"
     proto: udp
     from: ["{{ adguard_router_ip }}"]
     scope: docker
-    comment: "Filtering DNS (UDP) — only the UniFi gateway forwards here (Docker-published, bypasses ufw INPUT)"
+    comment: "Filtering DNS (UDP) - only the UniFi gateway forwards here (Docker-published, bypasses ufw INPUT)"
