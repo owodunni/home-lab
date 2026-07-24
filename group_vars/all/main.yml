@@ -153,6 +153,12 @@ unattended_remove_new_unused_dependencies: true
 # Don't install during shutdown to keep shutdown times fast
 unattended_install_on_shutdown: false
 
+# APT::Periodic::CleanInterval — full `apt-get clean` weekly on all hosts.
+# APT::Periodic::AutocleanInterval (role default: 7) only removes superseded
+# .debs; this reclaims current-version packages. Measured 1.6 GB left in
+# /var/cache/apt/archives on pi-cm5-1 despite autoclean running.
+unattended_clean_interval: 7
+
 # Local backup freshness exporter
 # ===============================
 # Shared config for roles/backup_freshness (deployed by playbooks/backup-freshness.yml
