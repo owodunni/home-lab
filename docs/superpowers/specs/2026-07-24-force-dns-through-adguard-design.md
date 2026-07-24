@@ -25,8 +25,9 @@ This spec forces the three realistic escape routes back onto AdGuard:
 
 - **Privacy from the ISP.** This is content *filtering*, not anonymity. Even
   when every device is forced through AdGuard (which forwards over DoH), the TLS
-  **SNI** in each subsequent connection still leaks the hostname to the ISP.
-  Hiding browsing from the ISP is explicitly out of scope.
+  **SNI** and destination IPs of each subsequent connection still leak to the
+  ISP. Out of scope here — see [ISP privacy](#isp-privacy-what-this-hides-and-what-still-leaks)
+  for why, and what actually closing it would take.
 - **Raw per-device DNS.** Devices continue to be steered via the router; we do
   not repoint every client's DNS at AdGuard directly. (Same stance as the
   AdGuard spec.)
@@ -44,6 +45,43 @@ This spec forces the three realistic escape routes back onto AdGuard:
 | Plain DNS (:53) enforcement | Barn / WireGuard path (`192.168.2.0/24`) |
 | DoT (:853) enforcement | IPv6 DNS (Home VLAN hands out no IPv6 — see Assumptions) |
 | DoH (:443) mitigation (AdGuard-side) | DNSSEC, per-client filtering policies |
+
+## ISP privacy: what this hides, and what still leaks
+
+Encrypted DNS buys less ISP privacy than people expect. This design — AdGuard
+forwarding over DoH, plus forcing every device through it — hides your DNS
+*lookups* (the ISP sees an encrypted 443 flow to Cloudflare/Quad9, not the
+domains). But two things still leak regardless:
+
+- **TLS SNI.** Every HTTPS connection's ClientHello carries the destination
+  hostname in **plaintext**. The ISP reads it and knows every site you visit,
+  even with encrypted DNS.
+- **Destination IPs + metadata.** The ISP still sees which IPs you connect to,
+  packet sizes, and timing (revealing for sites on dedicated IPs; less so behind
+  big shared CDNs).
+
+**Why we don't chase SNI here.** The usual fix — Encrypted Client Hello (ECH) —
+is per-browser and per-destination (only ECH-capable CDNs), and it only
+activates when the browser's own DoH is on, which **Layer 3 deliberately
+disables**. ECH therefore pulls directly against the filtering goal: you cannot
+force all devices through AdGuard *and* rely on browser ECH at once. Marginal,
+conflicting, and not a network-level lever — so it is not pursued.
+
+**What real ISP privacy would take (deferred).** The only network-level,
+all-traffic fix is a **VPN egress tunnel**: UniFi policy-based routing sending
+the Home zone (VLAN 10) out through a commercial WireGuard provider, so the ISP
+sees only encrypted traffic to a single endpoint — SNI, IPs, and metadata all
+inside the tunnel. Deliberately deferred as its own project because:
+
+- It **shifts trust** from the ISP to the VPN provider — privacy is relative,
+  not absolute.
+- Throughput cost, subscription cost, and VPN-IP blocks/CAPTCHAs on some sites
+  (streaming, banking).
+- **Homelab must stay direct** — a VPN egress would break inbound
+  Nextcloud/Jellyfin (Cloudflare/Traefik), split-horizon DNS, and the barn
+  WireGuard tunnel. It would be Home-zone-only.
+
+Recorded as a future follow-up; this spec stops at DNS-layer filtering.
 
 ## Current state (the bypass gap)
 
@@ -210,3 +248,5 @@ self-rescue by setting manual DNS; once the redirect is live it cannot. So:
   spec only depends on VLAN 10 continuing to hand out no IPv6.
 - Automating the UniFi rules as code (no UniFi-as-code exists in the repo today;
   same manual posture as network-zone-segmentation).
+- **VPN egress for ISP privacy** (hiding SNI + destination IPs) — deferred as its
+  own project; see [ISP privacy](#isp-privacy-what-this-hides-and-what-still-leaks).
