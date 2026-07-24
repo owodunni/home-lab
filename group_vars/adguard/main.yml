@@ -122,6 +122,32 @@ adguard_filters:
     enabled: true
     name: "AdGuard DNS filter"
     url: "https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt"
+  # Anti-DoH bypass -- Layer 3 of the force-DNS design (see
+  # docs/superpowers/specs/2026-07-24-force-dns-through-adguard-design.md).
+  # HaGeZi's vetted AdGuard-registry list null-routes public DNS-over-HTTPS /
+  # DNS-over-TLS, VPN, Tor and proxy endpoints.
+  # WHAT it buys: a browser or OS resolving over its own encrypted DoH on :443
+  #   (which the UniFi :53 redirect and :853 block on the router CANNOT catch)
+  #   fails its bootstrap and falls back to system DNS -- which the router
+  #   redirect then forwards here.
+  # It also carries the Firefox canary (use-application-dns.net); paired with
+  #   adguard_blocking_mode: nxdomain below, that makes Firefox turn its own DoH
+  #   off entirely.
+  # RESIDUAL (accepted, per the spec's code-only DoH stance): an endpoint not on
+  #   this list still slips through; we do not IP-block DoH providers at the router.
+  - id: 52
+    enabled: true
+    name: "HaGeZi's Encrypted DNS/VPN/TOR/Proxy Bypass"
+    url: "https://adguardteam.github.io/HostlistsRegistry/assets/filter_52.txt"
+
+# Blocked-domain response mode. NXDOMAIN (NOT AdGuard's default 0.0.0.0) is
+# REQUIRED for the Firefox DoH canary to work: Firefox disables its own DoH only
+# when use-application-dns.net returns NXDOMAIN -- a 0.0.0.0 answer looks like a
+# valid A record and leaves Firefox DoH ON. The anti-DoH filter above lists that
+# canary domain, so nxdomain mode is what makes blocking it actually signal
+# Firefox. Bonus: every blocked ad/tracker fails fast (NXDOMAIN) instead of
+# leaving a client hanging on a connection attempt to 0.0.0.0.
+adguard_blocking_mode: nxdomain
 
 # Porn/adult: AdGuard Parental Control category (a single flag in the template).
 adguard_parental_enabled: true

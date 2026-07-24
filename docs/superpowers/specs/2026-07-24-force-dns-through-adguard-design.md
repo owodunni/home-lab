@@ -1,7 +1,9 @@
 # Force Home-zone Devices Through AdGuard — Design Spec
 
 **Date:** 2026-07-24
-**Status:** Design (not yet implemented)
+**Status:** Layer 3 (AdGuard-side: anti-DoH filter + `blocking_mode: nxdomain`
+for the Firefox canary) implemented in `group_vars/adguard/`. Layers 1–2 (UniFi
+DNAT `:53` redirect + `:853` block) pending manual apply — see runbook below.
 **Author:** Alexander Poole (with Claude)
 **Builds on:** [AdGuard DNS filter](2026-07-24-adguard-dns-filter-design.md),
 [Network Zone Segmentation](2026-07-15-network-zone-segmentation-design.md)

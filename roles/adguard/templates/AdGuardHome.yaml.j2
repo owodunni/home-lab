@@ -44,6 +44,10 @@ dns:
     - {{ b }}
 {% endfor %}
   upstream_mode: load_balance
+  # Blocked domains answer with NXDOMAIN (see adguard_blocking_mode) so the
+  # Firefox DoH canary in the anti-DoH filter list can switch Firefox's own DoH
+  # off; also fails blocked ads fast instead of hanging on a 0.0.0.0 connection.
+  blocking_mode: {{ adguard_blocking_mode }}
 # Filtering — in the native schema these fields live under `filtering:` (NOT
 # `dns:`). Authoring them here + pinning schema_version means AdGuard reads them
 # verbatim with no migration to relocate or drop them.
