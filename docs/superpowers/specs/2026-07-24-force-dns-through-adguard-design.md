@@ -250,61 +250,93 @@ self-rescue by setting manual DNS; once the redirect is live it cannot. So:
 
 ## UniFi runbook (Layers 1–2, manual)
 
-These two rules live on the UniFi controller, not in Ansible (same posture as the
-network-zone-segmentation spec). Menu paths shift between UniFi Network versions;
-the **field values** below are what matter. Apply in order and run the cited
-tests after each. Layer 3 (AdGuard) must already be deployed first.
+These two rules live on the UniFi controller (UniFi Network 9.x, the zone-based
+**Policy Engine**), not in Ansible — same posture as the network-zone-segmentation
+spec. Menu **labels** shift between versions; the **field values** are what
+matter. Deploy Layer 3 (AdGuard) first, then apply these in order and run the
+cited tests after each.
+
+**Redirect target (per design decision):** the DNAT redirect points Home DNS at
+the **gateway** (`192.168.10.1`), which already forwards to AdGuard as its
+upstream. This needs **no firewall changes** and opens nothing new between zones.
+Trade-off: AdGuard's query log shows the gateway, not per-device client IPs. (To
+get per-device visibility instead, you would translate to AdGuard's IP
+`192.168.1.23` directly and then widen `firewall_rules_adguard` to the Home subnet
+plus add a Home→AdGuard:53 zone allow — deliberately not chosen here.)
+
+### Prerequisites — reusable objects
+
+Create these once (UniFi **Settings → Profiles**, the IP/Port group objects) so
+both rules can reference them by name:
+
+- **Port group `DNS`** — TCP/UDP `53`.
+- **Port group `DoT`** — TCP/UDP `853`.
+- **IP group `Home Gateway`** — `192.168.10.1` (the Home VLAN's gateway address).
+  *(Confirm this is the VLAN 10 gateway — VLAN 10 = `192.168.10.0/24`.)*
 
 ### Rule 1 — DNAT `:53` redirect (force plain DNS to the gateway)
 
-A Destination NAT rule that transparently rewrites Home-zone DNS to the gateway's
-own resolver, which forwards to AdGuard.
+NAT translation happens **before** the firewall zones process routing, so this is
+a **NAT** policy, not a firewall rule. Go to **Settings → Policy Table** (Policy
+Engine) → **Create New Policy → NAT** and set:
 
 | Field | Value |
 |---|---|
-| Type | Destination NAT (DNAT) — the "redirect/force DNS" NAT rule |
-| Source zone / network | **Home** (VLAN 10, `192.168.10.0/24`) |
-| Protocol | TCP **and** UDP |
-| Match destination port | `53` |
-| Match destination address | **any EXCEPT `192.168.10.1`** (the gateway) |
-| Translated (new) destination | `192.168.10.1:53` (the gateway's DNS) |
+| Name | `Redirect Client DNS` |
+| Type | **Dest. NAT** (Destination NAT) |
+| Interface | **Home** (VLAN 10) — the network being forced |
+| Protocol | **TCP/UDP** |
+| Source → IP | **`Home Gateway`** group, **Match Opposite = ON** — all Home clients *except* the gateway (loop guard) |
+| Source → Port | Any |
+| Destination → IP | **`Home Gateway`** group, **Match Opposite = ON** — any dest *except* the gateway, i.e. catches external resolvers like `8.8.8.8` |
+| Destination → Port | **`DNS`** group (`53`) |
+| Translated IP address | `192.168.10.1` (the gateway) |
+| Translated port | blank (or `53`) |
 
-- Excluding the gateway as a destination keeps the rule idempotent — it never
-  rewrites a query that already targets the gateway onto itself.
-- Target is the gateway itself, so **no SNAT/masquerade is needed**: UniFi
-  reverses the DNAT statefully and the client sees the reply as if from `8.8.8.8`.
-- Scoped to the Home zone as **source**, so Homelab (including AdGuard's own
-  bootstrap `:53`) is never rewritten — this is the self-loop guard.
-- If your UniFi version does not offer "TCP/UDP" in one rule, create two
-  identical rules, one per protocol.
+The two **Match Opposite** toggles are the crux:
+
+- **Source** inverts the gateway group to "everyone except the gateway", so the
+  gateway's own upstream lookups are never captured and looped. (Belt-and-braces:
+  the gateway's recursion egresses on the Homelab side, not the Home interface, so
+  it would not match anyway — but this makes the intent explicit.)
+- **Destination** inverts it to "any address except the gateway", so only queries
+  aimed at *outside* resolvers get rewritten; a query already going to the gateway
+  is left alone (no pointless self-redirect).
+
+**No SNAT/masquerade is needed:** the target is the clients' own gateway, so the
+reply returns through the same device and UniFi reverses the DNAT statefully — the
+client sees the answer as if it came from `8.8.8.8`.
 
 **Verify:** tests 1, 2, 5, and the Homelab regression (test 6).
 
 ### Rule 2 — Block `:853` (kill DoT / DoQ)
 
-A zone firewall rule dropping encrypted-DNS-on-853 so those clients fall back to
-the now-redirected `:53`.
+A firewall policy dropping encrypted-DNS-on-853 so those clients fall back to the
+now-redirected `:53`. Go to **Settings → Policy Table** → **Create New Policy →
+Firewall** and set:
 
 | Field | Value |
 |---|---|
-| Type | Zone firewall rule, **Home → Internet/WAN** |
-| Action | **Drop** (or Reject) |
-| Protocol | TCP **and** UDP |
-| Match destination port | `853` |
-| Match destination | Any (Internet) |
+| Name | `Block DoT` |
+| Action | **Block** (Drop) |
+| Source zone / network | **Home** (VLAN 10) |
+| Destination zone | **Internet / External (WAN)** |
+| Protocol | **TCP/UDP** |
+| Destination → Port | **`DoT`** group (`853`) |
 
 - Covers both DoT (TCP 853) and DNS-over-QUIC (UDP 853).
-- Must sit **above** any general "Home → Internet allow" rule so the drop wins.
+- In the zone model a Block policy on the Home→Internet pair is evaluated ahead of
+  a general allow; if you order policies manually, place it above that allow.
 - Nothing legitimate uses `:853` once AdGuard is the enforced resolver.
 
 **Verify:** test 3.
 
 ### Rollback (either rule)
 
-- **Disable Rule 1** → Home devices fall back to their DHCP-assigned resolver (the
-  gateway) as before; if AdGuard itself is down, also revert the router's upstream
-  to `1.1.1.1` (AdGuard spec break-glass).
-- **Disable Rule 2** → DoT/DoQ is simply allowed again; nothing else depends on it.
+- **Disable Rule 1** → Home devices resolve via the gateway exactly as before (they
+  already use it by DHCP); if AdGuard itself is down, also revert the router's
+  upstream to `1.1.1.1` (AdGuard spec break-glass).
+- **Disable Rule 2** → DoT/DoQ is allowed again; nothing else depends on it.
 
 ## Out of scope / YAGNI
 
