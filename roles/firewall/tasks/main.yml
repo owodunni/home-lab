@@ -58,6 +58,47 @@
     state: restarted
     enabled: false
 
+# --- Step 2.5: guard against a stale non-ASCII after.rules ON DISK ----------
+# What: Fails loudly if /etc/ufw/after.rules or after6.rules already holds a
+#       non-ASCII byte, BEFORE the first ufw command re-serializes them.
+# Why:  The step-4 assert below only vets the DESIRED rule set (the data in
+#       group_vars). It cannot see a byte already ON DISK from a superseded
+#       DOCKER-USER template version (an em dash in the old header was the live
+#       culprit on pi-cm5-4). Step 3's `ufw default deny` re-serializes
+#       after.rules with an ascii-only encoder and crashes with an opaque
+#       UnicodeEncodeError FIRST — before step 6 can rewrite the managed block
+#       and heal it. Checking here converts that crash into a clear, actionable
+#       failure. Per operator decision we FAIL rather than auto-sanitize: a
+#       silent in-place rewrite of an unmanaged file is a worse surprise than a
+#       loud stop. (The pre-commit `firewall-ascii` guard stops such a byte
+#       reaching a template in the first place; this catches hosts already
+#       carrying one from before that guard existed.)
+# Resolves: the opaque ufw UnicodeEncodeError when a stale after.rules holds a
+#           non-ASCII byte from a superseded template (seen live on pi-cm5-4).
+- name: Read after.rules and after6.rules to check for stale non-ASCII bytes
+  ansible.builtin.slurp:
+    src: "{{ item }}"
+  register: firewall_after_rules_files
+  loop:
+    - /etc/ufw/after.rules
+    - /etc/ufw/after6.rules
+
+- name: Fail if an on-disk after.rules file contains a non-ASCII character
+  ansible.builtin.assert:
+    that:
+      - >-
+        firewall_after_rules_files.results
+        | map(attribute='content') | map('b64decode')
+        | select('search', '[^\x00-\x7f]') | list | length == 0
+    fail_msg: >-
+      /etc/ufw/after.rules or after6.rules on this host contains a non-ASCII
+      byte (e.g. an em dash from a superseded DOCKER-USER template). ufw
+      re-serializes these files as ascii on the next `ufw default ...` and
+      crashes with UnicodeEncodeError before this role can rewrite the managed
+      block. Repair it once, then rerun this playbook:
+      ansible <host> -b -m replace -a "path=/etc/ufw/after.rules regexp='[^\x00-\x7f]' replace='-'"
+      (and the same for /etc/ufw/after6.rules).
+
 # --- Step 3: ufw defaults ---------------------------------------------------
 # What: Default-deny inbound, default-allow outbound, low-verbosity logging.
 # Why:  Design spec "Direction" decision — egress filtering is deferred

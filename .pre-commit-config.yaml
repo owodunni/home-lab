@@ -43,3 +43,10 @@ repos:
         language: system
         files: ^(hosts\.ini|group_vars/.*\.yml|host_vars/.*\.yml|docs/port-inventory\.md|scripts/render-port-inventory\.py)$
         pass_filenames: false
+
+      - id: firewall-ascii
+        name: firewall rule/template ASCII check
+        entry: uv run python scripts/check-firewall-ascii.py
+        language: system
+        files: ^((group|host)_vars/.*\.yml|roles/firewall/templates/docker-user-block-v[46]\.j2|scripts/check-firewall-ascii\.py)$
+        pass_filenames: false
