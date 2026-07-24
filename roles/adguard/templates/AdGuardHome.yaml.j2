@@ -1,0 +1,72 @@
+# AdGuardHome.yaml — MANAGED BY ANSIBLE (roles/adguard). Do not edit by hand.
+# Source of truth: group_vars/adguard/main.yml. The web UI is read-only; any
+# change made there is overwritten on the next deploy. AdGuard fills any fields
+# omitted below with its own defaults on start (harmless: the authoritative
+# fields here always win on the next deploy).
+http:
+  # Bind the UI to all interfaces INSIDE the container namespace; the compose
+  # file publishes it to the HOST loopback only (127.0.0.1), so it is never
+  # LAN-exposed. Reached via `make adguard-ui` (SSH tunnel).
+  address: 0.0.0.0:{{ adguard_ui_port }}
+# No built-in login: the UI is loopback-only and reached over SSH, so SSH access
+# to pi-cm5-3 IS the authentication — a second credential would be redundant. To
+# add a UI password later, drop a bcrypt hash here (and vault it):
+#   users:
+#     - name: admin
+#       password: "<bcrypt>"   # htpasswd -B -n -b admin '<pw>' | cut -d: -f2
+users: []
+dns:
+  # Publish on all interfaces; firewall_rules_adguard locks the source to the
+  # UniFi gateway.
+  bind_hosts:
+    - 0.0.0.0
+  port: {{ adguard_dns_port }}
+  # Filtered external resolution over encrypted DoH, PLUS a host-scoped upstream
+  # that sends the internal HOST names back to the router (which holds their LAN
+  # A-records) so the service->host CNAME rewrites resolve to LAN IPs. Scoped to
+  # the exact host FQDNs to avoid a router<->AdGuard loop on nonexistent names.
+  upstream_dns:
+{% for u in adguard_upstream_dns %}
+    - {{ u }}
+{% endfor %}
+    - '[/{{ adguard_host_fqdns | join("/") }}/]{{ adguard_router_ip }}'
+  # Plain DNS used only to resolve the DoH endpoints' own hostnames at startup.
+  bootstrap_dns:
+{% for b in adguard_bootstrap_dns %}
+    - {{ b }}
+{% endfor %}
+  upstream_mode: load_balance
+  protection_enabled: true
+  filtering_enabled: true
+  # Porn / adult content — AdGuard Parental Control category.
+  parental_enabled: {{ adguard_parental_enabled | lower }}
+  # Social media — blocked by service name, 24/7 (no per-day schedule windows).
+  blocked_services:
+    schedule:
+      time_zone: {{ adguard_time_zone }}
+    ids:
+{% for s in adguard_blocked_services %}
+      - {{ s }}
+{% endfor %}
+  # Split-horizon: service -> host CNAMEs (host A-records live in Ubiquiti).
+  rewrites:
+{% for r in adguard_rewrites %}
+    - domain: {{ r.domain }}
+      answer: {{ r.answer }}
+{% endfor %}
+# Ad/tracker blocklists (top-level, sibling of dns:).
+filters:
+{% for f in adguard_filters %}
+  - enabled: {{ f.enabled | lower }}
+    url: {{ f.url }}
+    name: {{ f.name }}
+    id: {{ f.id }}
+{% endfor %}
+whitelist_filters: []
+# Always-resolvable allowlist: `@@` exception rules override every blocklist and
+# parental control (keeps the media stack's torrent indexers resolvable).
+user_rules:
+{% for d in adguard_allowlist %}
+  - '@@||{{ d }}^'
+{% endfor %}
+schema_version: {{ adguard_schema_version }}

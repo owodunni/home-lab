@@ -1,0 +1,40 @@
+---
+- name: Create AdGuard stack and bind-mount directories
+  # dir holds the compose file; conf/ holds AdGuardHome.yaml (source of truth);
+  # work/ holds ephemeral runtime state (query log, stats, filter lists).
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  loop:
+    - "{{ adguard_dir }}"
+    - "{{ adguard_conf_dir }}"
+    - "{{ adguard_work_dir }}"
+
+- name: Template AdGuardHome.yaml (the single source of truth)
+  # Ansible is authoritative; a change here restarts the container (handler) so
+  # AdGuard re-reads it, overwriting any drift made via the web UI.
+  ansible.builtin.template:
+    src: AdGuardHome.yaml.j2
+    dest: "{{ adguard_conf_dir }}/AdGuardHome.yaml"
+    owner: root
+    group: root
+    mode: "0640"
+  notify: Restart AdGuard
+
+- name: Template docker-compose.yml
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ adguard_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0640"
+
+- name: Start AdGuard stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ adguard_dir }}"
+    state: present
+    pull: always
+    remove_orphans: true

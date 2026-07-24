@@ -4,7 +4,7 @@ ANSIBLE_PLAYBOOK = OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES ANSIBLE_ROLES_PATH=$(
 
 .PHONY: help setup lint precommit vault-edit \
         system networking storage ingress service-infra auth applications backup monitoring security site \
-        app verify-backups restore-backups run-backups drill local-drill offsite-drill
+        app adguard-ui verify-backups restore-backups run-backups drill local-drill offsite-drill
 
 help:
 	@echo "🏠 Pi Cluster Home Lab - Available Commands"
@@ -95,6 +95,14 @@ app: ## 🚀 Deploy a single app service by name (service=<group>, e.g. service=
 	test -f "playbooks/$$svc.yml" || { echo "No playbooks/$$svc.yml — '$$svc' is not a deployable service."; exit 1; }; \
 	echo "Deploying $$svc..."; \
 	$(ANSIBLE_PLAYBOOK) playbooks/$$svc.yml
+
+# ── AdGuard Home admin UI ────────────────────────────────────────────────────
+# AdGuard's web UI is bound to loopback on pi-cm5-3 (never LAN-exposed). Open it
+# over an SSH tunnel — this target IS the documented way to reach it. Ctrl-C ends
+# the tunnel. The UI has no login of its own; SSH access is the authentication.
+adguard-ui: ## 🛡️  Open the AdGuard Home admin UI via SSH tunnel (http://localhost:3000)
+	@echo "AdGuard Home UI → http://localhost:3000   (Ctrl-C to close the tunnel)"
+	ssh -N -L 3000:localhost:3000 pi-cm5-3
 
 # ── Backups ────────────────────────────────────────────────────────────────
 verify-backups: ## ✅ Verify a service's backups exist and are fresh, and list every restore point (SERVICE=<group>)

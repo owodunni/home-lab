@@ -1,0 +1,196 @@
+---
+# AdGuard Home — the home network's filtering DNS resolver.
+# Design: docs/superpowers/specs/2026-07-24-adguard-dns-filter-design.md
+#
+# Runs on pi-cm5-3 as the Ubiquiti router's single upstream resolver: filters
+# ads, adult content (parental control) and social media, resolves the internal
+# *.jardoole.xyz names via service->host CNAMEs (the host A-records stay in
+# Ubiquiti), and forwards everything else upstream over encrypted DoH.
+#
+# CONFIG-AS-CODE MODEL: the templated AdGuardHome.yaml is the single source of
+# truth. AdGuard rewrites that file when settings change in its web UI, so the
+# rule is: Ansible is authoritative, the UI is read-only / observability. Each
+# deploy overwrites drift and restarts the container. There is deliberately NO
+# backup job — the whole config is regenerable from git.
+
+# === Image =================================================================
+# AdGuard Home. Tags: https://github.com/AdguardTeam/AdGuardHome/releases
+# AdGuard migrates its config schema UPWARD on start, so bumping this is safe as
+# long as adguard_schema_version stays <= the image's native schema (a lower
+# value just triggers a one-time in-place migration on first start).
+adguard_image: "adguard/adguardhome:v0.107.78"
+adguard_schema_version: 28
+
+# === Placement / stack dir =================================================
+adguard_dir: /opt/adguard
+# AdGuard's two bind mounts. conf/ holds AdGuardHome.yaml (the templated source
+# of truth); work/ holds runtime state (query log, stats, downloaded filter
+# lists) — ephemeral, not backed up.
+adguard_conf_dir: "{{ adguard_dir }}/conf"
+adguard_work_dir: "{{ adguard_dir }}/work"
+
+# === Ports =================================================================
+# DNS is published on ALL interfaces (0.0.0.0) so the router reaches it on the
+# LAN; access is locked to the router by firewall_rules_adguard below
+# (scope: docker). pi-cm5-3 runs no systemd-resolved stub, so :53 is free.
+adguard_dns_port: 53
+# Web UI bound to host LOOPBACK only — never LAN-exposed. Reached via
+# `make adguard-ui` (SSH tunnel). See the spec's "Web UI" section.
+adguard_ui_port: 3000
+
+# === Router (single source of truth for the gateway IP) ====================
+# The Ubiquiti gateway serves two roles here:
+#   1. the ONLY source allowed to reach :53 (firewall_rules_adguard), and
+#   2. the upstream AdGuard uses to resolve the internal HOST names, which the
+#      router holds as LAN A-records (see the split-horizon section below).
+# CONFIRM AT DEPLOY: pi-cm5-3 is 192.168.1.23 (a /24), so the gateway is .1.
+adguard_router_ip: "192.168.1.1"
+
+# === Upstream resolvers ====================================================
+# Default: encrypted DoH (filtered external resolution). bootstrap_dns is plain
+# DNS used ONLY to resolve the DoH endpoints' own hostnames at startup, so
+# AdGuard never depends on itself (or on filtered DNS) to come up.
+adguard_upstream_dns:
+  - "https://dns.cloudflare.com/dns-query"
+  - "https://dns.quad9.net/dns-query"
+adguard_bootstrap_dns:
+  - "1.1.1.1"
+  - "9.9.9.9"
+
+# === Split-horizon: service -> host CNAMEs (host A-records stay in Ubiquiti) =
+# WHAT: the churny "which service lives on which host" mapping, in code. Each
+#   entry is a CNAME to the host's FQDN; that host FQDN's LAN A-record stays in
+#   Ubiquiti (it is hardware-stable and rarely changes).
+# WHY: config-in-code + versioned, and it closes the LAN AAAA leak (every
+#   internal name now resolves via the router, which holds no AAAA records).
+# HOW AdGuard reaches the LAN IP: a CNAME rewrite makes AdGuard resolve the
+#   target itself, and its DEFAULT upstream is public DoH — which would return
+#   the host's PUBLIC address. So adguard_host_fqdns are pinned to a
+#   host-scoped upstream (the router) in the template's upstream_dns, letting the
+#   CNAME chase land on the router's LAN A-record. Scoping to just these names
+#   means a nonexistent *.jardoole.xyz name does NOT loop router<->AdGuard.
+# The service list is derived from monitoring_blackbox_services (the routed-
+# service registry in group_vars/monitoring); jellyfin-relay is excluded (it is
+# barn-local on beelink, not a home-LAN name).
+adguard_host_fqdns:
+  - "valen.{{ traefik_domain }}"
+  - "pi1.{{ traefik_domain }}" # inventory pi-cm5-1 (monitoring + Authentik)
+  - "pi2.{{ traefik_domain }}" # inventory pi-cm5-2 (Nextcloud + Vaultwarden)
+
+adguard_rewrites:
+  # valen
+  - {
+      domain: "jellyfin.{{ traefik_domain }}",
+      answer: "valen.{{ traefik_domain }}",
+    }
+  - {
+      domain: "jellyseerr.{{ traefik_domain }}",
+      answer: "valen.{{ traefik_domain }}",
+    }
+  - { domain: "s3.{{ traefik_domain }}", answer: "valen.{{ traefik_domain }}" }
+  - {
+      domain: "radarr.{{ traefik_domain }}",
+      answer: "valen.{{ traefik_domain }}",
+    }
+  - {
+      domain: "sonarr.{{ traefik_domain }}",
+      answer: "valen.{{ traefik_domain }}",
+    }
+  - {
+      domain: "prowlarr.{{ traefik_domain }}",
+      answer: "valen.{{ traefik_domain }}",
+    }
+  - {
+      domain: "qbittorrent.{{ traefik_domain }}",
+      answer: "valen.{{ traefik_domain }}",
+    }
+  # pi1 (inventory pi-cm5-1)
+  - {
+      domain: "grafana.{{ traefik_domain }}",
+      answer: "pi1.{{ traefik_domain }}",
+    }
+  - { domain: "auth.{{ traefik_domain }}", answer: "pi1.{{ traefik_domain }}" }
+  - {
+      domain: "prometheus.{{ traefik_domain }}",
+      answer: "pi1.{{ traefik_domain }}",
+    }
+  - {
+      domain: "alertmanager.{{ traefik_domain }}",
+      answer: "pi1.{{ traefik_domain }}",
+    }
+  - { domain: "loki.{{ traefik_domain }}", answer: "pi1.{{ traefik_domain }}" }
+  # pi2 (inventory pi-cm5-2)
+  - {
+      domain: "nextcloud.{{ traefik_domain }}",
+      answer: "pi2.{{ traefik_domain }}",
+    }
+  - {
+      domain: "vaultwarden.{{ traefik_domain }}",
+      answer: "pi2.{{ traefik_domain }}",
+    }
+
+# === Filtering categories ==================================================
+# Ads/trackers: AdGuard's default DNS filter blocklist (id 1). Add more URLs to
+# strengthen coverage (e.g. an adult-content hostlist to back up parental below).
+adguard_filters:
+  - id: 1
+    enabled: true
+    name: "AdGuard DNS filter"
+    url: "https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt"
+
+# Porn/adult: AdGuard Parental Control category (a single flag in the template).
+adguard_parental_enabled: true
+
+# Social media: AdGuard "Blocked Services" by name (blocked 24/7 — no schedule).
+# Edit this list freely; each id is an AdGuard-recognised service.
+adguard_blocked_services:
+  - facebook
+  - instagram
+  - tiktok
+  - twitter
+  - snapchat
+  - reddit
+  - pinterest
+
+# Timezone label stored on the blocked_services schedule block. UTC is fine —
+# with no per-day windows the services are simply blocked around the clock.
+adguard_time_zone: "UTC"
+
+# Always-resolvable allowlist — domains that must NEVER be blocked by any filter
+# list or category (rendered as `@@||domain^` exception rules, which override
+# every blocklist AND parental control). This exists because the media stack's
+# torrent indexers (Prowlarr + qBittorrent on valen) resolve through AdGuard, and
+# a parental/blocklist false-positive would break indexing. `||domain^` also
+# covers subdomains, so `torrentleech.org` allows `www.torrentleech.org` too.
+# Add any further indexers/domains you never want filtered here.
+adguard_allowlist:
+  - torrentleech.org
+  - torrentday.com
+
+# === Logging ===============================================================
+adguard_log_max_size: "20m"
+adguard_log_max_file: "3"
+
+# === Host firewall =========================================================
+# WHAT: allow the Ubiquiti gateway to reach AdGuard's DNS port (TCP + UDP).
+# WHY:  scope: docker, not host — AdGuard publishes :53 on 0.0.0.0, routed
+#   through Docker's DOCKER-USER chain (bypasses ufw INPUT), same model as
+#   cadvisor/intel-gpu-exporter. Restricted to the router because only it
+#   forwards DNS here; the UI is loopback-only, so there is no UI rule. Widen
+#   `from` to homelab_subnet only if devices are later pointed directly at
+#   AdGuard (raw per-device DNS).
+# RESOLVES: AdGuard being reachable from the whole homelab_subnet with no host
+#   firewall able to restrict it, if the port were (wrongly) declared scope: host.
+firewall_rules_adguard:
+  - name: adguard-dns-tcp
+    port: "{{ adguard_dns_port }}"
+    proto: tcp
+    from: ["{{ adguard_router_ip }}"]
+    scope: docker
+    comment: "Filtering DNS (TCP) — only the UniFi gateway forwards here (Docker-published, bypasses ufw INPUT)"
+  - name: adguard-dns-udp
+    port: "{{ adguard_dns_port }}"
+    proto: udp
+    from: ["{{ adguard_router_ip }}"]
+    scope: docker
+    comment: "Filtering DNS (UDP) — only the UniFi gateway forwards here (Docker-published, bypasses ufw INPUT)"

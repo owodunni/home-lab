@@ -1,0 +1,26 @@
+# AdGuard Home — filtering DNS resolver. Managed by Ansible, do not edit manually.
+# All config comes from group_vars/adguard (Jinja); AdGuard's own config is the
+# templated conf/AdGuardHome.yaml bind-mounted below.
+
+services:
+  adguard:
+    image: {{ adguard_image }}
+    container_name: adguard
+    restart: unless-stopped
+    volumes:
+      # Runtime state (query log, stats, downloaded filter lists) — ephemeral.
+      - {{ adguard_work_dir }}:/opt/adguardhome/work
+      # The Ansible-authoritative config (AdGuardHome.yaml lives in here).
+      - {{ adguard_conf_dir }}:/opt/adguardhome/conf
+    ports:
+      # DNS on the LAN (0.0.0.0) — firewall_rules_adguard locks the source to the
+      # UniFi gateway. Both transports: UDP is the norm, TCP for large answers.
+      - "{{ adguard_dns_port }}:{{ adguard_dns_port }}/tcp"
+      - "{{ adguard_dns_port }}:{{ adguard_dns_port }}/udp"
+      # Web UI published on HOST loopback only (SSH-tunnel access, never LAN).
+      - "127.0.0.1:{{ adguard_ui_port }}:{{ adguard_ui_port }}/tcp"
+    logging:
+      driver: json-file
+      options:
+        max-size: "{{ adguard_log_max_size }}"
+        max-file: "{{ adguard_log_max_file }}"

@@ -1,0 +1,8 @@
+---
+- name: Restart AdGuard
+  # Config-as-code: AdGuardHome.yaml is bind-mounted, so a change to it only takes
+  # effect after the container re-reads it on restart. `docker compose up` alone
+  # would not restart when just the mounted config changed.
+  community.docker.docker_compose_v2:
+    project_src: "{{ adguard_dir }}"
+    state: restarted

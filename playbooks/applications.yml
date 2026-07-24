@@ -16,6 +16,14 @@
 #
 # Pure orchestration: no logic here, only imports of standalone function
 # playbooks.
+
+# AdGuard Home filtering DNS. Independent of the other apps — its only hard
+# dependency is Docker (service-infra), and it needs neither ingress nor auth
+# (UI is loopback-only). Kept here as a normal application service for the
+# one-line-move + `make app service=adguard` ergonomics.
+- name: Deploy AdGuard Home filtering DNS
+  ansible.builtin.import_playbook: adguard.yml
+
 - name: Deploy Nextcloud file sync/share
   ansible.builtin.import_playbook: nextcloud.yml
 

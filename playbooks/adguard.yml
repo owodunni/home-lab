@@ -1,0 +1,36 @@
+---
+# Deploy AdGuard Home — the home network's filtering DNS resolver
+#
+# What: Deploys AdGuard Home on pi-cm5-3 as the Ubiquiti router's upstream DNS.
+#       Filters ads (blocklists), adult content (parental control) and social
+#       media (blocked services), owns the internal *.jardoole.xyz split-horizon
+#       as service->host CNAMEs, and forwards external queries over encrypted DoH.
+# Why:  Network DNS was unfiltered and its split-horizon lived only in the UniFi
+#       UI (unversioned). This puts filtering + the churny service->host mapping
+#       in code. See docs/superpowers/specs/2026-07-24-adguard-dns-filter-design.md.
+# Resolves: network-wide ad/porn/social filtering + split-horizon-in-git, with a
+#       config that is regenerable from this repo (no backup job).
+#
+# Config-as-code: the templated AdGuardHome.yaml is authoritative; the web UI is
+# read-only (bound to loopback, reached via `make adguard-ui`).
+#
+# Prerequisites:
+#   - Docker runtime on pi-cm5-3 (service-infra layer; pi-cm5-3 in [services]).
+#   - Nothing else bound to :53 (pi-cm5-3 runs no systemd-resolved stub).
+#
+# MANUAL cutover once this succeeds (see the spec's Deployment section):
+#   1. Point the UniFi router's upstream DNS at pi-cm5-3 (192.168.1.23).
+#   2. Remove the per-SERVICE split-horizon overrides in UniFi, KEEPING the
+#      per-HOST A-records (valen, pi1, pi2, ...). The service names then forward
+#      to AdGuard, whose CNAMEs resolve them via the host A-records the router
+#      still holds.
+# Recovery: revert the router's upstream to 1.1.1.1 (internet back immediately;
+#   internal names via public Cloudflare until AdGuard returns). The rewrites in
+#   group_vars/adguard double as the runbook for re-adding overrides in UniFi.
+
+- name: Deploy AdGuard Home filtering DNS
+  hosts: adguard
+  become: true
+
+  roles:
+    - role: adguard
