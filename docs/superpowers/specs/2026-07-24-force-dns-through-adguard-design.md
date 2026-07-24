@@ -146,15 +146,20 @@ Port 443 DoH is indistinguishable from normal HTTPS, so it cannot be blocked by
 port. Per the **code-only** decision, two additions to `group_vars/adguard/`
 (deployed with `make app service=adguard`, no router upkeep):
 
-1. **Anti-DoH blocklist filter.** Add an AdGuard-maintained hostlist of public
-   DoH endpoints to `adguard_filters`. AdGuard null-routes those hostnames, so a
+1. **Anti-DoH blocklist filter.** Add **HaGeZi's Encrypted DNS/VPN/TOR/Proxy
+   Bypass** (`filter_52`, the AdGuard-vetted Hostlists Registry list for this) to
+   `adguard_filters`. AdGuard null-routes those DoH/DoT/VPN/proxy hostnames, so a
    browser's DoH bootstrap fails and it falls back to system DNS (redirected by
-   Layer 1). Exact list URL to be confirmed against the AdGuard Hostlists
-   Registry at implementation time.
-2. **Firefox canary.** Firefox queries `use-application-dns.net` before enabling
-   auto-DoH; an NXDOMAIN/blocked answer tells it to stay off DoH. Add a filtering
-   rule so AdGuard blocks that name. (Verify the exact AdGuard mechanism —
-   user rule vs. a dedicated setting — against current AdGuard Home docs.)
+   Layer 1).
+2. **Firefox canary — via `blocking_mode: nxdomain`.** Firefox queries
+   `use-application-dns.net` before enabling auto-DoH and stays off DoH only on an
+   **NXDOMAIN** answer. That canary domain is already carried by the `filter_52`
+   list, but AdGuard's default block answers `0.0.0.0` — which looks like a valid
+   record and leaves Firefox DoH *on*. So we set `dns.blocking_mode: nxdomain`
+   (`adguard_blocking_mode`), which makes the blocked canary return NXDOMAIN and
+   actually signal Firefox. Side benefit: every blocked ad fails fast instead of
+   hanging on a `0.0.0.0` connection. (Verified against current AdGuard Home docs:
+   Hostlists Registry catalog + the blocking-mode reference.)
 
 **Residual (accepted):** a browser pointed at a DoH endpoint *not* on the
 blocklist, or an app with a hardcoded DoH server on 443, still escapes. This is
@@ -237,9 +242,69 @@ self-rescue by setting manual DNS; once the redirect is live it cannot. So:
    `group_vars/adguard/`, deploy `make app service=adguard`, confirm resolution
    still works. Doing this before the router redirect means no window where DoH
    is the only escape and it is already being closed.
-2. **UniFi DNAT :53 redirect** (Layer 1): add the rule, run tests 1–2 and 5–6.
-3. **UniFi :853 block** (Layer 2): add the rule, run test 3.
+2. **UniFi DNAT :53 redirect** (Layer 1): apply Rule 1 in the UniFi runbook
+   below, run tests 1–2 and 5–6.
+3. **UniFi :853 block** (Layer 2): apply Rule 2 in the UniFi runbook below, run
+   test 3.
 4. **Full test matrix**, including the Homelab regression (test 6).
+
+## UniFi runbook (Layers 1–2, manual)
+
+These two rules live on the UniFi controller, not in Ansible (same posture as the
+network-zone-segmentation spec). Menu paths shift between UniFi Network versions;
+the **field values** below are what matter. Apply in order and run the cited
+tests after each. Layer 3 (AdGuard) must already be deployed first.
+
+### Rule 1 — DNAT `:53` redirect (force plain DNS to the gateway)
+
+A Destination NAT rule that transparently rewrites Home-zone DNS to the gateway's
+own resolver, which forwards to AdGuard.
+
+| Field | Value |
+|---|---|
+| Type | Destination NAT (DNAT) — the "redirect/force DNS" NAT rule |
+| Source zone / network | **Home** (VLAN 10, `192.168.10.0/24`) |
+| Protocol | TCP **and** UDP |
+| Match destination port | `53` |
+| Match destination address | **any EXCEPT `192.168.10.1`** (the gateway) |
+| Translated (new) destination | `192.168.10.1:53` (the gateway's DNS) |
+
+- Excluding the gateway as a destination keeps the rule idempotent — it never
+  rewrites a query that already targets the gateway onto itself.
+- Target is the gateway itself, so **no SNAT/masquerade is needed**: UniFi
+  reverses the DNAT statefully and the client sees the reply as if from `8.8.8.8`.
+- Scoped to the Home zone as **source**, so Homelab (including AdGuard's own
+  bootstrap `:53`) is never rewritten — this is the self-loop guard.
+- If your UniFi version does not offer "TCP/UDP" in one rule, create two
+  identical rules, one per protocol.
+
+**Verify:** tests 1, 2, 5, and the Homelab regression (test 6).
+
+### Rule 2 — Block `:853` (kill DoT / DoQ)
+
+A zone firewall rule dropping encrypted-DNS-on-853 so those clients fall back to
+the now-redirected `:53`.
+
+| Field | Value |
+|---|---|
+| Type | Zone firewall rule, **Home → Internet/WAN** |
+| Action | **Drop** (or Reject) |
+| Protocol | TCP **and** UDP |
+| Match destination port | `853` |
+| Match destination | Any (Internet) |
+
+- Covers both DoT (TCP 853) and DNS-over-QUIC (UDP 853).
+- Must sit **above** any general "Home → Internet allow" rule so the drop wins.
+- Nothing legitimate uses `:853` once AdGuard is the enforced resolver.
+
+**Verify:** test 3.
+
+### Rollback (either rule)
+
+- **Disable Rule 1** → Home devices fall back to their DHCP-assigned resolver (the
+  gateway) as before; if AdGuard itself is down, also revert the router's upstream
+  to `1.1.1.1` (AdGuard spec break-glass).
+- **Disable Rule 2** → DoT/DoQ is simply allowed again; nothing else depends on it.
 
 ## Out of scope / YAGNI
 
