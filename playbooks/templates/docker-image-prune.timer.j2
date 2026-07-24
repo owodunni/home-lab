@@ -1,0 +1,13 @@
+# Docker image prune - managed by Ansible (playbooks/docker.yml).
+[Unit]
+Description=Schedule the weekly Docker image prune
+
+[Timer]
+OnCalendar={{ docker_image_prune_on_calendar }}
+# Catch up a run missed while the host was down.
+Persistent=true
+# Stagger prune runs across the fleet so hosts don't all prune at once.
+RandomizedDelaySec={{ docker_image_prune_random_delay }}
+
+[Install]
+WantedBy=timers.target

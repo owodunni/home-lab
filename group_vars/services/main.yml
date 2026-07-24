@@ -71,3 +71,19 @@ firewall_rules_cadvisor:
     from: [monitoring_host]
     scope: docker
     comment: "Per-container metrics scrape (Docker-published port, bypasses ufw INPUT)"
+
+# ============================================================================
+# Docker image prune timer (playbooks/docker.yml)
+# What: Schedule + jitter for the fleet-wide weekly docker-image-prune.timer.
+# Why:  Nothing prunes superseded images after a service upgrade - pi-cm5-1
+#       accumulated 7 stacked Authentik versions (10.8 GB reclaimable),
+#       threatening to fill its eMMC root fs and take Authentik (and SSO for
+#       the whole lab) down with it. `docker image prune -af` only removes
+#       images referenced by no container, so every running service is safe.
+#       RandomizedDelaySec staggers the actual run time across the fleet so
+#       hosts don't all prune (and momentarily spike disk/CPU) at once.
+# Resolves: docs/superpowers/specs/2026-07-24-pi-cm5-1-rootfs-headroom-design.md,
+#           Design section 1.
+# ============================================================================
+docker_image_prune_on_calendar: "weekly"
+docker_image_prune_random_delay: "4h"

@@ -1,0 +1,9 @@
+# Docker image prune - managed by Ansible (playbooks/docker.yml).
+[Unit]
+Description=Prune unused Docker images
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker image prune -af

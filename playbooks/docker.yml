@@ -12,3 +12,35 @@
 
   roles:
     - role: geerlingguy.docker
+
+  tasks:
+    # What: Weekly systemd timer that runs `docker image prune -af` on every
+    #       Docker host, deployed fleet-wide (hosts: services).
+    # Why:  Nothing prunes superseded images after a service upgrade, on any
+    #       Docker host. pi-cm5-1 accumulated 7 stacked Authentik image
+    #       versions (10.8 GB reclaimable), threatening to fill the Pi's
+    #       eMMC root fs and take Authentik - and SSO for the whole lab -
+    #       down with it. `prune -af` only removes images referenced by no
+    #       container, so every running service's image is safe; the
+    #       trade-off is that rolling back to a previous version re-pulls
+    #       from the registry instead of using a local copy. The randomized
+    #       delay keeps hosts from pruning simultaneously.
+    # Resolves: docs/superpowers/specs/2026-07-24-pi-cm5-1-rootfs-headroom-design.md,
+    #           Design section 1.
+    - name: Deploy Docker image prune systemd units
+      ansible.builtin.template:
+        src: "templates/{{ item }}.j2"
+        dest: "/etc/systemd/system/{{ item }}"
+        mode: "0644"
+        owner: root
+        group: root
+      loop:
+        - docker-image-prune.service
+        - docker-image-prune.timer
+
+    - name: Enable and start the Docker image prune timer
+      ansible.builtin.systemd_service:
+        name: docker-image-prune.timer
+        enabled: true
+        state: started
+        daemon_reload: true
