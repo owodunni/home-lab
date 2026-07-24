@@ -3,6 +3,14 @@
 # change made there is overwritten on the next deploy. AdGuard fills any fields
 # omitted below with its own defaults on start (harmless: the authoritative
 # fields here always win on the next deploy).
+#
+# SCHEMA LAYOUT: this file is authored in the image's NATIVE schema
+# (adguard_schema_version) so AdGuard loads it verbatim with NO on-start
+# migration. This matters: filtering fields (blocked_services, parental_enabled,
+# rewrites) live under `filtering:`, NOT `dns:`. A lower schema_version would make
+# AdGuard run a migration that does not find fields authored in old locations and
+# silently RESETS them (blocked_services -> [], parental -> off) — which once
+# disabled all filtering. Keep schema_version == the image's native schema.
 http:
   # Bind the UI to all interfaces INSIDE the container namespace; the compose
   # file publishes it to the HOST loopback only (127.0.0.1), so it is never
@@ -36,6 +44,10 @@ dns:
     - {{ b }}
 {% endfor %}
   upstream_mode: load_balance
+# Filtering — in the native schema these fields live under `filtering:` (NOT
+# `dns:`). Authoring them here + pinning schema_version means AdGuard reads them
+# verbatim with no migration to relocate or drop them.
+filtering:
   protection_enabled: true
   filtering_enabled: true
   # Porn / adult content — AdGuard Parental Control category.
@@ -49,10 +61,14 @@ dns:
       - {{ s }}
 {% endfor %}
   # Split-horizon: service -> host CNAMEs (host A-records live in Ubiquiti).
+  # `enabled: true` is REQUIRED per entry — this AdGuard has a per-rewrite toggle
+  # that defaults to false when omitted, which loads the rewrites but leaves them
+  # inert (queries forward upstream to the PUBLIC Cloudflare address instead).
   rewrites:
 {% for r in adguard_rewrites %}
     - domain: {{ r.domain }}
       answer: {{ r.answer }}
+      enabled: true
 {% endfor %}
 # Ad/tracker blocklists (top-level, sibling of dns:).
 filters:
@@ -63,9 +79,13 @@ filters:
     id: {{ f.id }}
 {% endfor %}
 whitelist_filters: []
-# Always-resolvable allowlist: `@@` exception rules override every blocklist and
-# parental control (keeps the media stack's torrent indexers resolvable).
+# Custom rules (top-level). Block rules (`||domain^`) come first, then the
+# allowlist (`@@`) exceptions — which override every blocklist AND parental
+# control, keeping the media stack's torrent indexers resolvable.
 user_rules:
+{% for d in adguard_blocked_domains %}
+  - '||{{ d }}^'
+{% endfor %}
 {% for d in adguard_allowlist %}
   - '@@||{{ d }}^'
 {% endfor %}

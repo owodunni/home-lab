@@ -15,11 +15,15 @@
 
 # === Image =================================================================
 # AdGuard Home. Tags: https://github.com/AdguardTeam/AdGuardHome/releases
-# AdGuard migrates its config schema UPWARD on start, so bumping this is safe as
-# long as adguard_schema_version stays <= the image's native schema (a lower
-# value just triggers a one-time in-place migration on first start).
+# adguard_schema_version MUST equal the image's NATIVE schema so AdGuard loads the
+# templated config verbatim with no on-start migration. A LOWER value is NOT safe:
+# the migration does not find fields authored in current-schema locations
+# (filtering.blocked_services / parental_enabled / rewrites) and silently RESETS
+# them, which once disabled all filtering. When bumping the image, start it once
+# and read schema_version from the config it writes (`/opt/adguard/conf/
+# AdGuardHome.yaml`), then set this to match. v0.107.78 writes schema 34.
 adguard_image: "adguard/adguardhome:v0.107.78"
-adguard_schema_version: 28
+adguard_schema_version: 34
 
 # === Placement / stack dir =================================================
 adguard_dir: /opt/adguard
@@ -136,6 +140,18 @@ adguard_blocked_services:
 # Timezone label stored on the blocked_services schedule block. UTC is fine —
 # with no per-day windows the services are simply blocked around the clock.
 adguard_time_zone: "UTC"
+
+# Custom blocked domains — sites that are NOT one of AdGuard's recognised
+# "blocked services" (so they can't go in adguard_blocked_services) and aren't
+# covered by the ad/parental blocklists, but must still be blocked network-wide.
+# WHAT: rendered as `||domain^` block rules in user_rules; `||` also covers
+#   subdomains (so `omni.se` blocks `www.omni.se` too).
+# WHY:  e.g. omni.se is a news site with no service id in AdGuard; a per-domain
+#   rule is the only way to block it. The allowlist below (`@@` exceptions)
+#   overrides these, so an allowlisted domain always wins.
+# Add any further sites you want blocked by hostname here.
+adguard_blocked_domains:
+  - omni.se
 
 # Always-resolvable allowlist — domains that must NEVER be blocked by any filter
 # list or category (rendered as `@@||domain^` exception rules, which override
