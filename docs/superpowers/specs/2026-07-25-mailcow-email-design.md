@@ -163,12 +163,33 @@ skill:
 
 ### Backups (3-2-1)
 
-Standard manifest-driven machinery in `group_vars/mailcow/main.yml`:
+Standard manifest-driven machinery in `group_vars/mailcow/main.yml`.
+Implementation surfaced that mailcow needs **two** new backup engines, not
+one — its data lives in Docker *named volumes*, unlike every existing
+service's host bind-mounts:
 
-- **MariaDB** — requires a new **mysqldump backup engine** (small addition
-  mirroring the existing postgres engine: dump → restic, same
-  verify/drill/restore dispatch). This is the only new backup-tooling work.
-- **Volumes** — restic snapshots of vmail + Rspamd/Redis/config volumes.
+- **MariaDB — new `mysqldump` engine**: a mariadb-client sidecar (image
+  pinned to match mailcow's own `mysql-mailcow` tag) writes
+  `mysqldump --single-transaction --all-databases` to a shared volume; a
+  restic sidecar snapshots it. Verify/run/drill delegate to the shared
+  restic handlers (like `postgres`); restore loads the plain-SQL dump via
+  the `mysql` client; the drill validates structurally (mysqldump header +
+  `-- Dump completed` footer — plain SQL has no `pg_restore --list`
+  equivalent).
+- **Volumes — new `restic_volumes` engine**: restic snapshots of the
+  vmail/crypt/postfix/Redis/Rspamd/SOGo *named volumes*. The plain `restic`
+  engine's restore does a host `cp -a` into `compose_dir/<path>`, which
+  doesn't exist for a named volume — `restic_volumes` restores into the live
+  volume via a throwaway `alpine` bridge container instead, addressed by the
+  volume's real on-disk name (`<compose-project>_<volume>`, the manifest's
+  `volume_prefix` field). Verify/run/drill delegate to the shared restic
+  handlers unchanged. Raw MariaDB/ClamAV/TLS-policy volumes are deliberately
+  excluded (crash-inconsistent live copy / freely re-downloadable).
+- **Sidecar wiring**: mailcow owns its own compose project, so the sidecars
+  are added via `docker-compose.override.yml` (auto-merged by Compose),
+  and their secrets live in an Ansible-managed section of `mailcow.conf`
+  itself — mailcow hard-requires `.env` to be a symlink to `mailcow.conf`,
+  and Compose reads exactly one default env file per project.
 - Targets local Garage on valen; beelink pulls the buckets offsite with the
   read-only key, as everywhere else. `make run-backups/verify-backups/drill
   SERVICE=mailcow` all work.
