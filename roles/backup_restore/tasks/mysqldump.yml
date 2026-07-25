@@ -1,0 +1,93 @@
+---
+# Restore handler — type: mysqldump (a mysqldump captured in a restic repo).
+# DESTRUCTIVE: restores the chosen snapshot's dump, then loads it into the live
+# MariaDB via the mysql client sidecar. The play has already stopped the
+# consumer services (postfix/dovecot/sogo/phpfpm/rspamd); the mariadb
+# container itself (mysql-mailcow, part of mailcow's own compose) stays up.
+#
+# Mirrors roles/backup_restore/tasks/postgres.yml exactly, with mysql's
+# load-a-plain-SQL-dump restore in place of pg_restore: mailcow's db-dump
+# sidecar writes `mysqldump --all-databases`, which (unlike pg_dump's custom
+# format) is directly loadable by the `mysql` client — the dump itself already
+# contains `DROP DATABASE IF EXISTS` / `CREATE DATABASE` statements (mysqldump
+# --all-databases includes them), so no separate --clean flag is needed.
+#
+# Snapshot selection: backup_targets[<backup.name>] picks an older snapshot ID
+# (from `make verify-backups` / the listing below); absent -> "latest".
+
+- name: "Resolve restore target for {{ backup.name }}"
+  ansible.builtin.set_fact:
+    backup_restore_target: "{{ (backup_targets | default({}))[backup.name] | default('latest') }}"
+
+- name: "List DB restic snapshots before restore for {{ backup.name }}"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - exec
+      - -T
+      - "{{ backup.compose_service }}"
+      - restic
+      - snapshots
+      - --json
+    chdir: "{{ backup.compose_dir }}"
+  register: backup_restore_mysql_snaps
+  changed_when: false
+
+- name: "List available restore points (restoring backup_restore_target) for {{ backup.name }}"
+  ansible.builtin.debug:
+    msg: "{{ item.short_id }}  {{ item.time }}"
+  loop: "{{ backup_restore_mysql_snaps.stdout | from_json }}"
+  loop_control:
+    label: "{{ item.short_id }}"
+
+- name: "Restore the selected snapshot's dump into a scratch dir for {{ backup.name }}"
+  # restic recreates the original source path, so the dump lands at
+  # .restore/data/<dump_file>. The sidecar's own volume mount is read-only, so
+  # bind-mount a writable scratch dir (.restore) to read back from afterwards.
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - run
+      - --rm
+      - -v
+      - "{{ backup.compose_dir }}/.restore:/restore"
+      - "{{ backup.compose_service }}"
+      - restic
+      - restore
+      - "{{ backup_restore_target }}"
+      - --target
+      - /restore
+    chdir: "{{ backup.compose_dir }}"
+  changed_when: true
+
+- name: "Load the restored dump into the live database for {{ backup.name }}"
+  # Run the mysql client in the db-dump sidecar (mysql_restore_service): it
+  # already carries the root credentials and network reach to the live DB
+  # (docker-compose.override.yml). Override its entrypoint to sh and mount the
+  # scratch dir. --force keeps loading past any single statement error instead
+  # of aborting the whole restore.
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - run
+      - --rm
+      - --no-deps
+      - -v
+      - "{{ backup.compose_dir }}/.restore:/restore"
+      - --entrypoint
+      - sh
+      - "{{ backup.mysql_restore_service }}"
+      - -c
+      - >-
+        mysql --force -h "$MYSQL_HOST" -u root -p"$MYSQL_ROOT_PASSWORD"
+        < "/restore/data/{{ backup.dump_file }}"
+    chdir: "{{ backup.compose_dir }}"
+  changed_when: true
+
+- name: "Remove the scratch restore dir for {{ backup.name }}"
+  ansible.builtin.file:
+    path: "{{ backup.compose_dir }}/.restore"
+    state: absent

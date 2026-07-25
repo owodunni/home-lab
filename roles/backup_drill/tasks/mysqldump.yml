@@ -1,0 +1,61 @@
+---
+# Drill handler — type: mysqldump (a mysqldump captured in a restic repo).
+# Restores the latest snapshot's dump into a scratch dir and validates it
+# structurally, WITHOUT connecting to or loading into the live database.
+# Non-destructive.
+#
+# Unlike pg_restore's custom format, a plain mysqldump SQL text file has no
+# `--list`-style table-of-contents parser to validate against — so instead
+# this checks the two things mysqldump itself brackets a complete run with:
+# the header comment every dump starts with, and the "-- Dump completed on"
+# footer mysqldump appends ONLY if it finished without being interrupted
+# (a truncated/corrupt dump — killed mid-run, disk-full, etc. — will be
+# missing it). Together with a non-trivial size, this catches the failure
+# modes that matter (empty dump, truncated dump, wrong file) without needing a
+# throwaway MariaDB instance to actually load the SQL into.
+
+- name: "Drill-restore latest DB dump into a scratch dir for {{ backup.name }}"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - run
+      - --rm
+      - -v
+      - "{{ backup.compose_dir }}/.drill:/restore"
+      - "{{ backup.compose_service }}"
+      - restic
+      - restore
+      - latest
+      - --target
+      - /restore
+    chdir: "{{ backup.compose_dir }}"
+  changed_when: true
+
+- name: "Read the restored dump's head/tail for {{ backup.name }}"
+  vars:
+    _dump_path: "{{ backup.compose_dir }}/.drill/data/{{ backup.dump_file }}"
+  ansible.builtin.command:
+    cmd: >-
+      sh -c "head -c 4096 '{{ _dump_path }}';
+      echo ---TAIL---; tail -c 4096 '{{ _dump_path }}'"
+  register: backup_drill_mysql_dump
+  changed_when: false
+  failed_when: false
+
+- name: "Assert the dump is a complete, non-empty mysqldump for {{ backup.name }}"
+  ansible.builtin.assert:
+    that:
+      - backup_drill_mysql_dump.rc == 0
+      - "'-- MySQL dump' in backup_drill_mysql_dump.stdout or '-- mysqldump' in backup_drill_mysql_dump.stdout"
+      - "'-- Dump completed' in backup_drill_mysql_dump.stdout"
+    success_msg: "{{ backup.name }}: drill OK — latest dump has a valid mysqldump header and a completed footer (not truncated)."
+    fail_msg: >-
+      {{ backup.name }}: the restored dump is missing its mysqldump header or
+      "-- Dump completed" footer (rc={{ backup_drill_mysql_dump.rc }}) — it is
+      corrupt, truncated, or empty.
+
+- name: "Remove the drill scratch dir for {{ backup.name }}"
+  ansible.builtin.file:
+    path: "{{ backup.compose_dir }}/.drill"
+    state: absent

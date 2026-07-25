@@ -1,0 +1,91 @@
+---
+# Restore handler — type: restic_volumes. Like `restic`, but the backed-up
+# paths are Docker NAMED VOLUMES (mailcow's vmail/crypt/postfix/redis/rspamd/
+# sogo — Docker-managed storage, not host bind-mount dirs under compose_dir),
+# so the plain `restic` handler's host `cp -a` copy-back does not apply: there
+# is no {{ compose_dir }}/{{ path }} host directory to copy into for a named
+# volume. Instead, each restored path is copied into its LIVE named volume via
+# a throwaway container that bind-mounts both the read-only scratch restore
+# dir and the target named volume — the narrowest, shortest-lived way to get
+# write access into Docker-managed volume storage without depending on the
+# local driver's on-disk layout (fragile/version-dependent) or widening the
+# restic sidecar's own mount to read-write.
+#
+# Snapshot selection: backup_targets[<backup.name>] picks an older snapshot ID
+# (from `make verify-backups` / the listing below); absent -> "latest".
+
+- name: "Resolve restore target for {{ backup.name }}"
+  ansible.builtin.set_fact:
+    backup_restore_target: "{{ (backup_targets | default({}))[backup.name] | default('latest') }}"
+
+- name: "List restic snapshots before restore for {{ backup.name }}"
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - exec
+      - -T
+      - "{{ backup.compose_service }}"
+      - restic
+      - snapshots
+      - --json
+    chdir: "{{ backup.compose_dir }}"
+  register: backup_restore_volumes_snaps
+  changed_when: false
+
+- name: "List available restore points (restoring backup_restore_target) for {{ backup.name }}"
+  ansible.builtin.debug:
+    msg: "{{ item.short_id }}  {{ item.time }}"
+  loop: "{{ backup_restore_volumes_snaps.stdout | from_json }}"
+  loop_control:
+    label: "{{ item.short_id }}"
+
+- name: "Restore the selected snapshot into a scratch dir for {{ backup.name }}"
+  # restic recreates the original source paths, so files land under
+  # .restore/data/<volume-name>.
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - run
+      - --rm
+      - -v
+      - "{{ backup.compose_dir }}/.restore:/restore"
+      - "{{ backup.compose_service }}"
+      - restic
+      - restore
+      - "{{ backup_restore_target }}"
+      - --target
+      - /restore
+    chdir: "{{ backup.compose_dir }}"
+  changed_when: true
+
+- name: "Copy each restored path back over its live named volume for {{ backup.name }}"
+  # alpine:3 is only ever used as a cp bridge — it never touches the restic
+  # repo or credentials. Clears the volume first so a restore to an OLDER
+  # snapshot doesn't leave files the older snapshot didn't have.
+  #
+  # backup.volume_prefix (required manifest field for this type): raw
+  # `docker run` runs OUTSIDE the compose project, so the live volume must be
+  # addressed by its real on-disk name, <compose-project>_<volume> — the bare
+  # name would silently create and fill a fresh, unused volume instead.
+  ansible.builtin.command:
+    argv:
+      - docker
+      - run
+      - --rm
+      - -v
+      - "{{ backup.compose_dir }}/.restore/data/{{ item }}:/restore:ro"
+      - -v
+      - "{{ backup.volume_prefix }}{{ item }}:/target"
+      - alpine:3
+      - sh
+      - -c
+      - "rm -rf /target/* /target/.[!.]* 2>/dev/null; cp -a /restore/. /target/"
+  loop: "{{ backup.restore_paths }}"
+  changed_when: true
+
+- name: "Remove the scratch restore dir for {{ backup.name }}"
+  ansible.builtin.file:
+    path: "{{ backup.compose_dir }}/.restore"
+    state: absent

@@ -1,0 +1,11 @@
+---
+# Verify handler — type: mysqldump (a mysqldump captured in a restic repo).
+# Mirrors tasks/postgres.yml exactly: the dump is snapshotted by restic exactly
+# like the file volumes, so verification is identical — list snapshots, show
+# the restore points, assert the newest is fresh, check repo integrity.
+# Delegate to the shared restic verifier rather than duplicate it — the only
+# difference between `mysqldump` and `restic` is how they RESTORE (loading the
+# dump into MariaDB vs. a file copy-back), not how they verify.
+
+- name: "Verify the DB restic repo for {{ backup.name }}"
+  ansible.builtin.include_tasks: restic.yml

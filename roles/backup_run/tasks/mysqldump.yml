@@ -1,0 +1,10 @@
+---
+# Run handler — type: mysqldump (a mysqldump captured in a restic repo).
+# Mirrors tasks/postgres.yml exactly: the db-dump sidecar writes the logical
+# dump to a shared volume continuously (its own loop, not a cron), so the dump
+# on disk is already current. The nightly cron only triggers the restic
+# SNAPSHOT of that dump — a manual run does exactly what the nightly run does.
+# Delegate to the shared restic trigger rather than duplicate it.
+
+- name: "Trigger the DB restic snapshot for {{ backup.name }}"
+  ansible.builtin.include_tasks: restic.yml

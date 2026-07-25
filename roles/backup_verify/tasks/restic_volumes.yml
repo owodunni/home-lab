@@ -1,0 +1,13 @@
+---
+# Verify handler — type: restic_volumes (restic snapshots of Docker NAMED
+# VOLUMES, not host bind-mount dirs — see group_vars/mailcow/main.yml's
+# `volumes` backup entry for why this differs from plain `restic`).
+#
+# Verification itself does not care whether the snapshotted paths are host
+# dirs or named volumes — it is still "list snapshots via the sidecar, assert
+# the newest is fresh, check repo integrity" — so delegate to the shared
+# restic verifier unchanged. Only restore differs (tasks/restic_volumes.yml in
+# roles/backup_restore).
+
+- name: "Verify the restic repo for {{ backup.name }}"
+  ansible.builtin.include_tasks: restic.yml

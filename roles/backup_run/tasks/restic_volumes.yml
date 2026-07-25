@@ -1,0 +1,8 @@
+---
+# Run handler — type: restic_volumes. Triggering a backup is identical
+# regardless of whether the snapshotted paths are host dirs or Docker named
+# volumes (the sidecar's `backup` entrypoint script does not care what is
+# mounted where) — delegate to the shared restic trigger unchanged.
+
+- name: "Trigger an immediate backup for {{ backup.name }}"
+  ansible.builtin.include_tasks: restic.yml

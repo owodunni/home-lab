@@ -23,3 +23,7 @@ ignore: |
   **/vault.yml
   # Third-party roles installed via ansible-galaxy
   roles/zorun.garage/
+  # Vendor reference guides downloaded to the repo root while designing a
+  # service (e.g. an upstream docker-compose example) — not our YAML, not
+  # deployed, linting them only blocks unrelated commits.
+  immich-docker-compose.yml

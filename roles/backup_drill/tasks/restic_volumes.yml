@@ -1,0 +1,9 @@
+---
+# Drill handler — type: restic_volumes. A non-destructive drill only restores
+# the latest snapshot into a scratch dir and counts files — it never copies
+# back over live data — so this is identical whether the backed-up paths are
+# host dirs or Docker named volumes. Delegate to the shared restic drill
+# unchanged; only the (destructive) restore handler differs.
+
+- name: "Drill-restore latest snapshot into a scratch dir for {{ backup.name }}"
+  ansible.builtin.include_tasks: restic.yml
