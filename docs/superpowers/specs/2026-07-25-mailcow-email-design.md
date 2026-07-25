@@ -99,11 +99,19 @@ Cloudflare cannot proxy SMTP):
   (no PTR possible, block is on Spamhaus PBL). Free tier is 1,000
   emails/month; the endpoint/credentials are plain variables, so swapping
   providers later is a config change, not a redesign.
-- **Operator prerequisites (user, before go-live):**
-  1. Create an **SMTP2GO** account, add `jardoole.xyz` as a verified sender
-     domain, add their SPF include + DKIM CNAMEs to Cloudflare, and create
-     an SMTP user for mailcow (credentials → vault).
-  2. Confirm DDNS keeps the `mail.jardoole.xyz` A record current.
+- **Bootstrap order (receive first, then send):** SMTP2GO signup itself
+  requires a working mailbox on your own domain, so the rollout is
+  two-stage: deploy mailcow **inbound-only** (MX + port 25 live, relay
+  unconfigured — outbound to external domains held back), verify receiving
+  at an `@jardoole.xyz` address, then register SMTP2GO with that address
+  and configure the relay to bring outbound live.
+- **Operator prerequisites (user):**
+  1. Confirm DDNS keeps the `mail.jardoole.xyz` A record current
+     (before inbound go-live).
+  2. After receiving works: create an **SMTP2GO** account (signing up with
+     the new `@jardoole.xyz` mailbox), add `jardoole.xyz` as a verified
+     sender domain, add their SPF include + DKIM CNAMEs to Cloudflare, and
+     create an SMTP user for mailcow (credentials → vault).
 
 ### Exposure & firewall
 
