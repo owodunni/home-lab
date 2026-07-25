@@ -71,3 +71,11 @@
 
 - name: Media — Jellyfin barn relay (beelink -> valen over WireGuard)
   ansible.builtin.import_playbook: jellyfin-relay.yml
+
+# Immich self-hosted photo/video management (Google Photos replacement) — on
+# valen, after the media stack. Independent of the *arr apps (no shared data),
+# placed last among the apps because it needs Authentik OIDC live (auth layer,
+# already satisfied by this point) and is the newest/last-planned service. See
+# docs/superpowers/specs/2026-07-25-immich-deployment-design.md.
+- name: Deploy Immich photo/video management
+  ansible.builtin.import_playbook: immich.yml

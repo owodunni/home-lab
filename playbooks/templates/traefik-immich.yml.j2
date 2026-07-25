@@ -1,0 +1,34 @@
+# Traefik dynamic config for Immich — managed by Ansible, do not edit.
+#
+# The wildcard cert (*.{{ traefik_domain }}) is managed by traefik-wildcard-tls.yml.j2
+# (ingress layer); this router selects it via certResolver. Traefik is
+# co-located with Immich on valen, so the upstream is loopback.
+#
+# NOTE: NO forward-auth middleware here (unlike the *arr routers) — same
+# reasoning as Jellyfin. Immich's native mobile app cannot follow a browser
+# SSO redirect, so wrapping it in Authentik forward-auth would break
+# background photo backup. Immich authenticates with its own native
+# OAuth2/OIDC client against Authentik instead (see group_vars/immich/main.yml
+# "SSO").
+#
+# No Traefik-side tuning needed for large uploads/websockets (design spec
+# "Traefik tuning for Immich", confirmed against the current config): Traefik
+# imposes no request-body-size limit by default (unlike nginx's
+# client_max_body_size), and it forwards WebSocket Upgrade requests
+# transparently for any HTTP/1.1 backend — Immich's own upload chunking and
+# live-update websocket both pass through unmodified, same as every other
+# app router in this repo (e.g. Vaultwarden's notification websocket).
+
+http:
+  routers:
+    immich:
+      rule: "Host(`{{ immich_hostname }}`)"
+      service: immich
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    immich:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:{{ immich_port }}"

@@ -72,3 +72,5 @@ backup_mirror_buckets:
   - qbittorrent-backup
   - mailcow-backup
   - mailcow-volumes-backup
+  - immich-postgres-backup
+  - immich-data-backup

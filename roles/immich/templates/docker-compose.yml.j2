@@ -1,0 +1,206 @@
+
+# Immich — self-hosted photo/video management. Managed by Ansible, do not edit
+# manually. Non-secret values come from group_vars (Jinja); secrets come from
+# .env. Based on the upstream docker-compose.yml
+# (https://github.com/immich-app/immich/releases/latest/download/docker-compose.yml)
+# with this lab's additions: pinned image tags, /dev/dri passthrough for both
+# transcoding (immich-server) and ML (immich-machine-learning) via the
+# discovered ansible_local.media_gpu.* GIDs, and the immich-unpack + db-backup
+# + data-backup sidecars that back up the DB dump and originals to Garage S3
+# on valen (mirrored offsite to beelink).
+
+services:
+  immich-server:
+    image: {{ immich_server_image }}
+    container_name: immich-server
+    restart: unless-stopped
+    volumes:
+      # Bulk originals on the pool (NOT the compose dir — see
+      # immich_upload_location in group_vars/immich/main.yml).
+      - {{ immich_upload_location }}:/data
+      - /etc/localtime:/etc/localtime:ro
+    env_file:
+      - .env
+    ports:
+      # Published on loopback only; Traefik (co-located on valen) proxies to
+      # it. No forward-auth middleware on the router — see immich_hostname's
+      # comment in group_vars/immich/main.yml.
+      - "127.0.0.1:{{ immich_port }}:2283"
+    # QuickSync hardware transcoding — matches upstream's
+    # docker/hwaccel.transcoding.yml "quicksync" entry.
+    devices:
+      - /dev/dri:/dev/dri
+    # Add the host's video/render groups (GIDs discovered by gpu-drivers.yml
+    # and stored as a local fact) so the container can open /dev/dri.
+    group_add:
+      - "{{ ansible_local.media_gpu.video_gid }}"
+      - "{{ ansible_local.media_gpu.render_gid }}"
+    depends_on:
+      - redis
+      - database
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  immich-machine-learning:
+    image: {{ immich_ml_image }}
+    container_name: immich-machine-learning
+    restart: unless-stopped
+    volumes:
+      - model-cache:/cache
+      # Optional USB accelerator support — harmless no-op on valen, which has
+      # none. Matches upstream's docker/hwaccel.ml.yml "openvino" entry.
+      - /dev/bus/usb:/dev/bus/usb
+    env_file:
+      - .env
+    # OpenVINO-accelerated face detection + CLIP smart search on valen's Intel
+    # iGPU — matches upstream's docker/hwaccel.ml.yml "openvino" entry.
+    devices:
+      - /dev/dri:/dev/dri
+    device_cgroup_rules:
+      - "c 189:* rmw"
+    group_add:
+      - "{{ ansible_local.media_gpu.video_gid }}"
+      - "{{ ansible_local.media_gpu.render_gid }}"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  redis:
+    image: {{ immich_redis_image }}
+    container_name: immich-redis
+    restart: unless-stopped
+    healthcheck:
+      test: redis-cli ping || exit 1
+
+  database:
+    image: {{ immich_db_image }}
+    container_name: immich-database
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_DB: ${DB_DATABASE_NAME}
+      # Required by Immich's postgres image (pgvector/VectorChord); see
+      # design spec "Placement" — never over NFS/the pool.
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    volumes:
+      # Local NVMe bind mount — never the pool, never NFS. See
+      # immich_db_data_location's comment in group_vars/immich/main.yml.
+      - {{ immich_db_data_location }}:/var/lib/postgresql/data
+    shm_size: 128mb
+
+  # DB backup, step 1 of 2: unpack Immich's OWN built-in DB dump.
+  #
+  # WHAT: polls UPLOAD_LOCATION/backups for the newest *.sql.gz Immich's
+  #   built-in scheduled backup writes (enable via Administration -> Settings
+  #   -> Backup in the web UI), and gunzips it to a plain .sql — atomic
+  #   temp-then-rename so db-backup below never snapshots a half-written file.
+  # FRESHNESS GUARD: only refreshes immich.sql when the source .sql.gz is
+  #   younger than immich_unpack_freshness_window_hours. See the long WHY in
+  #   group_vars/immich/main.yml ("1. Database" section) — this is what lets
+  #   BackupLocalStale actually catch a dead built-in dump job instead of
+  #   restic snapshotting a stale file forever green.
+  # WHY unpack instead of restic-ing the .sql.gz directly: restic dedups a
+  #   plain .sql across nightly snapshots; a re-gzipped file looks wholly new
+  #   every night (~one full copy per snapshot vs. ~one delta).
+  immich-unpack:
+    image: {{ immich_unpack_image }}
+    container_name: immich-unpack
+    restart: unless-stopped
+    volumes:
+      # Read-only: this sidecar only ever reads Immich's own dump output.
+      - {{ immich_upload_location }}/backups:/source/backups:ro
+      - {{ immich_db_dump_dir }}:/dest
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        echo "immich-unpack: watching /source/backups for *.sql.gz (freshness window {{ immich_unpack_freshness_window_hours }}h, checking every {{ immich_unpack_check_interval_seconds }}s)"
+        limit=$(( {{ immich_unpack_freshness_window_hours }} * 3600 ))
+        while true; do
+          newest="$(ls -t /source/backups/*.sql.gz 2>/dev/null | head -n1 || true)"
+          if [ -z "${newest:-}" ]; then
+            echo "immich-unpack: no .sql.gz found in /source/backups yet ($(date -Is))"
+          else
+            age=$(( $(date +%s) - $(stat -c %Y "$newest") ))
+            if [ "$age" -le "$limit" ]; then
+              gunzip -c "$newest" > /dest/immich.sql.tmp \
+                && mv -f /dest/immich.sql.tmp /dest/immich.sql \
+                && echo "immich-unpack: unpacked $(basename "$newest") -> immich.sql at $(date -Is)"
+            else
+              echo "immich-unpack: newest dump ($(basename "$newest")) is ${age}s old, exceeds freshness window ${limit}s - leaving immich.sql as-is (built-in backup job may have stalled)"
+            fi
+          fi
+          sleep {{ immich_unpack_check_interval_seconds }}
+        done
+    depends_on:
+      - immich-server
+
+  # DB backup, step 2 of 2: restic snapshot of the unpacked dump -> Garage S3
+  # on valen (local; mirrored offsite to beelink). Mount is read-only — restic
+  # only ever reads the dump.
+  db-backup:
+    image: ghcr.io/lobaro/restic-backup-docker:{{ immich_backup_image_version }}
+    container_name: immich-db-backup
+    restart: unless-stopped
+    environment:
+      RESTIC_REPOSITORY: "s3:{{ immich_backup_s3_endpoint }}/{{ immich_db_backup_s3_bucket }}"
+      RESTIC_PASSWORD: ${DB_BACKUP_RESTIC_PASSWORD}
+      AWS_ACCESS_KEY_ID: ${DB_BACKUP_S3_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${DB_BACKUP_S3_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: "{{ immich_backup_s3_region }}"
+      RESTIC_TAG: immich-db
+      BACKUP_CRON: "{{ immich_db_backup_schedule }}"
+      RESTIC_FORGET_ARGS: "{{ immich_db_backup_retention_args }}"
+      # Skip creating a new snapshot when immich.sql is byte-identical to the
+      # last one (i.e. the unpack sidecar's freshness guard above refused to
+      # refresh it because Immich's own dump job stalled). This is what gives
+      # the freshness guard real teeth: without --skip-if-unchanged, restic
+      # would create a fresh-but-content-stale snapshot every cron run
+      # regardless, and BackupLocalStale would never fire. Requires restic
+      # >=0.17 (the flag's introducing release); this image tag bundles 0.18.0.
+      RESTIC_JOB_ARGS: "--skip-if-unchanged"
+    volumes:
+      # restic stores this as source path /data/db-dump; the restore handler
+      # copies .restore/data/db-dump back to {{ immich_dir }}/db-dump
+      # (restore_paths).
+      - {{ immich_db_dump_dir }}:/data/db-dump:ro
+    depends_on:
+      - immich-unpack
+
+  # Originals backup: restic snapshot of library/upload/profile only ->
+  # Garage S3 on valen (local; mirrored offsite). Excludes the re-generatable
+  # thumbs/encoded-video and the built-in backups/ dir (see the RESTIC_JOB_ARGS
+  # below and the "originals" backup entry's comment in
+  # group_vars/immich/main.yml for why this mounts through a symlink).
+  data-backup:
+    image: ghcr.io/lobaro/restic-backup-docker:{{ immich_backup_image_version }}
+    container_name: immich-data-backup
+    restart: unless-stopped
+    environment:
+      RESTIC_REPOSITORY: "s3:{{ immich_backup_s3_endpoint }}/{{ immich_data_backup_s3_bucket }}"
+      RESTIC_PASSWORD: ${DATA_BACKUP_RESTIC_PASSWORD}
+      AWS_ACCESS_KEY_ID: ${DATA_BACKUP_S3_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${DATA_BACKUP_S3_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: "{{ immich_backup_s3_region }}"
+      RESTIC_TAG: immich-data
+      BACKUP_CRON: "{{ immich_data_backup_schedule }}"
+      RESTIC_FORGET_ARGS: "{{ immich_data_backup_retention_args }}"
+      # Originals only — thumbs/encoded-video are Immich-job-regenerable, and
+      # backups/ (the .sql.gz) is covered by the db-backup entry above via its
+      # unpacked copy.
+      RESTIC_JOB_ARGS: "--exclude thumbs --exclude encoded-video --exclude backups"
+    volumes:
+      # Mounted through the originals symlink (roles/immich/tasks/main.yml),
+      # which Docker resolves straight through to the real pool directory.
+      - {{ immich_dir }}/originals:/data/originals:ro
+
+volumes:
+  model-cache:
+    driver: local

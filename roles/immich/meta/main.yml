@@ -1,0 +1,10 @@
+---
+galaxy_info:
+  role_name: immich
+  author: home-lab
+  description: >-
+    Deploy Immich (self-hosted photo/video management) via docker-compose, with
+    Intel iGPU passthrough for ML inference and transcoding.
+  license: MIT
+  min_ansible_version: "2.15"
+dependencies: []

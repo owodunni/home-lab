@@ -1,0 +1,295 @@
+---
+# Immich service configuration — self-hosted photo/video management (Google
+# Photos replacement for the household). Runs on valen: compute + Postgres +
+# originals all local (Intel iGPU for ML/transcoding, NVMe for the DB, the
+# MergerFS pool for bulk photo/video originals). See
+# docs/superpowers/specs/2026-07-25-immich-deployment-design.md for the full
+# design — its "Placement" section explains why valen (not a Pi + NFS).
+# Secrets (DB password, Garage keys, restic password, OAuth client secret)
+# live in group_vars/immich/vault.yml with the vault_ prefix.
+
+# ============================================================================
+# Images — pinned upstream tags (never :release, per repo convention)
+# ============================================================================
+# Immich release. Releases: https://github.com/immich-app/immich/releases
+immich_version: "v3.0.3"
+
+immich_server_image: "ghcr.io/immich-app/immich-server:{{ immich_version }}"
+
+# -openvino suffix selects the OpenVINO-accelerated ML image variant (Intel
+# iGPU face detection + CLIP smart search) — see "Hardware acceleration" below.
+# https://docs.immich.app/features/ml-hardware-acceleration
+immich_ml_image: "ghcr.io/immich-app/immich-machine-learning:{{ immich_version }}-openvino"
+
+# valkey (Redis-compatible) — pinned by digest in upstream's docker-compose.yml
+# template (immich-docker-compose.yml at repo root); kept as the same
+# immutable digest here rather than a floating tag.
+immich_redis_image: "docker.io/valkey/valkey:9@sha256:4963247afc4cd33c7d3b2d2816b9f7f8eeebab148d29056c2ca4d7cbc966f2d9"
+
+# Immich's own Postgres image (pgvector + VectorChord, --data-checksums) —
+# pinned by digest, matching the upstream template. Do NOT swap for a stock
+# postgres image: Immich requires these extensions and this exact combination.
+immich_db_image: "ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23"  # yamllint disable-line rule:line-length
+
+# Small utility image for the DB-dump unpack sidecar (gunzip only, no
+# Immich-specific tooling needed) — Debian slim ships GNU coreutils + gzip out
+# of the box, no apk/apt step needed at container start. Major-version-pinned,
+# matching this repo's other "not worth digest-pinning" utility images
+# (postgres:16-alpine, redis:7.4-alpine).
+immich_unpack_image: "docker.io/library/debian:bookworm-slim"
+
+# lobaro/restic-backup-docker — same pin as every other restic sidecar in this
+# repo (authentik/jellyfin/vaultwarden/mailcow).
+# Releases: https://github.com/lobaro/restic-backup-docker/releases
+immich_backup_image_version: "v1.4.2"
+
+# ============================================================================
+# Placement — directories
+# ============================================================================
+# Directory on valen holding the compose stack + .env (not the app data).
+immich_dir: /opt/immich
+
+# ---- Originals: MergerFS pool (bulk data, SnapRAID-parity-protected) -------
+# WHAT: a dedicated Immich dir directly on the pool — NOT nested under
+#   media_data_root (group_vars/media). Immich's library is unrelated to the
+#   *arr media tree; media_data_root's apps share one mount ONLY because they
+#   need cross-mount hardlinks (qBittorrent -> Radarr/Sonarr), which does not
+#   apply here.
+# WHY on the pool at all: ~100GB (Alex) + ~100GB (wife) migrating in from
+#   Google Photos, ceiling ~1TB over the next few years — bulk data that
+#   belongs on the 11TB pool, not valen's NVMe (design spec "Goal").
+# CAVEAT: the pool is HDD with spin-down (group_vars/storage) — gallery/
+#   thumbnail browsing incurs occasional spin-up latency and keeps disks
+#   spun up during active use. Acceptable for household use; documented here
+#   so it is not a surprise (design spec "Storage layout").
+immich_upload_location: "{{ mergerfs_mount_point }}/immich"
+
+# ---- Postgres: local NVMe, NEVER the pool/NFS ------------------------------
+# WHAT: Immich's DB_DATA_LOCATION — a HOST BIND MOUNT (not a named Docker
+#   volume; matches upstream's docker-compose.yml env-var convention) on
+#   valen's local NVMe root disk, under immich_dir.
+# WHY never the pool: Immich's DB uses pgvector/VectorChord with
+#   --data-checksums; Postgres over a network filesystem is a documented
+#   corruption/locking footgun (design spec "Placement"). Same rule as every
+#   other DB in this lab (authentik, nextcloud, vaultwarden, mailcow).
+immich_db_data_location: "{{ immich_dir }}/postgres"
+
+# Dir the unpack sidecar writes the plain (gunzipped) DB dump to — see
+# "Backups" below. Local NVMe under immich_dir, alongside the compose stack
+# (same pattern as jellyfin_config_dir under jellyfin_dir).
+immich_db_dump_dir: "{{ immich_dir }}/db-dump"
+
+# ============================================================================
+# Networking / ingress
+# ============================================================================
+# HTTP port. Published on 127.0.0.1 only; Traefik (co-located on valen) proxies
+# to it — the same "loopback convention" as every other valen-co-located
+# service (jellyfin 8096, qbittorrent 8080, jellyseerr 5055, mailcow 8090…).
+immich_port: 2283
+
+# Public hostname. Traefik terminates TLS (wildcard) and routes
+# Host(immich.jardoole.xyz) -> 127.0.0.1:{{ immich_port }}.
+#
+# NOTE: Immich is deliberately NOT behind the Authentik forward-auth middleware
+# (like Jellyfin; unlike the *arr apps). Forward-auth intercepts every request
+# with a browser SSO redirect, which the native Immich mobile app cannot
+# follow — it would break background photo backup. Immich authenticates
+# against Authentik using its own native OAuth2/OIDC client instead (see "SSO"
+# below).
+immich_hostname: "immich.{{ traefik_domain }}"
+
+# ============================================================================
+# Database — non-secret identity (password is vault_immich_db_password)
+# ============================================================================
+immich_db_username: immich
+immich_db_database_name: immich
+
+# ============================================================================
+# Hardware acceleration (valen Intel iGPU) — /dev/dri passthrough
+# ============================================================================
+# Base passthrough is always on for BOTH immich-server (video transcoding,
+# QuickSync) and immich-machine-learning (face detection + CLIP, OpenVINO): the
+# /dev/dri render node is mapped in, and the host's video/render GIDs are added
+# via group_add. Those GIDs are discovered by playbooks/gpu-drivers.yml (system
+# layer) and stored as the local fact ansible_local.media_gpu.* — the same
+# mechanism as Jellyfin (roles/jellyfin); roles/immich asserts the fact is
+# present before templating, same as roles/jellyfin does.
+#
+# ML: the immich_ml_image "-openvino" tag suffix selects the OpenVINO backend;
+# the compose device/volume block (roles/immich/templates/docker-compose.yml.j2)
+# matches upstream's docker/hwaccel.ml.yml "openvino" entry (device_cgroup_rules
+# + a /dev/bus/usb mount for optional USB accelerators — a harmless no-op on
+# valen, which has none).
+# Transcoding: matches upstream's docker/hwaccel.transcoding.yml "quicksync"
+# entry (plain /dev/dri passthrough) — same devices: block as Jellyfin.
+#
+# The iGPU is now shared three ways (Jellyfin transcode, Immich transcode,
+# Immich ML) — accepted for household load (design spec "Placement" drawbacks).
+
+# ============================================================================
+# SSO — Authentik native OIDC (configured via Immich's Admin UI, not env vars)
+# ============================================================================
+# WHAT: unlike Grafana, Immich has NO environment-variable OAuth config path —
+#   it is set via Administration -> Settings -> OAuth Authentication in the
+#   Immich web UI (see immich-sso.md at the repo root / the authentik-app
+#   skill). The vault vars below exist purely as the canonical single source
+#   of truth for the credential (so a rotation or a rebuild has one place to
+#   look) — no template in this role consumes them.
+# Vault vars required (group_vars/immich/vault.yml):
+#   vault_immich_oauth_client_id / vault_immich_oauth_client_secret — from the
+#     Authentik OAuth2/OIDC provider created per the authentik-app skill.
+#     Paste into Immich's Administration -> Settings -> OAuth Authentication:
+#       issuer_url:     https://auth.jardoole.xyz/application/o/<slug>/
+#       client_id:      vault_immich_oauth_client_id
+#       client_secret:  vault_immich_oauth_client_secret
+#     Redirect URIs on the Authentik provider (Strict / Authorization):
+#       app.immich:///oauth-callback
+#       https://immich.jardoole.xyz/auth/login
+#       https://immich.jardoole.xyz/user-settings
+#     Access restricted to an Authentik "Immich Users" group binding.
+#     Auto-register ON; keep local password login enabled until OAuth
+#     (including the mobile app) is verified working end-to-end, then disable
+#     password login (design spec "SSO").
+
+# ============================================================================
+# Backups
+# ============================================================================
+# Two independent restic repos (own Garage bucket + key each), both mirrored
+# offsite to beelink (see group_vars/backup_mirror#backup_mirror_buckets).
+# Neither is atomic with the other — acceptable for a personal library (design
+# spec "Consistency note": worst case a handful of very recent photos are on
+# disk but not yet in the restored DB, and are re-scannable).
+
+# ---- 1. Database: Immich's built-in dump -> unpack -> restic --------------
+# WHAT: Immich's OWN built-in scheduled DB backup (enable via Administration ->
+#   Settings -> Backup in the web UI; this repo does not configure it via
+#   env/API — there is no such path) writes
+#   UPLOAD_LOCATION/backups/immich-<ts>.sql.gz on its own schedule (default:
+#   daily, keep last 14). The immich-unpack sidecar
+#   (roles/immich/templates/docker-compose.yml.j2) polls for the newest
+#   .sql.gz and gunzips it to a plain immich_db_dump_dir/immich.sql, atomic
+#   temp-then-rename, so the db-backup restic sidecar never snapshots a
+#   half-written file.
+# WHY unpack instead of restic-ing the .sql.gz directly: restic's
+#   content-defined chunking dedups a plain .sql across nightly snapshots
+#   (stores only the delta); a re-gzipped file changes wholesale every night
+#   (~one full copy per snapshot). For a ~100MB DB that's ~200MB total vs.
+#   ~10GB/year.
+# WHY the built-in dump instead of a hand-rolled pg_dump sidecar (unlike every
+#   other Postgres service in this lab): Immich's dumper is version-matched to
+#   its own schema and VectorChord/pgvector extensions and maintained
+#   upstream, so it keeps working correctly across Immich upgrades — no risk
+#   of our own pg_dump flags drifting from what those extensions need (design
+#   spec "Backups").
+
+# How often the unpack sidecar checks for a new dump (seconds). Hourly is far
+# more granular than the daily built-in dump job, so a fresh dump is picked up
+# same-day; most runs are a cheap no-op (a directory listing + one stat).
+immich_unpack_check_interval_seconds: 3600
+
+# FRESHNESS GUARD: the unpack sidecar only refreshes immich_db_dump_dir's
+# immich.sql when the newest UPLOAD_LOCATION/backups/*.sql.gz is younger than
+# this. If Immich's internal dump job silently dies, no fresh .sql.gz ever
+# appears, the guard keeps refusing to touch immich.sql, and (combined with
+# the db-backup sidecar's --skip-if-unchanged below) the restic snapshot stops
+# advancing — so BackupLocalStale eventually fires instead of restic
+# snapshotting a stale dump forever green (design spec "Freshness guard").
+# MUST stay a little above Immich's OWN backup interval (Administration ->
+# Settings -> Backup; default: daily). If that schedule is ever changed in the
+# UI, update this to match (with slack) — this value cannot see the UI
+# setting.
+immich_unpack_freshness_window_hours: 26
+
+# Garage S3 — region label must match garage_s3_region (group_vars/ingress).
+immich_backup_s3_region: "garage"
+immich_backup_s3_endpoint: "https://s3.jardoole.xyz"
+
+# Dedicated bucket for the DB dump's restic repo. Provisioned by the first
+# play in playbooks/immich.yml (garage-keys convention).
+immich_db_backup_s3_bucket: "immich-postgres-backup"
+
+# Cron (5-field) for the db-backup restic snapshot. After the unpack sidecar's
+# hourly checks would have already picked up a same-day dump; offset from the
+# rest of the fleet's 02:00-05:00 backup window and from the originals
+# snapshot below so uploads don't compete for bandwidth.
+immich_db_backup_schedule: "0 6 * * *"
+
+# GFS retention — identical shape to every other service in this lab so every
+# backup ages out the same way.
+immich_db_backup_retention_args: "--keep-daily 7 --keep-weekly 4 --keep-monthly 4 --keep-yearly 1 --prune"
+
+# ---- 2. Originals: restic over library/upload/profile only ----------------
+# WHAT: restic snapshot of the ORIGINALS ONLY inside UPLOAD_LOCATION —
+#   library/, upload/, profile/. Deliberately EXCLUDES thumbs/ and
+#   encoded-video/ (regenerated by Immich jobs on restore) and backups/ (the
+#   built-in .sql.gz; entry 1 above backs up the unpacked copy instead) via
+#   the data-backup sidecar's RESTIC_JOB_ARGS (docker-compose.yml.j2).
+# WHY a symlink for the sidecar mount: the generic restore tooling's copy-back
+#   step (roles/backup_restore/tasks/restic.yml) always writes restored files
+#   to "{{ backup_compose_dir }}/{{ restore_path }}" — it has no notion of a
+#   live path outside compose_dir. UPLOAD_LOCATION lives on the pool, not
+#   under immich_dir (compose_dir), so roles/immich creates
+#   {{ immich_dir }}/originals as a symlink to {{ immich_upload_location }};
+#   the data-backup sidecar mounts THROUGH that symlink (Docker resolves it to
+#   the real pool path at container-create time) and restore_paths: [originals]
+#   below resolves correctly with no change to the shared restore role.
+immich_data_backup_s3_bucket: "immich-data-backup"
+
+# Offset from the DB snapshot above so the two restic uploads don't overlap.
+immich_data_backup_schedule: "0 7 * * *"
+
+immich_data_backup_retention_args: "--keep-daily 7 --keep-weekly 4 --keep-monthly 4 --keep-yearly 1 --prune"
+
+# ----------------------------------------------------------------------------
+# Backup manifest — consumed by the generic verify/restore tooling
+# (roles/backup_verify, roles/backup_restore; playbooks verify-backups.yml and
+# restore-backups.yml). See CLAUDE.md "Backups: 3-2-1, verify & restore" and
+# the `backups` skill.
+# ----------------------------------------------------------------------------
+# Compose project dir the restore playbook stops/starts as a whole.
+backup_compose_dir: "{{ immich_dir }}"
+
+# Compose services stopped by the restore playbook before restoring (so
+# nothing is reading/writing mid-restore), then started again afterwards. The
+# restic sidecars and immich-unpack are intentionally left running.
+backup_consumer_services:
+  - immich-server
+  - immich-machine-learning
+
+backups:
+  - name: db-dump
+    # type: restic, NOT postgres — Immich's own built-in dump (unpacked by the
+    # immich-unpack sidecar above) is the producer; restic only ever
+    # snapshots the resulting plain .sql file. Loading it into a live Postgres
+    # is a documented manual runbook (docs/restore_immich_db.md), not this
+    # engine's job — design spec "Restore is a runbook, not a custom engine".
+    type: restic
+    compose_dir: "{{ immich_dir }}"
+    # The restic sidecar that holds the DB dump snapshots (list/verify/restic-
+    # restore run through it).
+    compose_service: db-backup
+    bucket: "{{ immich_db_backup_s3_bucket }}"
+    schedule: "{{ immich_db_backup_schedule }}" # 0 6 * * *
+    # Slack over: the unpack sidecar's hourly check + the freshness window
+    # (26h) + the db-backup cron cycle (24h) — a healthy chain refreshes well
+    # inside this; a dead dump job trips it.
+    max_age_hours: 30
+    # Paths (relative to compose_dir) the restic restore copies back over. The
+    # sidecar mounts immich_db_dump_dir at /data/db-dump, so restic stores it
+    # under data/db-dump and the handler restores it to
+    # {{ immich_dir }}/db-dump.
+    restore_paths:
+      - db-dump
+
+  - name: originals
+    type: restic
+    compose_dir: "{{ immich_dir }}"
+    compose_service: data-backup
+    bucket: "{{ immich_data_backup_s3_bucket }}"
+    schedule: "{{ immich_data_backup_schedule }}" # 0 7 * * *
+    # Slack over the daily cron.
+    max_age_hours: 27
+    # Restored through the {{ immich_dir }}/originals symlink (see WHY above)
+    # straight back onto the live pool directory.
+    restore_paths:
+      - originals

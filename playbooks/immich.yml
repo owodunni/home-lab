@@ -1,0 +1,146 @@
+---
+# Deploy Immich (self-hosted photo/video management) + Traefik route
+#
+# What: Deploys the Immich stack on valen with /dev/dri GPU passthrough (Intel
+#       QuickSync transcoding + OpenVINO ML) and registers the
+#       immich.jardoole.xyz route with the co-located Traefik.
+# Why:  Google Photos replacement for the household — see
+#       docs/superpowers/specs/2026-07-25-immich-deployment-design.md for the
+#       full design and its "Placement" section for why valen.
+# Resolves: A self-hosted photo/video library, the last major service planned
+#       in the effort to leave Google's services.
+#
+# Prerequisites:
+#   - Docker runtime on valen (service-infra layer; valen in [services]).
+#   - Traefik on valen with conf.d (ingress layer; valen in [ingress]).
+#   - Intel GPU drivers + the recorded video/render GIDs fact on valen — run
+#     the system layer (playbooks/gpu-drivers.yml) first; the role asserts
+#     the fact.
+#   - Garage up on the [garage] host (service-infra layer) — the first play
+#     below provisions the two backup buckets/keys with the `garage` CLI
+#     there.
+#
+# Vault vars required in group_vars/immich/vault.yml:
+#   vault_immich_db_password — Postgres password (any strong random string).
+#   vault_immich_db_backup_s3_access_key / _secret_key — Garage key (GK+24 hex
+#     / 64 hex) for the immich-postgres-backup bucket; generate before first
+#     run with
+#       scripts/garage-keygen.sh vault_immich_db_backup_s3
+#   vault_immich_data_backup_s3_access_key / _secret_key — same format, a
+#     separate key pair for the immich-data-backup bucket; generate with
+#       scripts/garage-keygen.sh vault_immich_data_backup_s3
+#   vault_immich_restic_password — restic repo password (openssl rand -base64
+#     32), shared by BOTH restic repos. Losing it makes every existing
+#     snapshot unrecoverable.
+#   vault_immich_oauth_client_id / vault_immich_oauth_client_secret — from the
+#     Authentik provider (authentik-app skill); NOT consumed by any template
+#     here (Immich has no env-var OAuth path) — paste into Immich's
+#     Administration -> Settings -> OAuth Authentication after first login.
+#     See group_vars/immich/main.yml "SSO" for the full steps.
+#
+# Auth note: Immich is intentionally NOT behind forward-auth (it would break
+# the native mobile app's background backup) — it uses its own native
+# OAuth2/OIDC client against Authentik. See the immich_hostname comment in
+# group_vars/immich/main.yml.
+
+- name: Provision the Immich backup buckets and keys on Garage
+  # Runs on the Garage host (valen) because the `garage` CLI lives there. Kept
+  # in this service playbook (not the garage layer) so backup provisioning
+  # travels with the Immich service. Garage is already up (service-infra
+  # precedes applications). Every check short-circuits on re-runs.
+  hosts: garage
+  become: true
+  vars:
+    # Single source of truth: bucket names and credentials live with the
+    # service in group_vars/immich, pulled here via the [immich] group so
+    # this play needs no edit when Immich moves hosts.
+    _immich_host: "{{ groups['immich'][0] }}"
+    _garage_resources:
+      - bucket: "{{ hostvars[_immich_host]['immich_db_backup_s3_bucket'] }}"
+        access_key: "{{ hostvars[_immich_host]['vault_immich_db_backup_s3_access_key'] }}"
+        secret_key: "{{ hostvars[_immich_host]['vault_immich_db_backup_s3_secret_key'] }}"
+      - bucket: "{{ hostvars[_immich_host]['immich_data_backup_s3_bucket'] }}"
+        access_key: "{{ hostvars[_immich_host]['vault_immich_data_backup_s3_access_key'] }}"
+        secret_key: "{{ hostvars[_immich_host]['vault_immich_data_backup_s3_secret_key'] }}"
+  tasks:
+    - name: List existing Garage buckets
+      ansible.builtin.command:
+        cmd: garage bucket list
+      register: garage_bucket_list
+      changed_when: false
+
+    - name: Create Immich backup buckets
+      # Idempotent: only runs when the bucket does not yet exist.
+      when: item.bucket not in garage_bucket_list.stdout
+      ansible.builtin.command:
+        cmd: garage bucket create {{ item.bucket }}
+      loop: "{{ _garage_resources }}"
+      loop_control:
+        label: "{{ item.bucket }}"
+      changed_when: true
+
+    - name: List existing Garage API keys
+      ansible.builtin.command:
+        cmd: garage key list
+      register: garage_key_list
+      changed_when: false
+
+    - name: Import the vaulted backup API keys
+      # Idempotent: only runs when the key (matched by name) does not yet
+      # exist. Bring-your-own creds so a rebuilt Garage accepts the same key
+      # with no manual step. --yes bypasses the interactive confirm guard.
+      when: item.bucket not in garage_key_list.stdout
+      ansible.builtin.command:
+        cmd: >
+          garage key import --yes
+          -n {{ item.bucket }}
+          {{ item.access_key }}
+          {{ item.secret_key }}
+      loop: "{{ _garage_resources }}"
+      loop_control:
+        label: "{{ item.bucket }}"
+      no_log: true  # secret key is on the command line
+      changed_when: true
+
+    - name: Read current grants on each backup bucket
+      ansible.builtin.command:
+        cmd: garage bucket info {{ item.bucket }}
+      loop: "{{ _garage_resources }}"
+      loop_control:
+        label: "{{ item.bucket }}"
+      register: garage_bucket_info
+      changed_when: false
+
+    - name: Grant each key read/write access to its backup bucket
+      # Decoupled from key existence on purpose: gating this on the key
+      # import guard would mean a failed/interrupted grant could never
+      # re-run, leaving a valid key with no bucket access (silent
+      # "Access Denied" in the sidecar). Keying off the actual grant state
+      # makes it idempotent and self-healing (see playbooks/authentik.yml).
+      when: item.item.access_key not in item.stdout
+      ansible.builtin.command:
+        cmd: >
+          garage bucket allow
+          {{ item.item.bucket }}
+          --read --write
+          --key {{ item.item.access_key }}
+      loop: "{{ garage_bucket_info.results }}"
+      loop_control:
+        label: "{{ item.item.bucket }}"
+      changed_when: true
+
+- name: Deploy Immich and register its Traefik route
+  hosts: immich
+  become: true
+
+  roles:
+    - role: immich
+
+  tasks:
+    - name: Deploy Traefik routing config for Immich
+      ansible.builtin.template:
+        src: templates/traefik-immich.yml.j2
+        dest: /etc/traefik/conf.d/immich.yml
+        owner: traefik
+        group: traefik
+        mode: "0640"
