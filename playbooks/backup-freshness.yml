@@ -98,3 +98,12 @@
     backup_freshness_service: qbittorrent
   roles:
     - role: backup_freshness
+
+- name: Backup freshness exporter | mailcow
+  hosts: mailcow
+  become: true
+  gather_facts: false
+  vars:
+    backup_freshness_service: mailcow
+  roles:
+    - role: backup_freshness

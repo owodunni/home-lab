@@ -1,0 +1,189 @@
+# mailcow.conf — managed by Ansible (roles/mailcow), do not edit manually.
+#
+# Hand-templated from the shape upstream's generate_config.sh writes at
+# mailcow_version {{ mailcow_version }} (we do not run generate_config.sh
+# itself — see roles/mailcow/tasks/main.yml). Only the values this deploy
+# actually decided are Ansible variables (group_vars/mailcow/main.yml); every
+# other line is upstream's own default, kept literal so a diff against a
+# fresh generate_config.sh output stays small. Re-check this template against
+# https://github.com/mailcow/mailcow-dockerized/blob/{{ mailcow_version }}/generate_config.sh
+# whenever mailcow_version is bumped.
+# ------------------------------
+# mailcow web ui configuration
+# ------------------------------
+# Default admin user is "admin", default password "moohoo" — change both on
+# first login (docs/mailcow.md), then set the API key below to match
+# vault_mailcow_api_key from System -> Configuration -> Access -> API.
+MAILCOW_HOSTNAME={{ mailcow_hostname }}
+
+MAILCOW_PASS_SCHEME=BLF-CRYPT
+
+# ------------------------------
+# SQL database configuration
+# ------------------------------
+DBNAME=mailcow
+DBUSER=mailcow
+DBPASS={{ vault_mailcow_dbpass }}
+DBROOT={{ vault_mailcow_dbroot }}
+
+# ------------------------------
+# REDIS configuration
+# ------------------------------
+REDISPASS={{ vault_mailcow_redispass }}
+
+# ------------------------------
+# HTTP/S Bindings
+# ------------------------------
+# Bound to loopback — Traefik (co-located on valen) proxies mail.{{ traefik_domain }}
+# to HTTP_PORT; nothing routes to HTTPS_PORT (Postfix/Dovecot terminate mail
+# TLS directly, not via Traefik/nginx) but it stays loopback too rather than
+# fail open to 0.0.0.0. Matches mailcow's documented reverse-proxy recipe:
+# https://docs.mailcow.email/post_installation/reverse-proxy/r_p/
+HTTP_PORT={{ mailcow_http_port }}
+HTTP_BIND=127.0.0.1
+
+HTTPS_PORT={{ mailcow_https_port }}
+HTTPS_BIND=127.0.0.1
+
+HTTP_REDIRECT=y
+
+# ------------------------------
+# Other bindings
+# ------------------------------
+# SMTP_PORT/SMTPS_PORT/SUBMISSION_PORT/IMAPS_PORT: left at mailcow's own
+# 0.0.0.0 defaults — real mail clients connect directly (not via Traefik), and
+# exposure is controlled at the host firewall (firewall_rules_mailcow in
+# group_vars/mailcow/main.yml, DOCKER-USER scope). POP/POPS/SIEVE/plaintext
+# IMAP are loopback-bound (mailcow_*_port group_vars) so they are never
+# published at all — see the firewall_rules_mailcow comment for why.
+SMTP_PORT=25
+SMTPS_PORT=465
+SUBMISSION_PORT=587
+IMAP_PORT={{ mailcow_imap_port }}
+IMAPS_PORT=993
+POP_PORT={{ mailcow_pop_port }}
+POPS_PORT={{ mailcow_pops_port }}
+SIEVE_PORT={{ mailcow_sieve_port }}
+DOVEADM_PORT=127.0.0.1:19991
+SQL_PORT=127.0.0.1:13306
+REDIS_PORT=127.0.0.1:7654
+
+TZ={{ mailcow_time_zone }}
+
+# Fixed project name (lowercase only) — matches upstream's own default so the
+# compose project name (and therefore volume/network naming) is unsurprising.
+# Variable (not literal) because the backup manifest's volume_prefix must
+# match it exactly — see group_vars/mailcow/main.yml.
+COMPOSE_PROJECT_NAME={{ mailcow_compose_project_name }}
+
+DOCKER_COMPOSE_VERSION=native
+
+ACL_ANYONE=disallow
+
+MAILDIR_GC_TIME=7200
+
+# No additional SANs needed — the wildcard *.{{ traefik_domain }} cert
+# (exported from Traefik's ACME store, see roles/mailcow/tasks/main.yml)
+# already covers mail/autoconfig/autodiscover.{{ traefik_domain }}.
+ADDITIONAL_SAN={{ mailcow_additional_san }}
+
+AUTODISCOVER_SAN=y
+
+ADDITIONAL_SERVER_NAMES=
+
+# mailcow's own ACME (acme-mailcow) is disabled — Traefik's existing wildcard
+# cert is exported into data/assets/ssl/ instead (design spec "TLS").
+SKIP_LETS_ENCRYPT={{ mailcow_skip_lets_encrypt }}
+ACME_DNS_CHALLENGE=n
+ACME_DNS_PROVIDER=dns_xxx
+ACME_ACCOUNT_EMAIL=me@example.com
+
+ENABLE_SSL_SNI=n
+SKIP_IP_CHECK=n
+SKIP_HTTP_VERIFICATION=n
+SKIP_UNBOUND_HEALTHCHECK=n
+
+# ClamAV — enabled (valen has the RAM; design spec decision table).
+SKIP_CLAMD={{ mailcow_skip_clamd }}
+
+SKIP_OLEFY=n
+
+# SOGo webmail/DAV/ActiveSync — enabled (LAN/VPN-only web client + CalDAV/
+# CardDAV backend).
+SKIP_SOGO={{ mailcow_skip_sogo }}
+
+SKIP_FTS=n
+FTS_HEAP=128
+FTS_PROCS=1
+
+ALLOW_ADMIN_EMAIL_LOGIN=n
+
+USE_WATCHDOG=y
+# Watchdog mail notifications stay off for now: they need working OUTBOUND
+# mail, which is not live until the SMTP2GO relay is configured (design spec
+# "Bootstrap order: receive first, then send") — revisit once the relay is up.
+#WATCHDOG_NOTIFY_EMAIL=
+WATCHDOG_NOTIFY_BAN=n
+WATCHDOG_NOTIFY_START=y
+WATCHDOG_EXTERNAL_CHECKS=n
+WATCHDOG_VERBOSE=n
+
+LOG_LINES=9999
+
+# See group_vars/mailcow/main.yml mailcow_docker_ipv4_network for why this is
+# NOT upstream's default 172.22.1 (collides with jellyseerr_default on valen).
+IPV4_NETWORK={{ mailcow_docker_ipv4_network }}
+IPV6_NETWORK=fd4d:6169:6c63:6f77::/64
+
+#SNAT_TO_SOURCE=
+#SNAT6_TO_SOURCE=
+
+# Pre-seeded so future automation (monitoring checks, scripted domain/mailbox
+# management) can use the API without a manual "generate in the UI" step. Can
+# still be rotated from System -> Configuration -> Access -> API at any time.
+API_KEY={{ vault_mailcow_api_key }}
+API_ALLOW_FROM={{ mailcow_api_allow_from | join(',') }}
+
+MAILDIR_SUB=Maildir
+
+SOGO_EXPIRE_SESSION=480
+# Exactly 16 chars, A-Za-z0-9 only (upstream's own constraint) — generated the
+# same way upstream's generate_config.sh does, just vaulted instead of random
+# on every regen so SOGo's encrypted URLs survive a re-template.
+SOGO_URL_ENCRYPTION_KEY={{ vault_mailcow_sogo_url_encryption_key }}
+
+DOVECOT_MASTER_USER=
+DOVECOT_MASTER_PASS=
+
+WEBAUTHN_ONLY_TRUSTED_VENDORS=n
+
+SPAMHAUS_DQS_KEY=
+
+# Host IPv6 is out of scope for this deploy — see group_vars/mailcow/main.yml
+# mailcow_enable_ipv6.
+ENABLE_IPV6={{ mailcow_enable_ipv6 | lower }}
+
+DISABLE_NETFILTER_ISOLATION_RULE=n
+
+# ------------------------------------------------------------------
+# Ansible-managed additions below this line — NOT part of upstream's
+# generate_config.sh output.
+#
+# WHY THEY LIVE HERE: mailcow requires `.env` to be a symlink to this exact
+# file (generate_config.sh's own hard requirement — `docker compose` only
+# reads ONE default env file per project, and mailcow's compose file has no
+# per-service `env_file:` of its own, so this IS the interpolation source for
+# every ${VAR} in both docker-compose.yml and our docker-compose.override.yml,
+# see roles/mailcow/tasks/main.yml). The backup sidecars added by
+# docker-compose.override.yml therefore have nowhere else to get their
+# secrets from.
+# ------------------------------------------------------------------
+DB_BACKUP_RESTIC_PASSWORD={{ vault_mailcow_restic_password }}
+DB_BACKUP_S3_ACCESS_KEY_ID={{ vault_mailcow_backup_s3_access_key }}
+DB_BACKUP_S3_SECRET_ACCESS_KEY={{ vault_mailcow_backup_s3_secret_key }}
+
+# Same restic password as the DB repo above (encrypts BOTH repos; each is
+# still a separate bucket/path) — see group_vars/mailcow/main.yml.
+VOLUMES_BACKUP_RESTIC_PASSWORD={{ vault_mailcow_restic_password }}
+VOLUMES_BACKUP_S3_ACCESS_KEY_ID={{ vault_mailcow_volumes_backup_s3_access_key }}
+VOLUMES_BACKUP_S3_SECRET_ACCESS_KEY={{ vault_mailcow_volumes_backup_s3_secret_key }}

@@ -1,0 +1,400 @@
+---
+# Mailcow service configuration — self-hosted email (mailcow-dockerized) on
+# valen. See docs/superpowers/specs/2026-07-25-mailcow-email-design.md for the
+# full design and docs/mailcow.md for the operator runbook (DNS, UniFi
+# port-forward, SMTP2GO two-stage rollout, Authentik SSO, Gmail migration).
+# Secrets (DB/Redis passwords, restic + S3 backup creds, admin/API/OIDC
+# credentials) live in group_vars/mailcow/vault.yml with the vault_ prefix.
+#
+# UNLIKE every other service in this repo, mailcow owns its OWN docker-compose
+# project (cloned from upstream, not authored here): we template mailcow.conf
+# and a docker-compose.override.yml (merged automatically by `docker compose`
+# alongside the cloned docker-compose.yml) rather than a full compose file, so
+# upstream's networks/volumes/services keep working unmodified. See
+# roles/mailcow/tasks/main.yml.
+
+# ============================================================================
+# Version — pinned git tag, cloned (not mailcow's self-update.sh)
+# ============================================================================
+# mailcow-dockerized releases a dated tag roughly monthly. Pinning replaces
+# mailcow's own `update.sh` self-update model with the repo's usual deliberate
+# tag-bump-and-rerun convention (see CLAUDE.md "Upgrade discipline" risk in the
+# design spec) — security updates land only when this is bumped, so treat a
+# new mailcow release as an operator habit to review, not automatic.
+# Releases: https://github.com/mailcow/mailcow-dockerized/releases
+mailcow_version: "2026-07"
+
+# Where the role clones mailcow-dockerized and mailcow keeps ALL of its own
+# state (vmail, MariaDB, Redis, Rspamd — all in Docker named volumes on this
+# NVMe root, deliberately NOT the MergerFS pool: see design spec "Mail
+# storage" — Dovecot-over-NFS is a documented corruption/locking hazard and
+# maildir's millions of small files are the worst case for SnapRAID).
+mailcow_dir: /opt/mailcow-dockerized
+
+# Compose project name (COMPOSE_PROJECT_NAME in mailcow.conf) — upstream's own
+# default, kept literal-lowercase per their constraint. Declared as a variable
+# because it is ALSO the on-disk prefix Docker gives every project volume
+# (vmail-vol-1 -> mailcowdockerized_vmail-vol-1), which the backup manifest's
+# volume_prefix below must match exactly for restores to hit the live volumes.
+mailcow_compose_project_name: mailcowdockerized
+
+# ============================================================================
+# Web UI hostname + reverse-proxy bindings
+# ============================================================================
+# mailcow's own idea of its hostname (builds the default cert CN, autoconfig/
+# autodiscover responses, and the SOGo/webmail URLs). Matches the design's DNS
+# table (A record + MX target).
+mailcow_hostname: "mail.{{ traefik_domain }}"
+
+# Loopback HTTP port for nginx-mailcow. Traefik (co-located on valen) proxies
+# mail.jardoole.xyz -> 127.0.0.1:{{ mailcow_http_port }}, same "loopback
+# convention" as every other valen-co-located service (jellyfin 8096,
+# qbittorrent 8080, jellyseerr 5055, radarr 7878, prowlarr 9696, sonarr 8989) —
+# no firewall rule needed, off-host traffic can't reach it regardless. 8090 is
+# free (checked against every *_port in group_vars/*/main.yml).
+mailcow_http_port: 8090
+
+# HTTPS loopback port. Nothing routes to this today (Traefik only proxies
+# HTTP_PORT above; Postfix/Dovecot TLS is separate, see cert export below) —
+# bound to loopback anyway, matching mailcow's own documented reverse-proxy
+# recipe (HTTP_BIND=127.0.0.1 HTTP_PORT=... HTTPS_BIND=127.0.0.1 HTTPS_PORT=...,
+# https://docs.mailcow.email/post_installation/reverse-proxy/r_p/), so nginx
+# never has to fail open onto 0.0.0.0.
+mailcow_https_port: 8443
+
+# ============================================================================
+# Docker network — internal subnet
+# ============================================================================
+# mailcow's default (IPV4_NETWORK=172.22.1, generate_config.sh) COLLIDES on
+# valen: `docker network inspect` on 2026-07-25 showed jellyseerr_default
+# already holds the WHOLE /16 that 172.22.1.0/24 sits inside:
+#   jellyseerr_default  172.22.0.0/16
+#   jellyfin_default     172.21.0.0/16    prowlarr_default  172.18.0.0/16
+#   radarr_default        172.19.0.0/16    sonarr_default    172.20.0.0/16
+#   cadvisor_default     172.23.0.0/16    intel-gpu-exporter_default 172.24.0.0/16
+#   media (fixed)         172.28.0.0/16
+# 172.30.0.0/16 is clear of all of the above (and media's fixed 172.28.0.0/16),
+# with headroom on both sides. Expands to 172.30.1.0/24 (mailcow's
+# IPV4_NETWORK format is the bare first three octets).
+mailcow_docker_ipv4_network: "172.30.1"
+
+# Host IPv6 is out of scope for this deploy (see design spec "Out of scope" —
+# the split-horizon AAAA leak is a pre-existing, separately-tracked gap this
+# service should not add to). Disabling here is mailcow's own internal Docker
+# network IPv6 addressing, independent of that leak, but there is no reason to
+# carry the extra complexity for a v1 mail deploy. Revisit if IPv6 mail
+# transport is ever wanted.
+mailcow_enable_ipv6: false
+
+# ============================================================================
+# Timezone
+# ============================================================================
+# Matches the media stack's convention (group_vars/media/main.yml
+# media_time_zone) — not inherited automatically since [mailcow] is not in
+# [media], so restated here.
+mailcow_time_zone: "Etc/UTC"
+
+# ============================================================================
+# Feature toggles
+# ============================================================================
+# ClamAV — valen has the RAM for it (design spec decision table).
+mailcow_skip_clamd: "n"
+
+# SOGo webmail/DAV/ActiveSync — kept on (default); it is the LAN/VPN-only
+# webmail client and the CalDAV/CardDAV backend.
+mailcow_skip_sogo: "n"
+
+# Skip mailcow's own ACME (acme-mailcow / Let's Encrypt) container entirely —
+# Traefik's existing wildcard cert covers mail.jardoole.xyz, and the design
+# explicitly routes cert material to Postfix/Dovecot via the export script
+# below rather than a second independent ACME client fighting over :80/:443.
+mailcow_skip_lets_encrypt: "y"
+
+# Additional SANs — none needed. The wildcard *.jardoole.xyz cert (Traefik's
+# ACME, exported below) already covers mail/autoconfig/autodiscover.jardoole.xyz.
+mailcow_additional_san: ""
+
+# ============================================================================
+# Mail ports — exposure per the design spec's firewall table
+# ============================================================================
+# SMTP (25) is the only port meant to be reachable from the public internet
+# (UniFi port-forwards it here) — left at mailcow's own default (0.0.0.0:25),
+# gated by firewall_rules_mailcow below (scope: docker, DOCKER-USER chain).
+#
+# SMTPS/submission/IMAPS (465/587/993) are mail-CLIENT ports (phones, desktop
+# MUAs over LAN/WireGuard) — also left at mailcow's default (0.0.0.0), gated to
+# homelab_subnet + vpn_subnet by firewall_rules_mailcow below. They are NOT
+# loopback-bound because real clients connect directly, bypassing Traefik.
+#
+# POP3/POP3S/ManageSieve (110/995/4190) and plaintext IMAP (143) are NOT part
+# of this design (spec: "POP3 and ManageSieve stay disabled/unpublished") and
+# 143 is absent from the spec's exposure table entirely (only 993/IMAPS is
+# listed) — bound to loopback here (mailcow.conf's "IP:PORT" format) so Docker
+# never publishes them to 0.0.0.0 at all. This is the SAME "loopback = no
+# firewall rule, unreachable off-host" convention as the web UI port above,
+# applied to ports we want inert rather than routed. Belt-and-braces: even if
+# this were left at mailcow's 0.0.0.0 default, the DOCKER-USER chain's default
+# DROP (roles/firewall) would block them anyway since no firewall_rules_mailcow
+# entry allows them — but not publishing at all is cleaner and needs no reliance
+# on that second layer.
+mailcow_pop_port: "127.0.0.1:110"
+mailcow_pops_port: "127.0.0.1:995"
+mailcow_sieve_port: "127.0.0.1:4190"
+mailcow_imap_port: "127.0.0.1:143"
+
+# ============================================================================
+# Admin API — pre-seeded via mailcow.conf (vault_mailcow_api_key), restricted
+# to the same sources as the client mail ports. Lets future automation
+# (monitoring checks, scripted domain/mailbox management) use the API without
+# a manual "generate in the UI" step; the key can still be rotated from
+# System -> Configuration -> Access -> API in the UI at any time.
+# ============================================================================
+mailcow_api_allow_from:
+  - "127.0.0.1"
+  - "{{ home_lan_subnet }}"
+  - "{{ firewall_source_aliases.vpn_subnet }}"
+
+# ============================================================================
+# Host firewall (docs/superpowers/specs/2026-07-19-host-firewalls-design.md)
+# ============================================================================
+# What: mailcow's own compose publishes these ports directly (Docker
+#   DNAT), so — same reasoning as cadvisor/intel_gpu_exporter/adguard — they
+#   bypass ufw's INPUT chain and need scope: docker (DOCKER-USER) rules, not
+#   plain ufw allows.
+# Why:  25/tcp must accept from the whole internet (UniFi port-forwards it
+#   here per the design spec); 465/587/993 are mail-client ports restricted to
+#   the home LAN and WireGuard subnets, same source set as every other
+#   client-facing service in this lab. 110/995/4190/143 need no entry at all —
+#   they are loopback-bound above, never published to 0.0.0.0.
+# Resolves: mailcow's SMTP/submission/IMAPS ports being reachable from
+#   anywhere with no host firewall able to restrict them, if declared
+#   scope: host (which has no effect on Docker-published ports at all).
+firewall_rules_mailcow:
+  - name: mailcow-smtp
+    port: 25
+    proto: tcp
+    # Literal CIDR (not a firewall_source_aliases entry) — this is the one
+    # port in the whole fleet that is deliberately public: inbound MX arrives
+    # from any sending mail server on the internet via the UniFi port-forward.
+    from: ["0.0.0.0/0"]
+    scope: docker
+    comment: "Inbound SMTP (MX) - public, arrives via UniFi port-forward 25 -> valen"
+  - name: mailcow-smtps
+    port: 465
+    proto: tcp
+    from: [homelab_subnet, vpn_subnet]
+    scope: docker
+    comment: "SMTPS mail-client submission (implicit TLS) - LAN + WireGuard only"
+  - name: mailcow-submission
+    port: 587
+    proto: tcp
+    from: [homelab_subnet, vpn_subnet]
+    scope: docker
+    comment: "SMTP submission (STARTTLS) - LAN + WireGuard only"
+  - name: mailcow-imaps
+    port: 993
+    proto: tcp
+    from: [homelab_subnet, vpn_subnet]
+    scope: docker
+    comment: "IMAPS mail-client access - LAN + WireGuard only"
+
+# ============================================================================
+# TLS — wildcard cert exported from Traefik's ACME store for Postfix/Dovecot
+# ============================================================================
+# WHAT: a small script (roles/mailcow/templates/mailcow-cert-export.sh.j2)
+#   reads Traefik's /etc/traefik/acme.json (root-only, 0600 — the role runs
+#   `become: true`), extracts the *.jardoole.xyz cert+key mailcow's nginx
+#   already gets fronted by Traefik for, base64-decodes them into
+#   data/assets/ssl/{cert,key}.pem (mailcow's documented reverse-proxy cert
+#   location), and restarts nginx/postfix/dovecot-mailcow only when the
+#   certificate actually changed.
+# WHY: Postfix (465/587) and Dovecot (993) terminate their OWN TLS directly to
+#   mail clients — Traefik only ever sees HTTP to the web UI, never SMTP/IMAP —
+#   so they need the real key material on disk, not just a proxied HTTPS front
+#   door. Mirrors mailcow's own documented traefik-certs-dumper recipe
+#   (https://docs.mailcow.email/post_installation/reverse-proxy/r_p-traefik3/)
+#   without adding a second container: this lab's Traefik is a native systemd
+#   service (not Dockerized), so a plain script + timer reading the same
+#   acme.json is simpler than wiring a sidecar container into another
+#   project's compose file just to reach it.
+# RESOLVES: Postfix/Dovecot starting with no cert material at all (mailcow's
+#   own acme-mailcow container is disabled via SKIP_LETS_ENCRYPT=y).
+mailcow_cert_export_script: /usr/local/bin/mailcow-cert-export.sh
+
+# How often to check acme.json for a renewed cert. Traefik renews ~30 days
+# before expiry, so hourly is far more often than needed — cheap no-op most
+# runs (the script diffs before writing/restarting).
+mailcow_cert_export_schedule: "hourly"
+
+# ============================================================================
+# Backups — MariaDB (new mysqldump engine) + volumes, both restic -> Garage S3
+# on valen (local), mirrored offsite to beelink by the backup layer.
+#
+# WHAT: mirrors the authentik/vaultwarden postgres pattern exactly, but for
+#   MariaDB: a mysqldump sidecar (added via docker-compose.override.yml, see
+#   roles/mailcow/templates/docker-compose.override.yml.j2) dumps
+#   --all-databases to a shared volume on a schedule; a lobaro restic sidecar
+#   snapshots that dump to Garage. A second restic sidecar separately
+#   snapshots the vmail/Rspamd/Redis/config named volumes.
+# WHY raw MariaDB volume isn't restic'd directly: same reason Authentik/
+#   Nextcloud/Vaultwarden don't restic Postgres's data dir straight — a live
+#   MariaDB data directory is crash-inconsistent if copied while running; a
+#   logical mysqldump is the correct consistent capture (--single-transaction
+#   for InnoDB tables).
+#
+# Bucket + keys are provisioned by the first play in playbooks/mailcow.yml
+# (targets [garage]); bring-your-own credentials generated with
+# scripts/garage-keygen.sh and vaulted before the first run.
+# ============================================================================
+
+# mariadb image tag for the mysqldump sidecar — MUST match mysql-mailcow's own
+# pinned image (mailcow's docker-compose.yml at this mailcow_version) so
+# mysqldump/mysql are wire-compatible with the live server. Verify this against
+# https://github.com/mailcow/mailcow-dockerized/blob/{{ mailcow_version }}/docker-compose.yml
+# ("mysql-mailcow: image:") whenever mailcow_version is bumped.
+mailcow_mariadb_client_image: "mariadb:10.11"
+
+# How often the mysqldump sidecar refreshes the on-disk dump (seconds). Mirrors
+# authentik_db_dump_interval_seconds. 86400 = daily.
+mailcow_db_dump_interval_seconds: 86400
+
+# Cron (5-field) for the restic DB snapshot. Offset from the volumes-backup run
+# (0 5) so the two restic jobs don't compete for upload bandwidth, and both
+# offset from the rest of the fleet's 02:00-04:00 backup window.
+mailcow_db_backup_schedule: "0 4 * * *"
+
+# `restic forget` GFS policy — identical shape to every other service in this
+# lab so all backups age out the same way.
+mailcow_db_backup_retention_args: "--keep-daily 7 --keep-weekly 4 --keep-monthly 4 --keep-yearly 1 --prune"
+
+# restic-backup-docker image — matches the version pinned elsewhere in this
+# repo (authentik/vaultwarden/jellyfin). Releases:
+# https://github.com/lobaro/restic-backup-docker/releases
+mailcow_backup_image_version: "v1.4.2"
+
+# Garage S3 — region label must match garage_s3_region in group_vars/ingress.
+mailcow_backup_s3_region: "garage"
+mailcow_backup_s3_endpoint: "https://s3.jardoole.xyz"
+
+# Dedicated bucket for the MariaDB dump's restic repo.
+mailcow_backup_s3_bucket: "mailcow-backup"
+
+# Cron (5-field) for the volumes restic snapshot. Offset from the DB backup
+# above so the two restic uploads don't overlap.
+mailcow_volumes_backup_schedule: "0 5 * * *"
+
+mailcow_volumes_backup_retention_args: "--keep-daily 7 --keep-weekly 4 --keep-monthly 4 --keep-yearly 1 --prune"
+
+# Separate bucket from the DB repo — independent retention/lifecycle, same
+# convention as every other two-backup service in this lab.
+mailcow_volumes_backup_s3_bucket: "mailcow-volumes-backup"
+
+# Named Docker volumes (declared by mailcow's own docker-compose.yml) included
+# in the volumes backup, and why:
+#   vmail-vol-1       - the crown jewel: actual mail (Maildir)
+#   vmail-index-vol-1 - Dovecot FTS/index; rebuildable from vmail alone, but
+#                        cheap to keep and much faster to restore than reindex
+#   crypt-vol-1        - DKIM/TLS domain keys - config, not re-derivable
+#   postfix-vol-1       - Postfix instance state/config
+#   redis-vol-1         - Rspamd's bayes/stats data - reconstructible
+#                        spam-training state (design spec), included but NOT
+#                        drill-critical
+#   rspamd-vol-1        - Rspamd local config/state
+#   sogo-web-vol-1, sogo-userdata-backup-vol-1 - SOGo webmail preferences,
+#                        addressbook, calendar (groupware user data)
+# Deliberately EXCLUDED:
+#   mysql-vol-1, mysql-socket-vol-1 - raw MariaDB data dir: crash-inconsistent
+#                        if restic'd live, and already covered by the
+#                        mysqldump engine above (same rationale as every other
+#                        postgres-backed service in this repo)
+#   clamd-db-vol-1      - ClamAV virus definitions - freely re-downloadable,
+#                        not worth the daily snapshot churn
+#   postfix-tlspol-vol-1 - opportunistic-TLS policy cache, rebuilds itself
+#                        from traffic; low value for the backup weight
+mailcow_backup_volumes:
+  - vmail-vol-1
+  - vmail-index-vol-1
+  - crypt-vol-1
+  - postfix-vol-1
+  - redis-vol-1
+  - rspamd-vol-1
+  - sogo-web-vol-1
+  - sogo-userdata-backup-vol-1
+
+# ----------------------------------------------------------------------------
+# Backup manifest — consumed by the generic verify/restore tooling
+# (roles/backup_verify, roles/backup_restore, roles/backup_run,
+# roles/backup_drill; playbooks verify-backups.yml / restore-backups.yml /
+# run-backups.yml / drill-backups.yml). See CLAUDE.md -> "Backups: 3-2-1,
+# verify & restore" and docs/mailcow.md.
+# ----------------------------------------------------------------------------
+# Compose project dir the restore playbook stops/starts as a whole.
+backup_compose_dir: "{{ mailcow_dir }}"
+
+# Compose services the restore playbook stops before restoring (so nothing is
+# writing mid-restore), then starts again once the restore completes. Only the
+# services that actually read the DB/vmail need to stop — the backup sidecars
+# themselves stay up (restic restores run as one-off `compose run` containers).
+backup_consumer_services:
+  - postfix-mailcow
+  - dovecot-mailcow
+  - sogo-mailcow
+  - phpfpm-mailcow
+  - rspamd-mailcow
+
+backups:
+  - name: mariadb
+    # type: mysqldump — a mysqldump captured in a restic repo. Verify is restic
+    # snapshot-freshness (handler delegates to the shared restic verifier,
+    # exactly like `postgres`); restore is restic-restore-the-chosen-snapshot
+    # then loading the dump into the live DB via the mysql client sidecar.
+    type: mysqldump
+    compose_dir: "{{ mailcow_dir }}"
+    # The restic sidecar that holds the DB dump snapshots (added by
+    # docker-compose.override.yml).
+    compose_service: db-backup
+    # The mariadb-client sidecar used to load the dump back into the live DB
+    # (added by docker-compose.override.yml) — the mysqldump engine's
+    # equivalent of postgres's pg_restore_service.
+    mysql_restore_service: db-dump
+    bucket: "{{ mailcow_backup_s3_bucket }}"
+    schedule: "{{ mailcow_db_backup_schedule }}" # 0 4 * * *
+    # Dump filename inside each snapshot (restic restores it to
+    # /restore/data/<dump_file>). Matches what the db-dump sidecar writes.
+    dump_file: mailcow.sql
+    # Slack over the snapshot cron: the dump on disk can lag the snapshot by up
+    # to one dump interval.
+    max_age_hours: 30
+
+  - name: volumes
+    # type: restic_volumes — NOT the plain `restic` type. The paths backed up
+    # here are Docker NAMED VOLUMES (vmail/crypt/postfix/redis/rspamd/sogo —
+    # Docker-managed storage), not host bind-mount directories under
+    # compose_dir like every other restic-backed service in this repo. The
+    # plain `restic` restore handler copies a restored snapshot back with a
+    # host `cp -a {{ compose_dir }}/.restore/data/<path> {{ compose_dir }}/<path>` —
+    # there is no such host directory for a named volume. restic_volumes is a
+    # small variant (roles/backup_restore/tasks/restic_volumes.yml) that
+    # bridges the restored scratch dir into the live named volume via a
+    # throwaway container instead; verify/run delegate to the same shared
+    # restic.yml handler as every other type (only restore differs). See
+    # CLAUDE.md "Backups" and docs/mailcow.md.
+    type: restic_volumes
+    compose_dir: "{{ mailcow_dir }}"
+    compose_service: volumes-backup
+    bucket: "{{ mailcow_volumes_backup_s3_bucket }}"
+    schedule: "{{ mailcow_volumes_backup_schedule }}" # 0 5 * * *
+    max_age_hours: 27
+    # Named Docker volumes (not host paths) the restic restore copies back
+    # over. The sidecar mounts each one at /data/<volume-name> (see
+    # roles/mailcow/templates/docker-compose.override.yml.j2), so restic
+    # stores it under data/<volume-name> and restic_volumes.yml restores it
+    # back into the matching live named volume by name.
+    restore_paths: "{{ mailcow_backup_volumes }}"
+    # Inside the compose project, `vmail-vol-1` resolves to the project-scoped
+    # volume — but the restore handler's copy-back bridge is a raw `docker run`
+    # OUTSIDE compose, where the live volume's real name is
+    # <project>_<volume>. Without this prefix the bridge would silently create
+    # and fill a fresh, unused volume named `vmail-vol-1` instead of restoring
+    # the live one.
+    volume_prefix: "{{ mailcow_compose_project_name }}_"

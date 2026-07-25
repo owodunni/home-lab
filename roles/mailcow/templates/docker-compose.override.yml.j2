@@ -1,0 +1,108 @@
+# docker-compose.override.yml — managed by Ansible, do not edit manually.
+#
+# `docker compose` merges this automatically alongside the cloned
+# docker-compose.yml (same project directory, no -f flag needed) — see
+# roles/mailcow/tasks/main.yml. This is the ONLY file this role adds to
+# mailcow's own compose project; every upstream service, network, and volume
+# is left completely untouched, so a mailcow_version bump never has to
+# reconcile our edits against theirs.
+#
+# Adds the MariaDB backup engine (mysqldump -> restic), mirroring this repo's
+# existing pg-dump/db-backup pattern (see roles/authentik/templates/
+# docker-compose.yml.j2) exactly, and a restic sidecar for the vmail/config
+# named volumes. See group_vars/mailcow/main.yml "Backups" and docs/mailcow.md.
+
+services:
+  # DB backup, half 1 of 2: produce a logical dump on a schedule. Writes
+  # `mysqldump --all-databases` to the shared mailcow-db-dump volume; the
+  # db-backup restic sidecar below snapshots that volume to Garage S3.
+  # Image MUST match mysql-mailcow's own pinned tag (mailcow_mariadb_client_image)
+  # so mysqldump/mysql are wire-compatible with the live server. Attaches to
+  # mailcow-network (already declared by docker-compose.yml; merged config, no
+  # `external: true` needed) so it can resolve the "mysql" alias mysql-mailcow
+  # publishes there.
+  # Restore is driven by the generic tooling: make restore-backups SERVICE=mailcow
+  db-dump:
+    image: "{{ mailcow_mariadb_client_image }}"
+    restart: unless-stopped
+    networks:
+      - mailcow-network
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_ROOT_PASSWORD: ${DBROOT}
+    volumes:
+      - mailcow-db-dump:/dump
+    # Dump immediately on start, then every interval. Write to a temp file and
+    # atomically rename so the restic sidecar never snapshots a half-written
+    # dump — same shape as authentik's pg-dump entrypoint.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        while true; do
+          mysqldump -h "$$MYSQL_HOST" -u root -p"$$MYSQL_ROOT_PASSWORD" \
+              --single-transaction --routines --triggers --all-databases \
+              > /dump/mailcow.sql.tmp \
+            && mv -f /dump/mailcow.sql.tmp /dump/mailcow.sql \
+            && echo "db-dump: wrote /dump/mailcow.sql at $$(date -Is)"
+          sleep {{ mailcow_db_dump_interval_seconds }}
+        done
+    depends_on:
+      - mysql-mailcow
+
+  # DB backup, half 2 of 2: restic snapshot of the dump -> Garage S3 on valen
+  # (local; mirrored offsite by the backup layer). Mount is read-only — restic
+  # only ever reads the dump. Also doubles as the mysqldump backup type's
+  # `mysql_restore_service` at restore time (roles/backup_restore/tasks/
+  # mysqldump.yml execs `mysql` in THIS db-dump container, not db-backup,
+  # since db-dump already carries the mariadb client + DB credentials).
+  db-backup:
+    image: "ghcr.io/lobaro/restic-backup-docker:{{ mailcow_backup_image_version }}"
+    restart: unless-stopped
+    environment:
+      RESTIC_REPOSITORY: "s3:{{ mailcow_backup_s3_endpoint }}/{{ mailcow_backup_s3_bucket }}/restic"
+      RESTIC_PASSWORD: ${DB_BACKUP_RESTIC_PASSWORD}
+      AWS_ACCESS_KEY_ID: ${DB_BACKUP_S3_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${DB_BACKUP_S3_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: "{{ mailcow_backup_s3_region }}"
+      RESTIC_TAG: mailcow-db
+      BACKUP_CRON: "{{ mailcow_db_backup_schedule }}"
+      RESTIC_FORGET_ARGS: "{{ mailcow_db_backup_retention_args }}"
+    volumes:
+      - mailcow-db-dump:/data:ro
+    depends_on:
+      - db-dump
+
+  # Periodic restic backup of the vmail/Rspamd/Redis/config NAMED VOLUMES (not
+  # bind-mount dirs — see group_vars/mailcow/main.yml mailcow_backup_volumes
+  # for the include/exclude list and why) -> Garage S3 on valen (local;
+  # mirrored offsite), alongside the db-backup snapshot above. Every mount is
+  # read-only — restic only ever reads the live volumes. Restore procedure:
+  # docs/mailcow.md ("Restoring backups").
+  volumes-backup:
+    image: "ghcr.io/lobaro/restic-backup-docker:{{ mailcow_backup_image_version }}"
+    restart: unless-stopped
+    environment:
+      RESTIC_REPOSITORY: "s3:{{ mailcow_backup_s3_endpoint }}/{{ mailcow_volumes_backup_s3_bucket }}"
+      RESTIC_PASSWORD: ${VOLUMES_BACKUP_RESTIC_PASSWORD}
+      AWS_ACCESS_KEY_ID: ${VOLUMES_BACKUP_S3_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${VOLUMES_BACKUP_S3_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: "{{ mailcow_backup_s3_region }}"
+      RESTIC_TAG: mailcow-volumes
+      BACKUP_CRON: "{{ mailcow_volumes_backup_schedule }}"
+      RESTIC_FORGET_ARGS: "{{ mailcow_volumes_backup_retention_args }}"
+    volumes:
+{% for vol in mailcow_backup_volumes %}
+      - {{ vol }}:/data/{{ vol }}:ro
+{% endfor %}
+
+volumes:
+  # New volume, not declared by upstream — shared between db-dump (writes the
+  # dump) and db-backup (reads it for restic). The named volumes referenced
+  # above by volumes-backup (vmail-vol-1, crypt-vol-1, ...) are ALREADY
+  # declared by docker-compose.yml; redeclaring them here is unnecessary
+  # (Compose merges the top-level `volumes:` keys from every file) and
+  # deliberately avoided so this file never has to track upstream's volume
+  # list.
+  mailcow-db-dump:
+    driver: local

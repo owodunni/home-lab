@@ -74,12 +74,16 @@ directly), and the rule's purpose.
 | Port | Proto | Scope | Allowed sources | Purpose |
 |---|---|---|---|---|
 | 22 | tcp | host | homelab_subnet (192.168.1.0/24), home_vlan (192.168.10.0/24), vpn_subnet (192.168.2.0/24) | Admin + Ansible control access (key-only auth) |
+| 25 | tcp | docker* | 0.0.0.0/0 | Inbound SMTP (MX) - public, arrives via UniFi port-forward 25 -> valen |
 | 80 | tcp | host | homelab_subnet (192.168.1.0/24), home_vlan (192.168.10.0/24), vpn_subnet (192.168.2.0/24), barn_lan (192.168.1.0/24) | ACME HTTP-01 challenge + HTTP->HTTPS redirect only |
 | 111 | tcp | host | homelab_subnet (192.168.1.0/24) | RPC portmapper - NFSv3 clients query it to find mountd/statd/lockd ports |
 | 111 | udp | host | homelab_subnet (192.168.1.0/24) | RPC portmapper - NFSv3 clients query it to find mountd/statd/lockd ports |
 | 443 | tcp | host | homelab_subnet (192.168.1.0/24), home_vlan (192.168.10.0/24), vpn_subnet (192.168.2.0/24), barn_lan (192.168.1.0/24), docker_bridges (172.16.0.0/12) | Every service front door (LAN, VLAN-10, VPN, barn) + local container hairpin to co-located services e.g. Garage S3 backups |
+| 465 | tcp | docker* | homelab_subnet (192.168.1.0/24), vpn_subnet (192.168.2.0/24) | SMTPS mail-client submission (implicit TLS) - LAN + WireGuard only |
+| 587 | tcp | docker* | homelab_subnet (192.168.1.0/24), vpn_subnet (192.168.2.0/24) | SMTP submission (STARTTLS) - LAN + WireGuard only |
 | 662 | tcp | host | homelab_subnet (192.168.1.0/24) | NFSv3 status monitor (NSM) - reboot notification for lock recovery |
 | 662 | udp | host | homelab_subnet (192.168.1.0/24) | NFSv3 status monitor (NSM) - reboot notification for lock recovery |
+| 993 | tcp | docker* | homelab_subnet (192.168.1.0/24), vpn_subnet (192.168.2.0/24) | IMAPS mail-client access - LAN + WireGuard only |
 | 2049 | tcp | host | homelab_subnet (192.168.1.0/24) | NFS data path - the only port NFSv4 needs; also the NFSv3 data path (mount/lock use the helper ports below) |
 | 9100 | tcp | host | monitoring_host (192.168.1.19) | Prometheus host metrics scrape (pi-cm5-1 only) |
 | 9101 | tcp | docker* | monitoring_host (192.168.1.19) | Per-container metrics scrape (Docker-published port, bypasses ufw INPUT) |

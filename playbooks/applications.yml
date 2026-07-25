@@ -30,6 +30,13 @@
 - name: Deploy Vaultwarden password manager
   ansible.builtin.import_playbook: vaultwarden.yml
 
+# Mailcow self-hosted email. Independent of the media stack; placed after
+# Vaultwarden as another standalone app on top of the platform (ingress,
+# Docker, Garage, Authentik) — see
+# docs/superpowers/specs/2026-07-25-mailcow-email-design.md.
+- name: Deploy mailcow self-hosted email
+  ansible.builtin.import_playbook: mailcow.yml
+
 # --- Media stack (on valen) -------------------------------------------------
 # Storage tree (storage layer) and GPU drivers (system layer) are already in
 # place; here we set up the shared foundations (the cross-stack Docker network,

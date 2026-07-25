@@ -1,0 +1,11 @@
+# Mailcow TLS cert export timer — managed by Ansible (roles/mailcow).
+[Unit]
+Description=Periodically check for a renewed wildcard cert and export it to mailcow
+
+[Timer]
+OnCalendar={{ mailcow_cert_export_schedule }}
+# Catch up a check missed while the host was down.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

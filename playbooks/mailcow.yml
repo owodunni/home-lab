@@ -1,0 +1,126 @@
+---
+# Deploy mailcow (self-hosted email) as its own docker-compose project (cloned
+# from upstream, pinned tag) and register the mail.jardoole.xyz route with the
+# co-located Traefik.
+#
+# What: Provisions the two backup buckets/keys on Garage (valen), then deploys
+#       the mailcow stack on the [mailcow] host and registers the Traefik route.
+# Why:  Self-hosted primary email for the family (jardoole.xyz), replacing
+#       Gmail, with Authentik SSO and the same 3-2-1 backup path every other
+#       service uses. See
+#       docs/superpowers/specs/2026-07-25-mailcow-email-design.md and
+#       docs/mailcow.md.
+# Resolves: Family email running on the platform with codified, restorable
+#           backups, instead of a third-party inbox.
+#
+# Prerequisites:
+#   - Docker runtime (service-infra layer) on the [mailcow] host.
+#   - Traefik running with conf.d at /etc/traefik/conf.d (ingress layer) — the
+#     [mailcow] host is in [ingress], so Traefik is co-located here.
+#   - Garage up on [garage] (service-infra layer) — the first play needs the
+#     `garage` CLI to provision the backup buckets/keys.
+#   - DNS + UniFi port-forward + Authentik OIDC provider are OPERATOR steps,
+#     not automated here — see docs/mailcow.md "First deploy".
+#
+# Vault vars required in group_vars/mailcow/vault.yml: 13 vault_mailcow_* vars
+# (DB/Redis/SOGo/API secrets, admin password, OIDC client id/secret, restic
+# password, two Garage key pairs) — see docs/mailcow.md "Secrets to generate"
+# for the full list, exact formats, and a generate-with command for each. Do
+# NOT hand-roll the Garage key pairs; use scripts/garage-keygen.sh (see the
+# garage-keys skill) so they validate on import.
+#
+# (Mail auth reuses the cluster-wide vault_smtp_username / vault_smtp_password
+#  from group_vars/all/vault.yml for nothing here — mailcow's own outbound
+#  relay (SMTP2GO) is a separate, UI-configured, later rollout stage; see
+#  docs/mailcow.md "Two-stage rollout".)
+
+- name: Provision mailcow backup buckets and keys on Garage
+  # Runs on the Garage host (valen) where the `garage` CLI lives. Creates the
+  # DB and volumes backup buckets and imports the vaulted keys (bring-your-own
+  # creds, so a rebuilt Garage accepts the same keys unattended). All checks
+  # short-circuit on subsequent runs. Mirrors playbooks/vaultwarden.yml.
+  hosts: garage
+  become: true
+  vars:
+    _mailcow_host: "{{ groups['mailcow'][0] }}"
+    _garage_resources:
+      - bucket: "{{ hostvars[_mailcow_host]['mailcow_backup_s3_bucket'] }}"
+        access_key: "{{ hostvars[_mailcow_host]['vault_mailcow_backup_s3_access_key'] }}"
+        secret_key: "{{ hostvars[_mailcow_host]['vault_mailcow_backup_s3_secret_key'] }}"
+      - bucket: "{{ hostvars[_mailcow_host]['mailcow_volumes_backup_s3_bucket'] }}"
+        access_key: "{{ hostvars[_mailcow_host]['vault_mailcow_volumes_backup_s3_access_key'] }}"
+        secret_key: "{{ hostvars[_mailcow_host]['vault_mailcow_volumes_backup_s3_secret_key'] }}"
+  tasks:
+    - name: List existing Garage buckets
+      ansible.builtin.command:
+        cmd: garage bucket list
+      register: garage_bucket_list
+      changed_when: false
+
+    - name: Create mailcow backup buckets
+      when: item.bucket not in garage_bucket_list.stdout
+      ansible.builtin.command:
+        cmd: garage bucket create {{ item.bucket }}
+      loop: "{{ _garage_resources }}"
+      loop_control:
+        label: "{{ item.bucket }}"
+      changed_when: true
+
+    - name: List existing Garage API keys
+      ansible.builtin.command:
+        cmd: garage key list
+      register: garage_key_list
+      changed_when: false
+
+    - name: Import the vaulted backup API keys
+      when: item.bucket not in garage_key_list.stdout
+      ansible.builtin.command:
+        cmd: >
+          garage key import --yes
+          -n {{ item.bucket }}
+          {{ item.access_key }}
+          {{ item.secret_key }}
+      loop: "{{ _garage_resources }}"
+      loop_control:
+        label: "{{ item.bucket }}"
+      no_log: true # secret key is on the command line
+      changed_when: true
+
+    - name: Read current grants on each backup bucket
+      ansible.builtin.command:
+        cmd: garage bucket info {{ item.bucket }}
+      loop: "{{ _garage_resources }}"
+      loop_control:
+        label: "{{ item.bucket }}"
+      register: garage_bucket_info
+      changed_when: false
+
+    - name: Grant key read/write access to its backup bucket
+      # Keyed on the actual grant state (not key existence) so it is idempotent
+      # and self-healing — see playbooks/authentik.yml for the full rationale.
+      when: item.item.access_key not in item.stdout
+      ansible.builtin.command:
+        cmd: >
+          garage bucket allow {{ item.item.bucket }}
+          --read --write
+          --key {{ item.item.access_key }}
+      loop: "{{ garage_bucket_info.results }}"
+      loop_control:
+        label: "{{ item.item.bucket }}"
+      changed_when: true
+
+- name: Deploy mailcow and register its Traefik route
+  hosts: mailcow
+  become: true
+
+  roles:
+    - role: mailcow
+
+  tasks:
+    - name: Deploy Traefik routing config for mailcow
+      ansible.builtin.template:
+        src: templates/traefik-mailcow.yml.j2
+        dest: /etc/traefik/conf.d/mailcow.yml
+        owner: traefik
+        group: traefik
+        mode: "0640"

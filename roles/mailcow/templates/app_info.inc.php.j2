@@ -1,0 +1,15 @@
+<?php
+  // Managed by Ansible (roles/mailcow) — normally written by upstream's
+  // generate_config.sh, which we do not run (see roles/mailcow/tasks/main.yml
+  // for why). mailcow's web UI reads this file directly for its version
+  // display; without it the admin login page errors on a missing include.
+  $MAILCOW_GIT_VERSION="{{ mailcow_version }}";
+  $MAILCOW_LAST_GIT_VERSION="";
+  $MAILCOW_GIT_OWNER="mailcow";
+  $MAILCOW_GIT_REPO="mailcow-dockerized";
+  $MAILCOW_GIT_URL="https://github.com/mailcow/mailcow-dockerized";
+  $MAILCOW_GIT_COMMIT="{{ mailcow_git_clone.after | default('') }}";
+  $MAILCOW_GIT_COMMIT_DATE="";
+  $MAILCOW_BRANCH="{{ mailcow_version }}";
+  $MAILCOW_UPDATEDAT={{ ansible_date_time.epoch }};
+?>

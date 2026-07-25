@@ -1,0 +1,30 @@
+# Traefik dynamic config for mailcow — managed by Ansible, do not edit manually.
+#
+# The wildcard cert (*.{{ traefik_domain }}) is managed by traefik-wildcard-tls.yml.j2
+# (deployed by the ingress layer). This router just selects it via certResolver.
+# Traefik is co-located with mailcow on valen, so the upstream is loopback.
+#
+# This is the WEB UI / SOGo webmail route only (HTTP, mailcow_http_port).
+# SMTP/SMTPS/submission/IMAPS (25/465/587/993) are NOT Traefik routes — mail
+# clients speak those protocols directly to mailcow's own published ports,
+# gated by firewall_rules_mailcow (group_vars/mailcow/main.yml), not by
+# Traefik/HTTP routing.
+#
+# No forward-auth middleware: mailcow has its own login (and, once configured,
+# native Generic-OIDC SSO against Authentik — see docs/mailcow.md) — wrapping
+# it in a second SSO layer would be redundant, same reasoning as
+# Jellyfin/Nextcloud/Vaultwarden's native-auth routers in this repo.
+
+http:
+  routers:
+    mailcow:
+      rule: "Host(`{{ mailcow_hostname }}`)"
+      service: mailcow
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    mailcow:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:{{ mailcow_http_port }}"

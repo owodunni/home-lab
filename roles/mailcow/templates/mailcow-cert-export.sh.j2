@@ -1,0 +1,73 @@
+#!/bin/bash
+# mailcow-cert-export.sh — managed by Ansible, do not edit manually.
+#
+# What: Extracts the *.{{ traefik_domain }} wildcard cert Traefik holds in its
+#   ACME store (/etc/traefik/acme.json) and writes it to mailcow's documented
+#   Postfix/Dovecot TLS location (data/assets/ssl/{cert,key}.pem), restarting
+#   the containers that read it directly only when the certificate content
+#   actually changed.
+# Why: mailcow's own ACME client (acme-mailcow) is disabled
+#   (SKIP_LETS_ENCRYPT=y) — Traefik already holds a valid wildcard cert for
+#   this domain (it fronts the web UI), so Postfix (465/587) and Dovecot (993)
+#   — which terminate mail TLS directly, never through Traefik — get their
+#   cert material from the same ACME store instead of running a second,
+#   independent ACME client. Mirrors mailcow's own documented
+#   traefik-certs-dumper recipe
+#   (https://docs.mailcow.email/post_installation/reverse-proxy/r_p-traefik3/)
+#   without a sidecar container: this lab's Traefik is a native systemd
+#   service, not Dockerized, so a plain script reading the same acme.json is
+#   simpler than wiring a container into another project's compose file just
+#   to reach it. Run on a timer (mailcow_cert_export_schedule) plus once at
+#   deploy time (roles/mailcow/tasks/main.yml), so a fresh install has real
+#   cert material before the first `docker compose up`.
+# Resolves: Postfix/Dovecot starting with no certificate at all.
+set -euo pipefail
+
+ACME_FILE=/etc/traefik/acme.json
+DOMAIN="{{ traefik_domain }}"
+SSL_DIR="{{ mailcow_dir }}/data/assets/ssl"
+CERT_FILE="${SSL_DIR}/cert.pem"
+KEY_FILE="${SSL_DIR}/key.pem"
+
+if [ ! -r "${ACME_FILE}" ]; then
+  echo "mailcow-cert-export: ${ACME_FILE} not readable (Traefik not deployed yet?)" >&2
+  exit 1
+fi
+
+cert_b64="$(jq -r --arg d "${DOMAIN}" \
+  '.letsencrypt.Certificates // [] | map(select(.domain.main == $d)) | first | .certificate // empty' \
+  "${ACME_FILE}")"
+key_b64="$(jq -r --arg d "${DOMAIN}" \
+  '.letsencrypt.Certificates // [] | map(select(.domain.main == $d)) | first | .key // empty' \
+  "${ACME_FILE}")"
+
+if [ -z "${cert_b64}" ] || [ -z "${key_b64}" ]; then
+  echo "mailcow-cert-export: no certificate for ${DOMAIN} in ${ACME_FILE} yet (ACME issuance still pending?)" >&2
+  exit 1
+fi
+
+new_cert="$(echo "${cert_b64}" | base64 -d)"
+
+if [ -f "${CERT_FILE}" ] && [ "${new_cert}" = "$(cat "${CERT_FILE}")" ]; then
+  # Unchanged — nothing to do, no restart.
+  exit 0
+fi
+
+mkdir -p "${SSL_DIR}"
+echo "${cert_b64}" | base64 -d > "${CERT_FILE}.new"
+echo "${key_b64}" | base64 -d > "${KEY_FILE}.new"
+chmod 644 "${CERT_FILE}.new"
+chmod 600 "${KEY_FILE}.new"
+mv -f "${CERT_FILE}.new" "${CERT_FILE}"
+mv -f "${KEY_FILE}.new" "${KEY_FILE}"
+
+echo "mailcow-cert-export: wrote a new certificate for ${DOMAIN} at $(date -Is)"
+
+# Only reload if the stack is already up (first-ever deploy runs this before
+# `docker compose up -d`, when there is nothing to restart yet).
+if docker compose -f "{{ mailcow_dir }}/docker-compose.yml" ps -q nginx-mailcow >/dev/null 2>&1 \
+    && [ -n "$(docker compose -f "{{ mailcow_dir }}/docker-compose.yml" ps -q nginx-mailcow 2>/dev/null)" ]; then
+  cd "{{ mailcow_dir }}"
+  docker compose restart nginx-mailcow postfix-mailcow dovecot-mailcow
+  echo "mailcow-cert-export: restarted nginx-mailcow postfix-mailcow dovecot-mailcow"
+fi

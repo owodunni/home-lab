@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  role_name: mailcow
+  author: home-lab
+  description: >-
+    Deploy mailcow-dockerized (self-hosted email) at a pinned git tag, with a
+    docker-compose.override.yml backup sidecar (mysqldump + volumes -> restic
+    -> Garage S3), Traefik-exported wildcard TLS for Postfix/Dovecot, and a
+    loopback-proxied web UI.
+  license: MIT
+  min_ansible_version: "2.15"
+dependencies: []

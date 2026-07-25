@@ -1,0 +1,12 @@
+# Mailcow TLS cert export from Traefik's ACME store — managed by Ansible
+# (roles/mailcow).
+[Unit]
+Description=Export the wildcard cert from Traefik's acme.json into mailcow's data/assets/ssl
+After=network-online.target traefik.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart={{ mailcow_cert_export_script }}
+# Runs as root: reads Traefik's 0600 acme.json and mailcow's docker socket.
+User=root

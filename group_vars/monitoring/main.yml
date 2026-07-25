@@ -112,6 +112,11 @@ monitoring_blackbox_services:
   jellyfin-relay: {probe: false, reason: "relay of jellyfin; barn-local only, unreachable from [monitoring]"}
   nextcloud: {kind: app, url: "https://nextcloud.{{ traefik_domain }}"}
   vaultwarden: {kind: app, url: "https://vaultwarden.{{ traefik_domain }}"}
+  # Web UI / SOGo webmail front door only — probes liveness + cert expiry for
+  # the HTTP route. SMTP/IMAPS (25/465/587/993) aren't HTTP and have no
+  # blackbox coverage here; see design spec "Monitoring" for the noted
+  # SMTP-probe follow-up (out of scope for this deploy).
+  mailcow: {kind: app, url: "https://mail.{{ traefik_domain }}"}
   grafana: {kind: app, url: "https://grafana.{{ traefik_domain }}"}
   authentik: {kind: app, url: "https://auth.{{ traefik_domain }}"}
   garage: {kind: app, url: "https://s3.{{ traefik_domain }}"}

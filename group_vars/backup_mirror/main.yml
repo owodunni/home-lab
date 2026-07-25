@@ -70,3 +70,5 @@ backup_mirror_buckets:
   - jellyfin-backup
   - jellyseerr-backup
   - qbittorrent-backup
+  - mailcow-backup
+  - mailcow-volumes-backup

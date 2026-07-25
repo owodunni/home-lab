@@ -1,0 +1,7 @@
+---
+# Reload systemd's unit cache after the cert-export service/timer files
+# change, so a modified unit definition takes effect. main.yml explicitly
+# flushes handlers before enabling the timer, so this always runs first.
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true

@@ -1,0 +1,175 @@
+---
+# Deploy mailcow-dockerized: clone at a pinned tag, template its config, add a
+# backup-sidecar override, export the wildcard TLS cert, then bring the stack
+# up. See group_vars/mailcow/main.yml for the full rationale and docs/mailcow.md
+# for the operator runbook.
+#
+# UNLIKE every other service role in this repo, this role does NOT author a
+# docker-compose.yml — mailcow ships its own (cloned from upstream) and we
+# only template mailcow.conf + docker-compose.override.yml (see that file's
+# header comment for why an override, not a merge).
+
+- name: Install mailcow prerequisite packages
+  # git/openssl/curl/gawk/coreutils/grep/jq — mailcow's own documented
+  # prerequisites (install-mailcow.md). coreutils/grep ship on Debian by
+  # default but are listed explicitly to match upstream's own instructions.
+  ansible.builtin.apt:
+    name:
+      - git
+      - openssl
+      - curl
+      - gawk
+      - coreutils
+      - grep
+      - jq
+    state: present
+    update_cache: true
+    cache_valid_time: 86400 # 24h — skip refresh if cache is recent
+
+- name: Clone mailcow-dockerized at the pinned tag
+  # Idempotent over an existing checkout: the git module only fetches/checks
+  # out when the working tree isn't already at mailcow_version. Upgrading
+  # mailcow is a deliberate mailcow_version bump + re-run (design spec
+  # "Upgrade discipline"), replacing mailcow's own update.sh self-update.
+  ansible.builtin.git:
+    repo: https://github.com/mailcow/mailcow-dockerized.git
+    dest: "{{ mailcow_dir }}"
+    version: "{{ mailcow_version }}"
+    force: false
+  register: mailcow_git_clone
+
+- name: Create the TLS asset directory
+  # data/ is gitignored upstream (pure runtime state), so the clone never
+  # creates it — needed before both the cert-export script and mailcow's own
+  # containers can read/write here.
+  ansible.builtin.file:
+    path: "{{ mailcow_dir }}/data/assets/ssl"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Create the web UI include directory
+  # data/web/inc/ is also gitignored upstream — needed for app_info.inc.php
+  # below (normally written by generate_config.sh, which we do not run).
+  ansible.builtin.file:
+    path: "{{ mailcow_dir }}/data/web/inc"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Template mailcow.conf
+  # backup: true (not blind-overwrite) per CLAUDE.md "Documenting Config
+  # Changes" — config changes are meant to flow from Ansible, but a backup
+  # copy costs nothing and catches an unexpected upstream format change.
+  # Mode 0600: contains DB/Redis/API secrets and the backup sidecars' restic +
+  # S3 credentials (see the template's "Ansible-managed additions" section).
+  ansible.builtin.template:
+    src: mailcow.conf.j2
+    dest: "{{ mailcow_dir }}/mailcow.conf"
+    owner: root
+    group: root
+    mode: "0600"
+    backup: true
+
+- name: Symlink .env -> mailcow.conf
+  # mailcow's own hard requirement (generate_config.sh checks for exactly
+  # this at the top of every script it ships) — `docker compose` has no other
+  # way to learn ${DBROOT} etc. for interpolation, since mailcow's
+  # docker-compose.yml carries no per-service env_file: of its own.
+  ansible.builtin.file:
+    src: mailcow.conf
+    dest: "{{ mailcow_dir }}/.env"
+    state: link
+    force: true
+
+- name: Template the web UI app_info.inc.php
+  ansible.builtin.template:
+    src: app_info.inc.php.j2
+    dest: "{{ mailcow_dir }}/data/web/inc/app_info.inc.php"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Template docker-compose.override.yml (backup sidecars)
+  ansible.builtin.template:
+    src: docker-compose.override.yml.j2
+    dest: "{{ mailcow_dir }}/docker-compose.override.yml"
+    owner: root
+    group: root
+    mode: "0640"
+
+- name: Deploy the TLS cert-export script
+  ansible.builtin.template:
+    src: mailcow-cert-export.sh.j2
+    dest: "{{ mailcow_cert_export_script }}"
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Run the cert-export script now (initial deploy)
+  # Runs BEFORE `docker compose up -d` below so Postfix/Dovecot/nginx start
+  # with real cert material already in place instead of racing the timer.
+  # Tolerated to fail here: on a genuinely first-ever deploy, Traefik may not
+  # have issued the wildcard cert yet (e.g. DNS not cut over) — the periodic
+  # timer (installed below) picks it up on the next tick once it exists, and
+  # the containers will simply retry/fail-healthcheck until then rather than
+  # this play aborting the whole rollout.
+  ansible.builtin.command:
+    cmd: "{{ mailcow_cert_export_script }}"
+  register: mailcow_cert_export_initial
+  changed_when: "'wrote a new certificate' in mailcow_cert_export_initial.stdout"
+  failed_when: false
+
+- name: Warn if the initial cert export found no certificate yet
+  ansible.builtin.debug:
+    msg: >-
+      mailcow-cert-export could not find a cert for {{ traefik_domain }} in
+      Traefik's acme.json yet (rc={{ mailcow_cert_export_initial.rc }}).
+      Postfix/Dovecot will start without valid TLS material until the
+      {{ mailcow_cert_export_schedule }} timer catches a fresh cert — confirm
+      Traefik has actually issued the wildcard cert (see playbooks/traefik.yml)
+      and re-run `{{ mailcow_cert_export_script }}` by hand once it has.
+  when: mailcow_cert_export_initial.rc != 0
+
+- name: Deploy the cert-export systemd service
+  ansible.builtin.template:
+    src: mailcow-cert-export.service.j2
+    dest: /etc/systemd/system/mailcow-cert-export.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Deploy the cert-export systemd timer
+  ansible.builtin.template:
+    src: mailcow-cert-export.timer.j2
+    dest: /etc/systemd/system/mailcow-cert-export.timer
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Flush handlers before enabling the timer
+  # So the timer unit reload above is applied before we (idempotently) enable
+  # it — avoids "Failed to enable unit: Unit not found" on a first-ever run.
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start the cert-export timer
+  ansible.builtin.systemd:
+    name: mailcow-cert-export.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Pull and start the mailcow stack
+  # docker compose auto-merges docker-compose.override.yml alongside
+  # docker-compose.yml from the same project directory — no `files:` override
+  # needed. pull: always keeps pinned-but-mutable-tag images (e.g. :latest
+  # sidecars) current; mailcow's own images are pinned per-tag upstream.
+  community.docker.docker_compose_v2:
+    project_src: "{{ mailcow_dir }}"
+    state: present
+    pull: always
+    remove_orphans: true
