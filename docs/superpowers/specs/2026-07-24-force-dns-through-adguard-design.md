@@ -140,10 +140,41 @@ attempting DNS-over-TLS fails its handshake and falls back to system DNS — whi
 Layer 1 now redirects. Safe because, once AdGuard is the enforced resolver,
 there is no legitimate outbound DoT left on the Home zone.
 
+**Why block, not redirect (as we do for :53).** The `:53` redirect works
+*because plain DNS has no authentication* — the client trusts whatever answer
+comes back, so a transparent DNAT to the gateway is invisible. DoT/DoQ is DNS
+wrapped in **TLS**: before any query flows, the client validates the server's
+**certificate against the hostname it dialed** (`dns.google`,
+`cloudflare-dns.com`, sometimes a pinned key). Redirect that connection to
+AdGuard and the handshake *fails* — AdGuard can only present its own cert, never
+Google's. So a redirect on `:853` yields the **same outcome as a block** (the DoT
+attempt dies and the resolver falls back to the now-redirected `:53`), but adds
+failure modes a block avoids: a Strict-mode or cert-pinning client gets a TLS
+alert instead of a clean fall-through. TLS is *designed* to make transparent
+interception detectable, so — unlike `:53` — there is no way for AdGuard to
+transparently "answer" `:853`. Blocking is the honest, simpler expression of
+"this will fail anyway."
+
 ### Layer 3 — DoH (:443): AdGuard-side, in code
 
 Port 443 DoH is indistinguishable from normal HTTPS, so it cannot be blocked by
-port. Per the **code-only** decision, two additions to `group_vars/adguard/`
+port. Layer 3 doesn't intercept the DoH traffic itself — it exploits **bootstrap,
+the one moment a DoH client is vulnerable.**
+
+**How it gets used (the chicken-and-egg trap).** Before a browser/OS can send a
+single DoH query to (say) `mozilla.cloudflare-dns.com`, it must first learn that
+hostname's **IP address**. That lookup is ordinary system DNS → the router →
+**AdGuard**. `filter_52` null-routes those DoH-provider hostnames, so the bootstrap
+lookup fails, the client can't find its DoH server, and it **falls back to system
+DNS = AdGuard**. In other words, *a DoH client has to resolve its provider's name
+through AdGuard before it can bypass AdGuard* — so the filter fires every time a
+client tries to turn DoH on. (Firefox has an even cleaner hook: it queries the
+`use-application-dns.net` canary first and, on NXDOMAIN, never attempts DoH at
+all.) The **one gap** is an app with a *hardcoded DoH IP* — it skips the hostname
+lookup, so nothing routes through AdGuard and Layer 3 can't touch it. That is the
+accepted residual below.
+
+Per the **code-only** decision, two additions to `group_vars/adguard/`
 (deployed with `make app service=adguard`, no router upkeep):
 
 1. **Anti-DoH blocklist filter.** Add **HaGeZi's Encrypted DNS/VPN/TOR/Proxy
@@ -151,15 +182,36 @@ port. Per the **code-only** decision, two additions to `group_vars/adguard/`
    `adguard_filters`. AdGuard null-routes those DoH/DoT/VPN/proxy hostnames, so a
    browser's DoH bootstrap fails and it falls back to system DNS (redirected by
    Layer 1).
-2. **Firefox canary — via `blocking_mode: nxdomain`.** Firefox queries
-   `use-application-dns.net` before enabling auto-DoH and stays off DoH only on an
-   **NXDOMAIN** answer. That canary domain is already carried by the `filter_52`
-   list, but AdGuard's default block answers `0.0.0.0` — which looks like a valid
-   record and leaves Firefox DoH *on*. So we set `dns.blocking_mode: nxdomain`
-   (`adguard_blocking_mode`), which makes the blocked canary return NXDOMAIN and
-   actually signal Firefox. Side benefit: every blocked ad fails fast instead of
-   hanging on a `0.0.0.0` connection. (Verified against current AdGuard Home docs:
-   Hostlists Registry catalog + the blocking-mode reference.)
+2. **Firefox canary — an explicit rule + `blocking_mode: nxdomain`.** Firefox
+   queries `use-application-dns.net` before enabling auto-DoH and stays off DoH
+   only on an **NXDOMAIN** answer. Two corrections to the original design here,
+   both found in implementation:
+   - The canary is **not** carried by `filter_52` (verified against the
+     downloaded `52.txt`: zero `application-dns` entries). It is blocked
+     explicitly via `adguard_blocked_domains`.
+   - `blocking_mode` must be rendered under **`filtering:`**, not `dns:` —
+     schema 34 reads `filtering.blocking_mode` and silently ignores a `dns:`
+     copy, leaving the live answer at the `0.0.0.0` default.
+
+   Side benefit: every blocked ad fails fast instead of hanging on a `0.0.0.0`
+   connection.
+
+**iCloud Private Relay (why `nxdomain` is load-bearing, not cosmetic).**
+`filter_52` also blocks `mask.icloud.com` / `mask-h2.icloud.com` /
+`mask-canary.icloud.com` — correctly, since Private Relay tunnels Safari traffic
+and resolves DNS through Apple, bypassing every filter in this design. But the
+*answer* matters. Apple's network guidance is explicit: return **NXDOMAIN or
+NoError-NoData** for the mask hosts so the device detects the block, alerts the
+user and falls back to direct connections — and "avoid causing DNS resolution
+timeouts or silently dropping IP packets sent to the Private Relay server, as
+this can lead to delays on client devices."
+
+Answering `0.0.0.0` is exactly that failure mode: iOS believes the relay
+**resolved** and hangs trying to reach it, so Safari stops loading public pages
+altogether while LAN names (`jellyfin.jardoole.xyz`) keep working — Private Relay
+never proxies local-network destinations. This was observed in production on an
+iPhone before the `filtering.blocking_mode` fix. **Blocking Private Relay without
+`nxdomain` breaks Safari.**
 
 **Residual (accepted):** a browser pointed at a DoH endpoint *not* on the
 blocklist, or an app with a hardcoded DoH server on 443, still escapes. This is
@@ -216,10 +268,17 @@ From a **Home-zone** device:
    DNS (canary), and resolving a public DoH endpoint hostname is blocked.
 5. **Split-horizon intact:** `nslookup jellyfin.jardoole.xyz` resolves to valen's
    LAN IP.
+6. **Blocked domains answer NXDOMAIN, not `0.0.0.0`:** `dig mask.icloud.com`
+   must return `status: NXDOMAIN` with no answer section. A `0.0.0.0` A-record
+   here means `blocking_mode` is not taking effect (it must be under
+   `filtering:`, not `dns:`) and **iPhone Safari will hang on every page** —
+   see the Private Relay note under Layer 3. Confirm on an iOS device: Safari
+   loads public sites, and iOS reports Private Relay as unavailable on this
+   network rather than failing silently.
 
 From a **Homelab** host (regression):
 
-6. AdGuard cold-starts cleanly and its query log flows — proving the Homelab
+7. AdGuard cold-starts cleanly and its query log flows — proving the Homelab
    exemption prevents the bootstrap self-loop.
 
 ## Recovery / break-glass
@@ -243,10 +302,10 @@ self-rescue by setting manual DNS; once the redirect is live it cannot. So:
    still works. Doing this before the router redirect means no window where DoH
    is the only escape and it is already being closed.
 2. **UniFi DNAT :53 redirect** (Layer 1): apply Rule 1 in the UniFi runbook
-   below, run tests 1–2 and 5–6.
+   below, run tests 1–2 and 5–7.
 3. **UniFi :853 block** (Layer 2): apply Rule 2 in the UniFi runbook below, run
    test 3.
-4. **Full test matrix**, including the Homelab regression (test 6).
+4. **Full test matrix**, including the Homelab regression (test 7).
 
 ## UniFi runbook (Layers 1–2, manual)
 
@@ -278,7 +337,9 @@ both rules can reference them by name:
 
 NAT translation happens **before** the firewall zones process routing, so this is
 a **NAT** policy, not a firewall rule. Go to **Settings → Policy Table** (Policy
-Engine) → **Create New Policy → NAT** and set:
+Engine) → **Create New Policy**. The first choice is the **policy type** — a list
+of `Firewall / Route / QoS / NAT / DNS / ACL / Port Forwarding`; pick **NAT**,
+which then reveals the fields below:
 
 | Field | Value |
 |---|---|
@@ -307,29 +368,50 @@ The two **Match Opposite** toggles are the crux:
 reply returns through the same device and UniFi reverses the DNAT statefully — the
 client sees the answer as if it came from `8.8.8.8`.
 
-**Verify:** tests 1, 2, 5, and the Homelab regression (test 6).
+**Verify:** tests 1, 2, 5, and the Homelab regression (test 7).
 
 ### Rule 2 — Block `:853` (kill DoT / DoQ)
 
-A firewall policy dropping encrypted-DNS-on-853 so those clients fall back to the
-now-redirected `:53`. Go to **Settings → Policy Table** → **Create New Policy →
-Firewall** and set:
+Unlike Rule 1 this is **not** a NAT policy — there is nothing to translate (see
+"Why block, not redirect" under Layer 2). It is a plain zone-based **Firewall**
+policy that drops encrypted-DNS-on-853 so those clients fall back to the
+now-redirected `:53`. Go to **Settings → Policy Table** (Policy Engine) →
+**Create New Policy**, and from the **policy type** list
+(`Firewall / Route / QoS / NAT / DNS / ACL / Port Forwarding`) pick **Firewall** —
+only then does the **Action** field below appear. Set:
 
 | Field | Value |
 |---|---|
+| Policy type | **Firewall** (chosen from the type list — *not* NAT; there is nothing to translate) |
 | Name | `Block DoT` |
-| Action | **Block** (Drop) |
-| Source zone / network | **Home** (VLAN 10) |
-| Destination zone | **Internet / External (WAN)** |
-| Protocol | **TCP/UDP** |
-| Destination → Port | **`DoT`** group (`853`) |
+| Action | **Block** (Drop — silently discard; no "Reject", so probing clients just time out and fall back) |
+| IP version | **IPv4** (VLAN 10 hands out no IPv6; add a parallel IPv6 rule only if that ever changes) |
+| Protocol | **TCP/UDP** (one rule covers both DoT-over-TCP and DoQ-over-UDP) |
+| Source → Zone | **Home** (VLAN 10) |
+| Source → IP | **Any** (every Home client) |
+| Source → Port | **Any** |
+| Destination → Zone | **Internet / External (WAN)** — DoT/DoQ endpoints are all off-network; scoping to WAN leaves intra-Home and Home→Gateway DNS untouched |
+| Destination → IP | **Any** |
+| Destination → Port | **`DoT`** group (`853`, TCP + UDP) — the prerequisite Port group |
+| Logging | Optional; enable briefly to confirm the rule is catching `:853` attempts, then turn off to avoid log noise |
+| Schedule | Always |
 
-- Covers both DoT (TCP 853) and DNS-over-QUIC (UDP 853).
-- In the zone model a Block policy on the Home→Internet pair is evaluated ahead of
-  a general allow; if you order policies manually, place it above that allow.
-- Nothing legitimate uses `:853` once AdGuard is the enforced resolver.
+- **Both transports in one rule.** TCP `853` = DoT, UDP `853` = DNS-over-QUIC
+  (DoQ). The `DoT` port group holds both, so this single policy covers each.
+- **Ordering.** In the zone model a Block policy on the `Home → Internet` pair is
+  evaluated ahead of a general allow. If your policies are manually ordered, place
+  this **above** any broad `Home → Internet: allow`; if UniFi auto-orders by
+  specificity, a port-scoped block already outranks a catch-all allow — verify it
+  sits above in the Policy Table list.
+- **Why WAN, not "any destination".** A device's own gateway (`192.168.10.1`)
+  never serves `:853`, and intra-Home traffic is irrelevant, so restricting the
+  destination zone to the Internet keeps the rule narrow and can't accidentally
+  interfere with LAN/gateway flows.
+- Nothing legitimate uses `:853` once AdGuard is the enforced resolver, so there
+  is no allow-list carve-out to maintain.
 
-**Verify:** test 3.
+**Verify:** test 3 (`kdig -d @1.1.1.1 +tls example.com` from a Home device must
+fail/time out).
 
 ### Rollback (either rule)
 

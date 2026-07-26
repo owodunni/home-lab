@@ -44,16 +44,27 @@ dns:
     - {{ b }}
 {% endfor %}
   upstream_mode: load_balance
-  # Blocked domains answer with NXDOMAIN (see adguard_blocking_mode) so the
-  # Firefox DoH canary in the anti-DoH filter list can switch Firefox's own DoH
-  # off; also fails blocked ads fast instead of hanging on a 0.0.0.0 connection.
-  blocking_mode: {{ adguard_blocking_mode }}
 # Filtering — in the native schema these fields live under `filtering:` (NOT
 # `dns:`). Authoring them here + pinning schema_version means AdGuard reads them
 # verbatim with no migration to relocate or drop them.
 filtering:
   protection_enabled: true
   filtering_enabled: true
+  # How a blocked domain is answered. MUST live under `filtering:` — schema 34
+  # reads `filtering.blocking_mode`, and a copy under `dns:` is silently ignored
+  # (AdGuard then rewrites this file with the default, answering 0.0.0.0).
+  # RESOLVES: that exact bug. `blocking_mode` sat under `dns:` above, so blocked
+  # domains answered 0.0.0.0 instead of NXDOMAIN. iCloud Private Relay
+  # (mask.icloud.com, blocked by the anti-DoH filter) therefore looked RESOLVED
+  # to iOS, which then hung trying to reach the relay at 0.0.0.0 and Safari
+  # stopped loading pages. Apple's network guidance is explicit: return NXDOMAIN
+  # or NoError-NoData for the mask hosts so the device detects the block and
+  # alerts the user, and "avoid causing DNS resolution timeouts or silently
+  # dropping IP packets sent to the Private Relay server, as this can lead to
+  # delays on client devices".
+  # Also what makes the Firefox DoH canary work (NXDOMAIN is the only answer
+  # that switches Firefox's own DoH off) and fails blocked ads fast.
+  blocking_mode: {{ adguard_blocking_mode }}
   # Porn / adult content — AdGuard Parental Control category.
   parental_enabled: {{ adguard_parental_enabled | lower }}
   # Social media — blocked by service name, 24/7 (no per-day schedule windows).

@@ -130,9 +130,13 @@ adguard_filters:
   #   (which the UniFi :53 redirect and :853 block on the router CANNOT catch)
   #   fails its bootstrap and falls back to system DNS -- which the router
   #   redirect then forwards here.
-  # It also carries the Firefox canary (use-application-dns.net); paired with
-  #   adguard_blocking_mode: nxdomain below, that makes Firefox turn its own DoH
-  #   off entirely.
+  # NOTE: this list does NOT carry the Firefox canary (use-application-dns.net)
+  #   — verified against the downloaded 52.txt. The canary is blocked explicitly
+  #   via adguard_blocked_domains below instead.
+  # It DOES block iCloud Private Relay (||mask.icloud.com^, ||mask-h2.icloud.com^,
+  #   ||mask-canary.icloud.com^), which is intended: Private Relay tunnels Safari
+  #   traffic and resolves DNS through Apple, bypassing every filter here. That
+  #   block is only safe with adguard_blocking_mode: nxdomain below — see there.
   # RESIDUAL (accepted, per the spec's code-only DoH stance): an endpoint not on
   #   this list still slips through; we do not IP-block DoH providers at the router.
   - id: 52
@@ -141,12 +145,20 @@ adguard_filters:
     url: "https://adguardteam.github.io/HostlistsRegistry/assets/filter_52.txt"
 
 # Blocked-domain response mode. NXDOMAIN (NOT AdGuard's default 0.0.0.0) is
-# REQUIRED for the Firefox DoH canary to work: Firefox disables its own DoH only
-# when use-application-dns.net returns NXDOMAIN -- a 0.0.0.0 answer looks like a
-# valid A record and leaves Firefox DoH ON. The anti-DoH filter above lists that
-# canary domain, so nxdomain mode is what makes blocking it actually signal
-# Firefox. Bonus: every blocked ad/tracker fails fast (NXDOMAIN) instead of
-# leaving a client hanging on a connection attempt to 0.0.0.0.
+# REQUIRED for two reasons:
+#  1. iCloud Private Relay. The anti-DoH filter blocks mask.icloud.com; with the
+#     default 0.0.0.0 answer iOS believes the relay RESOLVED and hangs trying to
+#     reach it, so Safari stops loading pages entirely (observed on an iPhone --
+#     14 retries in 2 minutes in the query log). Apple's network guidance says to
+#     return NXDOMAIN / NoError-NoData for the mask hosts so the device detects
+#     the block, alerts the user and falls back to direct connections.
+#  2. The Firefox DoH canary. Firefox disables its own DoH only when
+#     use-application-dns.net returns NXDOMAIN; a 0.0.0.0 answer looks like a
+#     valid A record and leaves Firefox DoH ON.
+# Bonus: every blocked ad/tracker fails fast instead of leaving a client hanging
+# on a connection attempt to 0.0.0.0.
+# NOTE: this key is rendered under `filtering:` in the template, NOT `dns:` --
+# schema 34 reads filtering.blocking_mode and silently ignores a dns-level copy.
 adguard_blocking_mode: nxdomain
 
 # Porn/adult: AdGuard Parental Control category (a single flag in the template).
@@ -178,6 +190,13 @@ adguard_time_zone: "UTC"
 # Add any further sites you want blocked by hostname here.
 adguard_blocked_domains:
   - omni.se
+  # Firefox DoH canary. Firefox queries this before auto-enabling its own DoH and
+  # stays on system DNS when it gets NXDOMAIN (hence adguard_blocking_mode above).
+  # WHY here and not left to the filter list: the anti-DoH filter (52) was assumed
+  # to carry this domain, but it does NOT -- verified against the downloaded
+  # 52.txt, which has zero `application-dns` entries. Without this rule Layer 3's
+  # Firefox defence never fires at all.
+  - use-application-dns.net
 
 # Always-resolvable allowlist — domains that must NEVER be blocked by any filter
 # list or category (rendered as `@@||domain^` exception rules, which override
