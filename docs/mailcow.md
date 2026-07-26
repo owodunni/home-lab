@@ -34,14 +34,27 @@ Vendor reference guides used while building this: `install-mailcow.md`,
 
 ### Why mailcow owns its own compose project
 
-Every other service in this repo has an Ansible-authored `docker-compose.yml.j2`.
-Mailcow is the exception: its own compose project is cloned at a pinned git tag
-and left completely untouched. This role only templates `mailcow.conf` and a
-`docker-compose.override.yml` (which `docker compose` merges automatically,
-same directory, no `-f` flag needed) adding the backup sidecars — so a
-`mailcow_version` bump never has to reconcile Ansible-authored edits against
-upstream's compose file. See `roles/mailcow/tasks/main.yml` and the override
-template's header comment.
+Every other service in this repo has an Ansible-authored `docker-compose.yml.j2`
+— but those are 1–3 containers configured almost entirely through environment
+variables, so authoring the compose file ourselves is cheap. mailcow-dockerized
+is a different animal: ~19 tightly coupled services (Postfix, Dovecot, Rspamd,
+nginx, MariaDB, Redis, SOGo, ClamAV, Unbound, watchdog, …) whose compose file
+bind-mounts hundreds of upstream-maintained config files from the repo's
+`data/conf/` tree by **relative path** (`./data/conf/postfix/`, …). The compose
+file does not work standalone — it only functions inside the upstream git tree,
+and upstream revises compose file, config tree, and image tags **in lockstep**
+with every monthly release (their supported update path, `update.sh`, is
+essentially a `git pull`). Templating the compose file would mean vendoring
+all of that and hand-reconciling it against every upstream release.
+
+So the role clones the repo at a pinned git tag and leaves it completely
+untouched, templating only the two files upstream itself treats as the
+operator's: `mailcow.conf` (what their `generate_config.sh` would have
+written) and a `docker-compose.override.yml` (which `docker compose` merges
+automatically, same directory, no `-f` flag needed) adding the backup
+sidecars. A `mailcow_version` bump therefore never has to reconcile
+Ansible-authored edits against upstream's compose file. See
+`roles/mailcow/tasks/main.yml` and the override template's header comment.
 
 ### Why MariaDB isn't restic'd directly
 
@@ -59,7 +72,14 @@ here via `mysql`, not `pg_restore`).
 
 Unlike every other restic-backed service, mailcow's vmail/Rspamd/Redis/config
 data lives in Docker **named volumes** (`vmail-vol-1`, `crypt-vol-1`, ...), not
-host bind-mount directories under the compose dir. The existing `restic`
+host bind-mount directories under the compose dir. The named volumes are
+inherited, not chosen: upstream's compose file declares them, and since that
+file is deployed untouched (see above), its storage layout comes with it.
+Rewriting ~10 volume definitions into bind mounts via the override file would
+work mechanically, but upstream's permission bootstrapping, update path, and
+docs all assume the named volumes — it would recreate exactly the per-release
+reconciliation burden the clone-untouched approach exists to avoid. Teaching
+the backup machinery one new engine was the cheaper, one-time cost. The existing `restic`
 engine's restore handler does a host `cp -a {{ compose_dir }}/.restore/data/<path>
 {{ compose_dir }}/<path>` — there is no such host directory for a named
 volume. `restic_volumes` (a second new engine,
@@ -74,7 +94,7 @@ restore dir and the volume, instead of a host `cp`.
 
 Before the first run, create `group_vars/mailcow/vault.yml` (`uv run
 ansible-vault create group_vars/mailcow/vault.yml`, see the `vault` skill) with
-these 13 `vault_mailcow_*` vars. Formats below aren't arbitrary — several are
+these 12 `vault_mailcow_*` vars. Formats below aren't arbitrary — several are
 hard constraints from mailcow or Garage, not just "make it random":
 
 | Variable | Format | Generate with | Used for |
@@ -84,7 +104,6 @@ hard constraints from mailcow or Garage, not just "make it random":
 | `vault_mailcow_redispass` | same: 28 chars, `A-Za-z0-9` only | same command | Redis password (`REDISPASS`) |
 | `vault_mailcow_sogo_url_encryption_key` | **exactly 16 chars**, `A-Za-z0-9` only — hard requirement, mailcow rejects anything else | `openssl rand -base64 32 \| tr -dc 'A-Za-z0-9' \| head -c 16` | SOGo URL encryption key |
 | `vault_mailcow_api_key` | alphanumeric (mailcow allows `a-z A-Z 0-9 -` too, but plain alnum is simplest), ~32 chars | `openssl rand -hex 16` (32 hex chars) | Pre-seeds the admin API key (`API_KEY` in mailcow.conf) |
-| `vault_mailcow_admin_password` | free-form; base64 is fine, it's typed into a login form | `openssl rand -base64 24` | **Not** templated anywhere — just a recorded value for the "change admin/moohoo password" step in "First login" below |
 | `vault_mailcow_oidc_client_id` | alphanumeric, ~40 chars (matches Authentik's own default client-ID shape) | `openssl rand -hex 20` (40 hex chars) | Pasted into **both** the Authentik provider's Client ID field and mailcow's Identity Provider form (see "SSO" below) |
 | `vault_mailcow_oidc_client_secret` | free-form, long; base64 is fine | `openssl rand -base64 48` | Pasted into both sides' Client Secret field, same as above |
 | `vault_mailcow_restic_password` | 32 bytes, base64 — repo-wide convention for every restic repo password | `openssl rand -base64 32` | Encrypts **both** restic repos (DB + volumes) — losing it makes existing snapshots unrecoverable |
@@ -118,12 +137,13 @@ Three things need a human before/around the first run:
 
 2. **UniFi**:
    - Port-forward `25/tcp` -> valen's LAN IP (public inbound MX).
-   - Split-horizon A-record override: `mail.jardoole.xyz` -> valen's LAN IP,
-     so LAN/VPN clients reach IMAP/submission directly instead of hairpinning
-     through Cloudflare (same convention as every other `*.jardoole.xyz`
-     service — see CLAUDE.md "DNS resolution").
    - Confirm DDNS keeps the public `mail.jardoole.xyz` A record current
      *before* inbound go-live.
+
+   (No split-horizon step here: LAN/VPN clients resolve `mail.jardoole.xyz` ->
+   valen via the AdGuard rewrite in `group_vars/adguard/main.yml`, the same
+   mechanism as every other `*.jardoole.xyz` service — redeploy AdGuard
+   (`make app service=adguard`) if it hasn't picked the entry up yet.)
 
 3. **Garage buckets/keys** — provisioned automatically by the first play in
    `playbooks/mailcow.yml`, as long as the vault vars above are set first.
@@ -137,10 +157,9 @@ make app service=mailcow      # runs playbooks/mailcow.yml
 ### First login
 
 1. Visit `https://mail.jardoole.xyz/admin`, log in with `admin` / `moohoo`.
-2. **Change the admin password immediately** — set it to
-   `vault_mailcow_admin_password` (or your own choice; that vault var exists so
-   there is a recorded value, not because anything templates it automatically —
-   mailcow's admin password lives in its own DB, not `mailcow.conf`).
+2. **Change the admin password immediately** and record it in your password
+   manager — it lives only in mailcow's own DB (not `mailcow.conf`), so
+   nothing in Ansible or the vault manages it.
 3. Confirm **System -> Configuration -> Access -> API** shows the key matching
    `vault_mailcow_api_key` (pre-seeded via `mailcow.conf`'s `API_KEY`) — rotate
    it here if you ever need to.

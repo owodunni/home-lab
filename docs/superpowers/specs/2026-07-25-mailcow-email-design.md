@@ -156,8 +156,9 @@ skill:
 - Native mail clients (phones) authenticate with per-device **app passwords**
   created in the mailcow UI — OIDC cannot carry IMAP/SMTP auth.
 - Client ID/secret live in `group_vars/mailcow/vault.yml` (`vault_` prefix,
-  ansible-vault encrypted), as does the mailcow admin password and DB/API
-  secrets.
+  ansible-vault encrypted), as do the DB/API secrets. The mailcow admin UI
+  password is deliberately NOT vaulted — nothing templates it (it lives only
+  in mailcow's own DB), so it stays in the operator's password manager.
 - SOGo/webmail login stays on the LAN/VPN-only UI; Authentik outage does not
   affect mail delivery, only interactive login.
 

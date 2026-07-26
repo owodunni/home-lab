@@ -22,8 +22,8 @@
 #   - DNS + UniFi port-forward + Authentik OIDC provider are OPERATOR steps,
 #     not automated here — see docs/mailcow.md "First deploy".
 #
-# Vault vars required in group_vars/mailcow/vault.yml: 13 vault_mailcow_* vars
-# (DB/Redis/SOGo/API secrets, admin password, OIDC client id/secret, restic
+# Vault vars required in group_vars/mailcow/vault.yml: 12 vault_mailcow_* vars
+# (DB/Redis/SOGo/API secrets, OIDC client id/secret, restic
 # password, two Garage key pairs) — see docs/mailcow.md "Secrets to generate"
 # for the full list, exact formats, and a generate-with command for each. Do
 # NOT hand-roll the Garage key pairs; use scripts/garage-keygen.sh (see the
