@@ -50,20 +50,30 @@ This is also why the media stack's GPU drivers and data tree live in `system` an
 `storage` rather than alongside the media apps: they are host hardware and storage
 state, consumed by the apps above.
 
-### DNS resolution (Ubiquiti split-horizon)
+### DNS resolution (AdGuard split-horizon)
 
-`*.jardoole.xyz` names are served by the Ubiquiti router with **split-horizon
-DNS**: each is a CNAME `<service>.jardoole.xyz` → `<host>.jardoole.xyz` whose **A
-record** the router overrides to that host's **LAN IP** (e.g.
-`jellyseerr.jardoole.xyz` → `valen.jardoole.xyz` → `192.168.1.197`). Internal
-clients therefore reach services directly on the LAN over IPv4 — no hairpin through
-Cloudflare.
+`*.jardoole.xyz` names resolve on the LAN via **AdGuard Home** (`[adguard]` →
+pi-cm5-3), the router's single upstream resolver. The split-horizon is a hybrid:
 
-**Caveat:** the router overrides only the **A** record. The public **AAAA** record
-still resolves to Cloudflare, so an IPv6-preferring client on the LAN reaches
-services via Cloudflare instead of the LAN. Anything that must stay on the LAN path
-(e.g. the blackbox monitoring probes) forces IPv4 (`preferred_ip_protocol: ip4`).
-Fixing the AAAA leak is an open follow-up.
+- **Service → host mapping lives in code** as `adguard_rewrites` in
+  `group_vars/adguard/main.yml` — each entry maps `<service>.jardoole.xyz` to its
+  host's FQDN (e.g. `immich.jardoole.xyz` → `valen.jardoole.xyz`). This is the
+  churny "which service runs where" layer, versioned in git.
+- **Host A-records stay in the Ubiquiti router** (hardware-stable, rarely change).
+  AdGuard chases the CNAME to the router's LAN A-record via a host-scoped upstream.
+
+Internal clients therefore reach services directly on the LAN over IPv4, and
+because every internal name now resolves through AdGuard (which holds no AAAA
+records), the old **LAN AAAA leak is closed** — no IPv6-preferring client hairpins
+out to Cloudflare. See `docs/superpowers/specs/2026-07-24-force-dns-through-adguard-design.md`.
+
+> **MANDATORY when adding a routed `*.jardoole.xyz` service:** add an
+> `adguard_rewrites` entry (`<service>` → its host FQDN) in
+> `group_vars/adguard/main.yml` **and redeploy AdGuard** (`make app service=adguard`).
+> This is not auto-derived from the inventory, and unlike the blackbox registry
+> there is **no pre-commit guard** catching a missing rewrite — omit it and LAN/VPN
+> clients silently resolve the service's **public** Cloudflare record instead of the
+> LAN path. This step belongs in the same changeset as the new service's playbook.
 
 #### Application notes
 

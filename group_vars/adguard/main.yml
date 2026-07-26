@@ -97,6 +97,8 @@ adguard_rewrites:
     answer: "valen.{{ traefik_domain }}"
   - domain: "qbittorrent.{{ traefik_domain }}"
     answer: "valen.{{ traefik_domain }}"
+  - domain: "immich.{{ traefik_domain }}"
+    answer: "valen.{{ traefik_domain }}"
   # mail: LAN/VPN clients must reach the web UI (Traefik) AND IMAP/submission
   # (465/587/993, firewall-gated to LAN+WireGuard) directly on valen — without
   # this rewrite they'd resolve the PUBLIC A record, where only 25/tcp is
