@@ -23,7 +23,7 @@ Vendor reference guides used while building this: `install-mailcow.md`,
 |---|---|
 | App (mailcow's own compose project) | `valen`, `/opt/mailcow-dockerized` (cloned, not authored here) |
 | vmail, MariaDB, Redis, Rspamd | mailcow's own Docker named volumes, on the NVMe root — **not** the MergerFS pool |
-| Web UI / SOGo webmail | loopback `127.0.0.1:8090`, proxied by Traefik at `mail.jardoole.xyz` |
+| Web UI / SOGo webmail | loopback `127.0.0.1:8090`, proxied by Traefik at `mail.jardoole.xyz` (plus `autoconfig`/`autodiscover.jardoole.xyz` — mailcow's nginx serves those client-autoconfig endpoints on the same port, distinguished by Host header) |
 | SMTP (inbound MX) | `25/tcp`, public (UniFi port-forward) |
 | SMTPS / submission / IMAPS | `465` / `587` / `993`, LAN + WireGuard only |
 | POP3 / POP3S / ManageSieve / plaintext IMAP | disabled (loopback-bound, never published) |
@@ -140,10 +140,11 @@ Three things need a human before/around the first run:
    - Confirm DDNS keeps the public `mail.jardoole.xyz` A record current
      *before* inbound go-live.
 
-   (No split-horizon step here: LAN/VPN clients resolve `mail.jardoole.xyz` ->
-   valen via the AdGuard rewrite in `group_vars/adguard/main.yml`, the same
-   mechanism as every other `*.jardoole.xyz` service — redeploy AdGuard
-   (`make app service=adguard`) if it hasn't picked the entry up yet.)
+   (No split-horizon step here: LAN/VPN clients resolve `mail.jardoole.xyz` —
+   and `autoconfig`/`autodiscover` — to valen via the AdGuard rewrites in
+   `group_vars/adguard/main.yml`, the same mechanism as every other
+   `*.jardoole.xyz` service — redeploy AdGuard (`make app service=adguard`)
+   if it hasn't picked the entries up yet.)
 
 3. **Garage buckets/keys** — provisioned automatically by the first play in
    `playbooks/mailcow.yml`, as long as the vault vars above are set first.

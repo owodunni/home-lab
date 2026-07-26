@@ -46,6 +46,16 @@ mailcow_compose_project_name: mailcowdockerized
 # table (A record + MX target).
 mailcow_hostname: "mail.{{ traefik_domain }}"
 
+# Client-autoconfiguration hostnames mailcow's nginx also answers on
+# (Thunderbird autoconfig XML, Outlook/ActiveSync autodiscover). Same Traefik
+# router as the web UI (playbooks/templates/traefik-mailcow.yml.j2) — all
+# single-level subdomains, so the *.jardoole.xyz wildcard cert covers them.
+# Public DNS: CNAMEs -> mail.<domain> (docs/mailcow.md DNS table); LAN/VPN:
+# AdGuard rewrites in group_vars/adguard/main.yml.
+mailcow_autoconfig_hostnames:
+  - "autoconfig.{{ traefik_domain }}"
+  - "autodiscover.{{ traefik_domain }}"
+
 # Loopback HTTP port for nginx-mailcow. Traefik (co-located on valen) proxies
 # mail.jardoole.xyz -> 127.0.0.1:{{ mailcow_http_port }}, same "loopback
 # convention" as every other valen-co-located service (jellyfin 8096,

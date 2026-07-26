@@ -4,7 +4,10 @@
 # (deployed by the ingress layer). This router just selects it via certResolver.
 # Traefik is co-located with mailcow on valen, so the upstream is loopback.
 #
-# This is the WEB UI / SOGo webmail route only (HTTP, mailcow_http_port).
+# This is the WEB UI / SOGo webmail route only (HTTP, mailcow_http_port),
+# plus the client-autoconfig hostnames (mailcow_autoconfig_hostnames:
+# autoconfig/autodiscover) — mailcow's nginx serves those endpoints on the
+# same HTTP port, distinguished by Host header.
 # SMTP/SMTPS/submission/IMAPS (25/465/587/993) are NOT Traefik routes — mail
 # clients speak those protocols directly to mailcow's own published ports,
 # gated by firewall_rules_mailcow (group_vars/mailcow/main.yml), not by
@@ -18,7 +21,7 @@
 http:
   routers:
     mailcow:
-      rule: "Host(`{{ mailcow_hostname }}`)"
+      rule: "Host(`{{ mailcow_hostname }}`){% for h in mailcow_autoconfig_hostnames %} || Host(`{{ h }}`){% endfor %}"
       service: mailcow
       tls:
         certResolver: letsencrypt

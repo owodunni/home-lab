@@ -106,6 +106,15 @@ adguard_rewrites:
   # stays the DDNS home IP for inbound MX. See docs/mailcow.md "First deploy".
   - domain: "mail.{{ traefik_domain }}"
     answer: "valen.{{ traefik_domain }}"
+  # Client-autoconfig endpoints (Thunderbird autoconfig, Outlook autodiscover)
+  # ride the same Traefik router as mail's web UI. Public DNS has CNAMEs ->
+  # mail.<domain>, but AdGuard rewrites match QUERY names only — an upstream
+  # CNAME answer would still carry the public A record — so each name needs
+  # its own explicit rewrite here.
+  - domain: "autoconfig.{{ traefik_domain }}"
+    answer: "valen.{{ traefik_domain }}"
+  - domain: "autodiscover.{{ traefik_domain }}"
+    answer: "valen.{{ traefik_domain }}"
   # pi1 (inventory pi-cm5-1)
   - domain: "grafana.{{ traefik_domain }}"
     answer: "pi1.{{ traefik_domain }}"
