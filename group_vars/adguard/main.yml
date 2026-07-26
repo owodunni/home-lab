@@ -165,15 +165,29 @@ adguard_blocking_mode: nxdomain
 adguard_parental_enabled: true
 
 # Social media: AdGuard "Blocked Services" by name (blocked 24/7 — no schedule).
-# Edit this list freely; each id is an AdGuard-recognised service.
+# Edit this list freely; each id is an AdGuard-recognised service. The full
+# catalogue (id -> the domains it covers) is readable from the running instance:
+#   curl -s http://127.0.0.1:3000/control/blocked_services/all
+# Check there before assuming an id exists or covers a given domain — a service
+# bundles far more than its namesake domain (see the facebook note below).
+#
+# DELIBERATELY NOT BLOCKED (re-enabled on request, do not re-add without asking):
+#   facebook  - also the only service carrying messenger.com / m.me /
+#               fbmessenger.com, so Messenger is unblocked with it. It further
+#               bundles a lot of non-social collateral (reactjs.org, flow.org,
+#               rocksdb.org, parse.com, internet.org), which this also frees.
+#   instagram - had to go together with facebook regardless: Instagram serves
+#               media from fbcdn.net, which lives in the FACEBOOK rule set, so
+#               unblocking instagram alone would have left it half-broken.
+#   pinterest - was blocked; not wanted.
 adguard_blocked_services:
-  - facebook
-  - instagram
   - tiktok
   - twitter
   - snapchat
   - reddit
-  - pinterest
+  # Was expected to be blocked but never was — it had simply never been listed
+  # (nothing was overriding it). The service id covers ||tumblr.com^.
+  - tumblr
 
 # Timezone label stored on the blocked_services schedule block. UTC is fine —
 # with no per-day windows the services are simply blocked around the clock.
