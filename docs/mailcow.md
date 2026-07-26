@@ -90,6 +90,34 @@ it) and only differs in restore, which copies each restored path back into its
 live named volume via a throwaway `alpine` container bridging the scratch
 restore dir and the volume, instead of a host `cp`.
 
+### Upstream's ufw and ACME-validation warnings (already accounted for)
+
+mailcow's docs carry two loud warnings that look alarming for this deploy but
+are both already designed around:
+
+- **"Validation errors / SKIP_IP_CHECK / SKIP_HTTP_VERIFICATION"** — these
+  only steer `acme-mailcow`'s Let's Encrypt HTTP validation, and this deploy
+  sets `SKIP_LETS_ENCRYPT=y`: `acme-mailcow` never runs a validation at all.
+  The cert is exported from Traefik's ACME store, which renews via **DNS-01**
+  (Cloudflare) — no inbound HTTP challenge, no IP check, no NAT-reflection
+  dependency, no ports 80/443 exposure. Both `SKIP_*` flags stay at upstream's
+  `n` defaults purely to keep the `mailcow.conf` diff small (see the comment
+  in `roles/mailcow/templates/mailcow.conf.j2`).
+
+- **"Don't run mailcow behind ufw/firewalld — INPUT rules have no effect;
+  move your ruleset to the DOCKER-USER chain"** — that is *exactly* what this
+  lab's firewall already does, fleet-wide. `firewall_rules_mailcow` entries
+  are `scope: docker`, which `roles/firewall` renders into the **DOCKER-USER**
+  chain (persisted in `/etc/ufw/after.rules` via
+  `docker-user-block-v4.j2`, so neither a Docker restart nor a ufw reload
+  loses them). The chain only gates ingress arriving on the host's external
+  interface: container-originated outbound leaves via `br-mailcow` and its
+  replies return as ESTABLISHED, so mailcow's outbound DNS/SMTP is untouched.
+  `netfilter-mailcow` (mailcow's fail2ban-alike) inserts its own ban-chain
+  jump at the top of DOCKER-USER at runtime — ahead of our ACCEPT rules, so
+  bans win, which is the right precedence — and re-asserts it itself if a
+  ufw reload rebuilds the chain.
+
 ## Secrets to generate
 
 Before the first run, create `group_vars/mailcow/vault.yml` (`uv run

@@ -99,6 +99,12 @@ ACME_DNS_PROVIDER=dns_xxx
 ACME_ACCOUNT_EMAIL=me@example.com
 
 ENABLE_SSL_SNI=n
+# SKIP_IP_CHECK / SKIP_HTTP_VERIFICATION are INERT in this deploy: they only
+# steer acme-mailcow's Let's Encrypt validation, and SKIP_LETS_ENCRYPT=y above
+# disables acme-mailcow entirely — the cert is exported from Traefik's ACME
+# store (DNS-01 via Cloudflare), so no HTTP validation, IP check, or NAT
+# reflection is ever needed. Left at upstream defaults so a diff against
+# generate_config.sh stays small; do NOT "fix" validation problems here.
 SKIP_IP_CHECK=n
 SKIP_HTTP_VERIFICATION=n
 SKIP_UNBOUND_HEALTHCHECK=n
