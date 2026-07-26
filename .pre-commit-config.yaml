@@ -37,6 +37,13 @@ repos:
         files: ^(playbooks/templates/traefik-.*\.yml\.j2|group_vars/monitoring/main\.yml)$
         pass_filenames: false
 
+      - id: adguard-coverage
+        name: adguard rewrite coverage
+        entry: uv run python scripts/check-adguard-coverage.py
+        language: system
+        files: ^(group_vars/monitoring/main\.yml|group_vars/adguard/main\.yml)$
+        pass_filenames: false
+
       - id: port-inventory
         name: port inventory drift check
         entry: uv run python scripts/render-port-inventory.py --check

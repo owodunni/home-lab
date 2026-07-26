@@ -70,10 +70,12 @@ out to Cloudflare. See `docs/superpowers/specs/2026-07-24-force-dns-through-adgu
 > **MANDATORY when adding a routed `*.jardoole.xyz` service:** add an
 > `adguard_rewrites` entry (`<service>` → its host FQDN) in
 > `group_vars/adguard/main.yml` **and redeploy AdGuard** (`make app service=adguard`).
-> This is not auto-derived from the inventory, and unlike the blackbox registry
-> there is **no pre-commit guard** catching a missing rewrite — omit it and LAN/VPN
-> clients silently resolve the service's **public** Cloudflare record instead of the
-> LAN path. This step belongs in the same changeset as the new service's playbook.
+> Omit it and LAN/VPN clients silently resolve the service's **public** Cloudflare
+> record instead of the LAN path. A pre-commit guard
+> (`scripts/check-adguard-coverage.py`) fails the build if a probed service in the
+> `monitoring_blackbox_services` registry has no rewrite, so this can't be silently
+> forgotten — but the redeploy is still yours to run. This belongs in the same
+> changeset as the new service's playbook.
 
 #### Application notes
 
