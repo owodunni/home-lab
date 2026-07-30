@@ -240,6 +240,18 @@ adguard_blocked_domains:
 adguard_allowlist:
   - torrentleech.org
   - torrentday.com
+  # Tailscale. WHAT: unblock the tailscale.com zone.
+  # WHY: HaGeZi's anti-DoH/VPN list (filter 52) carries a zone-wide `||tailscale.com^`
+  #   rule, so every client endpoint NXDOMAINs — login (browser sign-in),
+  #   controlplane (coordination), log, and the derpN.* relays. That list's purpose is
+  #   to stop a client bypassing this resolver with a third-party VPN; our own
+  #   Tailscale is deliberate infrastructure, so it gets an exception.
+  # WHY the whole zone, not just login.tailscale.com: the block is zone-wide, so a
+  #   login-only exception would render the sign-in page while leaving the client
+  #   unable to reach controlplane.tailscale.com — still broken. MagicDNS names
+  #   (*.ts.net) are not on the list and need no entry.
+  # RESOLVES: `dig login.tailscale.com` returning NXDOMAIN from the LAN resolver.
+  - tailscale.com
 
 # === Logging ===============================================================
 adguard_log_max_size: "20m"
