@@ -1,0 +1,19 @@
+# Traefik dynamic config for Paperless-ngx — managed by Ansible, do not edit manually.
+#
+# The wildcard cert (*.{{ traefik_domain }}) is managed by traefik-wildcard-tls.yml.j2
+# (deployed by the ingress layer). This router just selects it via certResolver.
+# Traefik is co-located with Paperless on this host, so the upstream is loopback.
+
+http:
+  routers:
+    paperless:
+      rule: "Host(`{{ paperless_hostname }}`)"
+      service: paperless
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    paperless:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:{{ paperless_port }}"

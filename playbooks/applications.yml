@@ -30,6 +30,9 @@
 - name: Deploy Vaultwarden password manager
   ansible.builtin.import_playbook: vaultwarden.yml
 
+- name: Deploy Paperless-ngx document management
+  ansible.builtin.import_playbook: paperless.yml
+
 # Mailcow self-hosted email. Independent of the media stack; placed after
 # Vaultwarden as another standalone app on top of the platform (ingress,
 # Docker, Garage, Authentik) — see

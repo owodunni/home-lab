@@ -64,6 +64,8 @@ backup_mirror_buckets:
   - nextcloud-data-backup
   - vaultwarden-backup
   - vaultwarden-data-backup
+  - paperless-backup
+  - paperless-media-backup
   - prowlarr-backup
   - radarr-backup
   - sonarr-backup

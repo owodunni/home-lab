@@ -1,0 +1,151 @@
+---
+# Deploy Paperless-ngx (webserver + PostgreSQL + Redis) as a docker-compose
+# stack, store its document media on valen's NFS pool, back the DB and media
+# up to Garage S3, and route paperless.jardoole.xyz through the co-located Traefik.
+#
+# What: Provisions the Paperless media directory on the storage pool (valen), the
+#       backup buckets/keys on Garage (valen), then deploys the stack on the
+#       [paperless] host and registers the Traefik route.
+# Why:  Self-hosted document management backed by the shared pool, with the same
+#       restic backups the rest of the platform uses and SSO via Authentik.
+# Resolves: Automated, reliable deployment of Paperless-ngx.
+#
+# Prerequisites:
+#   - Docker runtime (service-infra layer) on the [paperless] host.
+#   - NFS client userspace on the [paperless] host (storage layer / nfs.yml).
+#   - Traefik running with conf.d at /etc/traefik/conf.d (ingress layer).
+#   - Garage up on [garage] (service-infra layer).
+#   - Authentik live (auth layer) with an application/provider for Paperless.
+#
+# Vault vars required in group_vars/paperless/vault.yml:
+#   vault_paperless_pg_pass                      — Postgres password
+#   vault_paperless_secret_key                  — Django secret key
+#   vault_paperless_restic_password             — encrypts BOTH restic repos
+#   vault_paperless_backup_s3_access_key / _secret_key        — DB backup Garage key
+#   vault_paperless_media_backup_s3_access_key / _secret_key  — media backup Garage key
+#   vault_paperless_oidc_client_secret          — Authentik OIDC client secret
+
+- name: Provision the Paperless data directory on the storage pool
+  hosts: nfs_server
+  become: true
+  vars:
+    _paperless_host: "{{ groups['paperless'][0] }}"
+    _paperless_pool_subdir: "{{ hostvars[_paperless_host]['paperless_nfs_subdir'] }}"
+    _paperless_uid: "{{ hostvars[_paperless_host]['paperless_container_uid'] }}"
+    _paperless_gid: "{{ hostvars[_paperless_host]['paperless_container_gid'] }}"
+
+  handlers:
+    - name: Reload NFS exports
+      ansible.builtin.command: exportfs -ra
+      changed_when: true
+
+  tasks:
+    - name: Create Paperless media directory in the storage pool
+      ansible.builtin.file:
+        path: "{{ mergerfs_mount_point }}/{{ _paperless_pool_subdir }}"
+        state: directory
+        owner: "{{ _paperless_uid }}"
+        group: "{{ _paperless_gid }}"
+        mode: "0770"
+
+    - name: Ensure the NFS exports.d drop-in directory exists
+      ansible.builtin.file:
+        path: /etc/exports.d
+        state: directory
+        mode: "0755"
+        owner: root
+        group: root
+
+    - name: Export the Paperless subtree with all_squash
+      ansible.builtin.template:
+        src: templates/exports-paperless.j2
+        dest: /etc/exports.d/paperless.exports
+        mode: "0644"
+        owner: root
+        group: root
+      notify: Reload NFS exports
+
+- name: Provision Paperless backup buckets and keys on Garage
+  hosts: garage
+  become: true
+  vars:
+    _paperless_host: "{{ groups['paperless'][0] }}"
+    _garage_resources:
+      - bucket: "{{ hostvars[_paperless_host]['paperless_backup_s3_bucket'] }}"
+        access_key: "{{ hostvars[_paperless_host]['vault_paperless_backup_s3_access_key'] }}"
+        secret_key: "{{ hostvars[_paperless_host]['vault_paperless_backup_s3_secret_key'] }}"
+      - bucket: "{{ hostvars[_paperless_host]['paperless_media_backup_s3_bucket'] }}"
+        access_key: "{{ hostvars[_paperless_host]['vault_paperless_media_backup_s3_access_key'] }}"
+        secret_key: "{{ hostvars[_paperless_host]['vault_paperless_media_backup_s3_secret_key'] }}"
+  tasks:
+    - name: List existing Garage buckets
+      ansible.builtin.command:
+        cmd: garage bucket list
+      register: garage_bucket_list
+      changed_when: false
+
+    - name: Create Paperless backup buckets
+      when: item.bucket not in garage_bucket_list.stdout
+      ansible.builtin.command:
+        cmd: garage bucket create {{ item.bucket }}
+      loop: "{{ _garage_resources }}"
+      loop_control:
+        label: "{{ item.bucket }}"
+      changed_when: true
+
+    - name: List existing Garage API keys
+      ansible.builtin.command:
+        cmd: garage key list
+      register: garage_key_list
+      changed_when: false
+
+    - name: Import the vaulted backup API keys
+      when: item.bucket not in garage_key_list.stdout
+      ansible.builtin.command:
+        cmd: >
+          garage key import --yes
+          -n {{ item.bucket }}
+          {{ item.access_key }}
+          {{ item.secret_key }}
+      loop: "{{ _garage_resources }}"
+      loop_control:
+        label: "{{ item.bucket }}"
+      no_log: true
+      changed_when: true
+
+    - name: Read current grants on each backup bucket
+      ansible.builtin.command:
+        cmd: garage bucket info {{ item.bucket }}
+      loop: "{{ _garage_resources }}"
+      loop_control:
+        label: "{{ item.bucket }}"
+      register: garage_bucket_info
+      changed_when: false
+
+    - name: Grant key read/write access to its backup bucket
+      when: item.item.access_key not in item.stdout
+      ansible.builtin.command:
+        cmd: >
+          garage bucket allow {{ item.item.bucket }}
+          --read --write
+          --key {{ item.item.access_key }}
+      loop: "{{ garage_bucket_info.results }}"
+      loop_control:
+        label: "{{ item.item.bucket }}"
+      changed_when: true
+
+- name: Deploy Paperless and register its Traefik route
+  hosts: paperless
+  become: true
+
+  roles:
+    - role: paperless
+
+  tasks:
+    - name: Deploy Traefik routing config for Paperless
+      ansible.builtin.template:
+        src: templates/traefik-paperless.yml.j2
+        dest: /etc/traefik/conf.d/paperless.yml
+        owner: traefik
+        group: traefik
+        mode: "0640"

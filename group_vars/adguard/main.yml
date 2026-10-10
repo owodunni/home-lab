@@ -131,6 +131,8 @@ adguard_rewrites:
     answer: "pi2.{{ traefik_domain }}"
   - domain: "vaultwarden.{{ traefik_domain }}"
     answer: "pi2.{{ traefik_domain }}"
+  - domain: "paperless.{{ traefik_domain }}"
+    answer: "pi2.{{ traefik_domain }}"
 
 # === Filtering categories ==================================================
 # Ads/trackers: AdGuard's default DNS filter blocklist (id 1). Add more URLs to

@@ -1,0 +1,133 @@
+# Paperless-ngx docker-compose stack — managed by Ansible, do not edit manually.
+# Secrets are injected via .env (templated from vault vars).
+
+services:
+  broker:
+    image: docker.io/library/redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
+
+  db:
+    image: docker.io/library/postgres:16-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}"]
+      start_period: 20s
+      interval: 30s
+      retries: 5
+      timeout: 5s
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: {{ paperless_db_name }}
+      POSTGRES_USER: {{ paperless_db_user }}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+  webserver:
+    image: ghcr.io/paperless-ngx/paperless-ngx:{{ paperless_version }}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      broker:
+        condition: service_started
+    ports:
+      - "127.0.0.1:{{ paperless_port }}:8000"
+    volumes:
+      - ./data:/usr/src/paperless/data
+      - ./media:/usr/src/paperless/media
+      - ./export:/usr/src/paperless/export
+      - ./consume:/usr/src/paperless/consume
+    env_file:
+      - .env
+    environment:
+      PAPERLESS_REDIS: redis://broker:6379
+      PAPERLESS_DBHOST: db
+      PAPERLESS_DBPORT: 5432
+      PAPERLESS_DBNAME: {{ paperless_db_name }}
+      PAPERLESS_DBUSER: {{ paperless_db_user }}
+      PAPERLESS_DBPASS: ${PAPERLESS_DBPASS}
+      PAPERLESS_DBENGINE: postgresql
+      USERMAP_UID: "{{ paperless_container_uid }}"
+      USERMAP_GID: "{{ paperless_container_gid }}"
+
+  # DB backup, half 1 of 2: produce a logical dump on a schedule.
+  # Writes pg_dump custom-format output to shared db-dump volume; the db-backup
+  # restic sidecar below snapshots that volume to Garage S3.
+  # Restore is driven by: make restore-backups SERVICE=paperless
+  pg-dump:
+    image: docker.io/library/postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      PGHOST: db
+      PGDATABASE: {{ paperless_db_name }}
+      PGUSER: {{ paperless_db_user }}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - db-dump:/dump
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        while true; do
+          pg_dump -Fc -f /dump/paperless.dump.tmp \
+            && mv -f /dump/paperless.dump.tmp /dump/paperless.dump \
+            && echo "pg-dump: wrote /dump/paperless.dump at $$(date -Is)"
+          sleep {{ paperless_db_dump_interval_seconds }}
+        done
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # DB backup, half 2 of 2: restic snapshot of the dump → Garage S3 on valen
+  # (local; mirrored offsite to beelink).
+  db-backup:
+    image: ghcr.io/lobaro/restic-backup-docker:{{ paperless_backup_image_version }}
+    restart: unless-stopped
+    environment:
+      RESTIC_REPOSITORY: "s3:{{ paperless_backup_s3_endpoint }}/{{ paperless_backup_s3_bucket }}/restic"
+      RESTIC_PASSWORD: ${DB_BACKUP_RESTIC_PASSWORD}
+      AWS_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: "{{ paperless_backup_s3_region }}"
+      RESTIC_TAG: paperless-db
+      BACKUP_CRON: "{{ paperless_db_backup_schedule }}"
+      RESTIC_FORGET_ARGS: "{{ paperless_db_backup_retention_args }}"
+    volumes:
+      - db-dump:/data:ro
+    env_file:
+      - .env
+    depends_on:
+      - pg-dump
+
+  # Periodic restic backup of media (NFS mount) and data dirs → Garage S3 on valen.
+  media-backup:
+    image: ghcr.io/lobaro/restic-backup-docker:{{ paperless_backup_image_version }}
+    restart: unless-stopped
+    environment:
+      RESTIC_CACHE_DIR: /cache
+      RESTIC_REPOSITORY: "s3:{{ paperless_backup_s3_endpoint }}/{{ paperless_media_backup_s3_bucket }}"
+      RESTIC_PASSWORD: ${MEDIA_BACKUP_RESTIC_PASSWORD}
+      AWS_ACCESS_KEY_ID: ${MEDIA_BACKUP_S3_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${MEDIA_BACKUP_S3_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: "{{ paperless_backup_s3_region }}"
+      RESTIC_TAG: paperless-media
+      BACKUP_CRON: "{{ paperless_media_backup_schedule }}"
+      RESTIC_FORGET_ARGS: "{{ paperless_media_backup_retention_args }}"
+    volumes:
+      - ./media:/data/media:ro
+      - ./data:/data/data:ro
+      - restic-cache:/cache
+    env_file:
+      - .env
+
+volumes:
+  pgdata:
+    driver: local
+  redisdata:
+    driver: local
+  db-dump:
+    driver: local
+  restic-cache:
+    driver: local
