@@ -3,7 +3,7 @@
 # register its Traefik route.
 #
 # What: Provisions the backup bucket/key on Garage (valen), then deploys the
-#       Cornerstone stack on [cornerstone] (pi-cm5-2) and registers the
+#       Cornerstone stack on [cornerstone] (valen) and registers the
 #       cornerstone.jardoole.xyz route with the co-located Traefik.
 # Why:  Self-hosted home management with SQLite persistence, Authentik OIDC
 #       SSO, and Paperless-ngx document integration — all backed by the shared
@@ -11,15 +11,17 @@
 # Resolves: Automated, reliable deployment of Cornerstone.
 #
 # Prerequisites:
-#   - Docker runtime on pi-cm5-2 (service-infra layer).
+#   - Docker runtime on valen (service-infra layer).
 #   - Traefik running with conf.d at /etc/traefik/conf.d (ingress layer).
 #   - Garage up on [garage] (service-infra layer) — first play provisions the
 #     backup bucket/key there.
 #   - Authentik live (auth layer) with an OAuth2/OpenID Provider + Application
 #     for Cornerstone. Redirect URI must be registered as:
 #       https://cornerstone.jardoole.xyz/api/auth/oidc/callback
-#   - Paperless-ngx deployed (paperless.yml) — Cornerstone reaches it over
-#     loopback on pi-cm5-2 at 127.0.0.1:{{ paperless_port }}.
+#   - Paperless-ngx deployed (paperless.yml) on pi-cm5-2. Cornerstone runs on
+#     valen, so it does NOT reach it over loopback: the server-side API calls go
+#     to https://paperless.jardoole.xyz over the LAN, which requires the AdGuard
+#     rewrite for paperless to be in place. See cornerstone_paperless_url.
 #
 # Vault vars required in group_vars/cornerstone/vault.yml:
 #   vault_cornerstone_session_secret        — openssl rand -base64 32

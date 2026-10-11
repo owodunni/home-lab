@@ -6,7 +6,7 @@
 #
 # What: Configuration variables for Cornerstone (home inventory, financials,
 #       diary) — a Node.js app backed by SQLite, behind the co-located Traefik
-#       on pi-cm5-2, with Authentik OIDC SSO and Paperless-ngx integration.
+#       on valen, with Authentik OIDC SSO and Paperless-ngx integration.
 # Why:  Single source of truth for all non-secret settings consumed by the
 #       cornerstone role and playbook, following the repo's group_vars
 #       convention — no defaults inside the role.
@@ -15,7 +15,12 @@
 # Image — pinned upstream tag
 # ============================================================================
 # Cornerstone. Releases: https://github.com/steilerdev/cornerstone/releases
-cornerstone_image: "steilerdev/cornerstone:latest"
+# Pinned rather than :latest — upstream publishes many beta releases per day,
+# and the role deploys with pull: always, so a floating tag would silently
+# upgrade production on every run. 2.18.1 is the build already running on
+# valen (upstream tag matches the Docker Hub tag exactly; there is no "v"
+# prefix on the image). Bump deliberately, then re-run the playbook.
+cornerstone_image: "steilerdev/cornerstone:2.18.1"
 
 # ============================================================================
 # Placement and routing
@@ -32,7 +37,7 @@ cornerstone_port: 8004
 
 # Public hostname. Traefik terminates TLS (wildcard) and routes
 # Host(cornerstone.jardoole.xyz) → 127.0.0.1:{{ cornerstone_port }}. DNS must
-# resolve this name to pi-cm5-2 (pi2.{{ traefik_domain }}).
+# resolve this name to valen.
 cornerstone_hostname: "cornerstone.{{ traefik_domain }}"
 
 # Public-facing base URL — required for OIDC callback URL construction.
@@ -102,8 +107,9 @@ cornerstone_backup_s3_region: "garage"
 # Dedicated bucket — created by the cornerstone.yml Garage play.
 cornerstone_backup_s3_bucket: "cornerstone-backup"
 
-# 5-field cron syntax. 06:00 — offset from the other pi-cm5-2 services
-# (paperless DB: 02:00, paperless media: 04:00) to avoid S3 upload contention.
+# 5-field cron syntax. 06:00 — paperless runs its DB and media snapshots at
+# 02:00 and 04:00. That is a different host, but both upload to the same Garage
+# S3 endpoint on valen, so the offset still avoids upload contention.
 cornerstone_backup_schedule: "0 6 * * *"
 
 # GFS retention policy — matches the rest of the platform.

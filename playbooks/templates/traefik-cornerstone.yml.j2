@@ -2,7 +2,7 @@
 #
 # The wildcard cert (*.{{ traefik_domain }}) is managed by traefik-wildcard-tls.yml.j2
 # (deployed by the ingress layer). This router just selects it via certResolver.
-# Traefik is co-located with Cornerstone on pi-cm5-2, so the upstream is loopback.
+# Traefik is co-located with Cornerstone on valen, so the upstream is loopback.
 # No forward-auth: Cornerstone has its own Authentik OIDC SSO (native client).
 
 http:

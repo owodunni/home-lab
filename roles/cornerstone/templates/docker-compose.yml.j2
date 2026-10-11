@@ -12,7 +12,7 @@ services:
       - cornerstone-data:/app/data
       - cornerstone-backups:/backups
     ports:
-      # WebUI bound to loopback only — Traefik (co-located on pi-cm5-2) proxies
+      # WebUI bound to loopback only — Traefik (co-located on valen) proxies
       # to it over loopback. Not exposed on the LAN.
       - "127.0.0.1:{{ cornerstone_port }}:3000"
     logging:
