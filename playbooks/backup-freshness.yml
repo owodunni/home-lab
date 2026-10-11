@@ -45,6 +45,17 @@
   roles:
     - role: backup_freshness
 
+- name: Backup freshness exporter | paperless
+  # Was missing from this file despite having a backups manifest. Added to close
+  # the monitoring gap: paperless DB + media backups are now freshness-checked.
+  hosts: paperless
+  become: true
+  gather_facts: false
+  vars:
+    backup_freshness_service: paperless
+  roles:
+    - role: backup_freshness
+
 - name: Backup freshness exporter | prowlarr
   hosts: prowlarr
   become: true
