@@ -83,6 +83,19 @@ cornerstone_oidc_jit_provisioning: true
 # ============================================================================
 # Paperless-ngx integration
 # ============================================================================
+# Auth model — why the vaulted API token reaches Paperless despite SSO:
+# Paperless authenticates the *browser* with native OIDC (django-allauth), not
+# Authentik forward-auth: its Traefik router carries no
+# `authentik-forward-auth@file` middleware (contrast the *arr apps), so nothing
+# intercepts the request before DRF. PAPERLESS_DISABLE_REGULAR_LOGIN /
+# _REDIRECT_LOGIN_TO_SSO only touch the web login form and login templates;
+# `rest_framework.authentication.TokenAuthentication` stays in
+# DEFAULT_AUTHENTICATION_CLASSES unconditionally. Cornerstone sends
+# `Authorization: Token <vault_cornerstone_paperless_api_token>`, which is
+# exactly that class — so server-to-server calls work with SSO-only login.
+# DO NOT put this route behind forward-auth middleware: that is the one change
+# that would break the token (it would get a login redirect instead of a 200).
+#
 # Internal URL Cornerstone's server uses for API calls to Paperless.
 # Cornerstone (valen) and Paperless (pi-cm5-2) are on different hosts, so the
 # server-side API calls go over the LAN via the HTTPS Traefik route. This is
