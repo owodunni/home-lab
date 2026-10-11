@@ -66,9 +66,19 @@ cornerstone_log_max_file: "3"
 # created in Authentik and a client secret vaulted as vault_cornerstone_oidc_client_secret.
 cornerstone_oidc_issuer: "https://auth.{{ traefik_domain }}/application/o/cornerstone/"
 cornerstone_oidc_client_id: "cornerstone"
-# Off by default: OIDC only links existing accounts. Enable only if the
-# Authentik application is restricted to the household group.
-cornerstone_oidc_jit_provisioning: false
+# On: creates an account on first SSO login instead of rejecting the verified
+# email as unknown. Required because no Cornerstone accounts are pre-created —
+# the Authentik email matches nothing in the DB, so a correct SSO login still
+# failed with "no user for this email address".
+# Why it is safe to enable here: the access boundary becomes "anyone who can
+# authenticate to the Authentik application". Authentik is the closed household
+# IdP with no self-registration, so that is the intended population — this is
+# not the open-provider case (Google, etc.) upstream warns about. Upstream
+# limits the blast radius regardless: provisioned accounts always get the member
+# role, never admin, and provisioning is refused for deactivated accounts and
+# for emails that ambiguously match an existing account.
+# Belt and braces: restrict the Authentik application to the household group.
+cornerstone_oidc_jit_provisioning: true
 
 # ============================================================================
 # Paperless-ngx integration
