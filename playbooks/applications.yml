@@ -33,6 +33,9 @@
 - name: Deploy Paperless-ngx document management
   ansible.builtin.import_playbook: paperless.yml
 
+- name: Deploy Cornerstone home management
+  ansible.builtin.import_playbook: cornerstone.yml
+
 # Mailcow self-hosted email. Independent of the media stack; placed after
 # Vaultwarden as another standalone app on top of the platform (ingress,
 # Docker, Garage, Authentik) — see

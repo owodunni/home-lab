@@ -113,6 +113,10 @@ monitoring_blackbox_services:
   nextcloud: {kind: app, url: "https://nextcloud.{{ traefik_domain }}"}
   vaultwarden: {kind: app, url: "https://vaultwarden.{{ traefik_domain }}"}
   paperless: {kind: app, url: "https://paperless.{{ traefik_domain }}"}
+  # Cornerstone uses native Authentik OIDC (not forward-auth), so an
+  # unauthenticated probe reaches the real front door: a trustworthy liveness
+  # signal, kind: app.
+  cornerstone: {kind: app, url: "https://cornerstone.{{ traefik_domain }}"}
   # Web UI / SOGo webmail front door only — probes liveness + cert expiry for
   # the HTTP route. SMTP/IMAPS (25/465/587/993) aren't HTTP and have no
   # blackbox coverage here; see design spec "Monitoring" for the noted

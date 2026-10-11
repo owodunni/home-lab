@@ -56,6 +56,15 @@
   roles:
     - role: backup_freshness
 
+- name: Backup freshness exporter | cornerstone
+  hosts: cornerstone
+  become: true
+  gather_facts: false
+  vars:
+    backup_freshness_service: cornerstone
+  roles:
+    - role: backup_freshness
+
 - name: Backup freshness exporter | prowlarr
   hosts: prowlarr
   become: true
