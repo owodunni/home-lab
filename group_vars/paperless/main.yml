@@ -54,8 +54,16 @@ paperless_nfs_version: 3
 # Application settings
 # ============================================================================
 paperless_timezone: "UTC"
-paperless_ocr_language: "eng"
-paperless_ocr_languages: "eng deu"
+
+# What: Tesseract runs the Swedish model first, then English (`swe+eng`); the
+#       pack list is what actually gets installed in the container.
+# Why:  The archive is mostly Swedish invoices/documents with some English.
+#       OCR quality is the single biggest driver of downstream AI quality, so
+#       the Swedish model must be present and primary. German is retained
+#       because it was already installed and only loads on a matching doc.
+# Resolves: Swedish documents being OCR'd as garbage before AI ever sees them.
+paperless_ocr_language: "swe+eng"
+paperless_ocr_languages: "swe eng deu"
 
 # Traefik terminates TLS and forwards to the app over loopback; docker bridges
 # handle container communication.
@@ -80,6 +88,36 @@ paperless_oidc_client_id: "paperless"
 paperless_oidc_provider_id: "authentik"
 paperless_oidc_discovery_uri: "https://auth.{{ traefik_domain }}/application/o/paperless/.well-known/openid-configuration"
 paperless_oidc_logout_redirect_url: "https://auth.{{ traefik_domain }}/application/o/paperless/end-session/"
+
+# ============================================================================
+# AI — LLM + embeddings via OpenRouter
+#
+# What: Enables Paperless' AI suggestions (title/tags/correspondent/type) and
+#       RAG retrieval over the archive, using OpenRouter's OpenAI-compatible
+#       chat and embeddings APIs with the shared vault_openrouter_api_key.
+# Why:  OpenRouter exposes both a chat-completions API and a separate
+#       embeddings catalog, so no local Ollama/sentence-transformers service
+#       is needed. gpt-6-luna is the cheap JSON-capable chat model Cornerstone
+#       also uses; bge-m3 is a paid multilingual (SV/EN) embedder.
+# Resolves: AI features off by default — no provider configured.
+# Design: docs/superpowers/specs/2026-10-12-paperless-cornerstone-ai-design.md
+# ============================================================================
+paperless_ai_enabled: true
+paperless_ai_llm_backend: "openai-like"
+paperless_ai_llm_model: "openai/gpt-6-luna"
+paperless_ai_llm_endpoint: "https://openrouter.ai/api/v1"
+# Swedish archive → suggestions come back in Swedish, independent of the
+# logged-in user's UI language.
+paperless_ai_llm_output_language: "swe"
+# OpenRouter routing can exceed the 120s default; 180s gives headroom.
+paperless_ai_llm_request_timeout: 180
+# Routing guard: only use upstream providers that do not collect request data.
+paperless_ai_llm_extra_params: '{"provider":{"data_collection":"deny"}}'
+# bge-m3 accepts up to 8194 tokens; 1024-token chunks leave margin.
+paperless_ai_embedding_backend: "openai-like"
+paperless_ai_embedding_model: "baai/bge-m3"
+paperless_ai_embedding_endpoint: "https://openrouter.ai/api/v1"
+paperless_ai_embedding_chunk_size: 1024
 
 # ============================================================================
 # Database backup — pg_dump → restic → Garage S3

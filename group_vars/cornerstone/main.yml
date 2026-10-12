@@ -105,6 +105,26 @@ cornerstone_paperless_url: "https://paperless.{{ traefik_domain }}"
 cornerstone_paperless_external_url: "https://paperless.{{ traefik_domain }}"
 
 # ============================================================================
+# LLM — Auto-itemize / invoice-from-document via OpenRouter
+#
+# What: Points Cornerstone's optional Auto-itemize feature at OpenRouter,
+#       sharing Paperless' vault_openrouter_api_key and chat model.
+# Why:  OpenRouter speaks the OpenAI chat-completions API. gpt-6-luna is
+#       cheap and supports structured_outputs/response_format, which
+#       Cornerstone's JSON-only prompt requires (it hides the feature when
+#       LLM_BASE_URL/LLM_API_KEY/LLM_MODEL are unset).
+# Resolves: Auto-itemize button being hidden — no LLM provider configured.
+# Design: docs/superpowers/specs/2026-10-12-paperless-cornerstone-ai-design.md
+# ============================================================================
+cornerstone_llm_base_url: "https://openrouter.ai/api/v1"
+cornerstone_llm_model: "openai/gpt-6-luna"
+# OpenRouter is not one of the providers Cornerstone auto-detects
+# (openai/anthropic/gemini/ollama), so pin generic.
+cornerstone_llm_provider: "generic"
+# Itemizing a backlog can exceed the 30s default; 120s is safe.
+cornerstone_llm_request_timeout_ms: 120000
+
+# ============================================================================
 # Backup — restic snapshot of /app/data (SQLite DB) → Garage S3
 # ============================================================================
 # WHAT: a lobaro/restic-backup-docker sidecar snapshots Cornerstone's app data
