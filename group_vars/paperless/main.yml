@@ -9,7 +9,11 @@
 # Resolves: Declarative configuration of Paperless-ngx with no hardcoding in the role.
 
 # Pin to a specific release. Releases: https://github.com/paperless-ngx/paperless-ngx/releases
-paperless_version: "2.14.7"
+# What: Bump Paperless from 2.14.7 to 3.3.0.
+# Why:  Cornerstone's Paperless integration requires API v10, which 2.14.7 does
+#       not expose.
+# Resolves: Cornerstone document integration failing against the old API.
+paperless_version: "3.3.0"
 
 # Directory on the target host (pi-cm5-2) where docker-compose stack and
 # persistent data subdirs are stored.
