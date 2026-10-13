@@ -1,0 +1,199 @@
+---
+# SilverBullet wiki service configuration — a markdown-based personal/household
+# wiki (https://silverbullet.md) running on valen behind the co-located Traefik.
+#
+# What: Configuration for SilverBullet in "multi-space mode" (the upstream
+#       default since 2.10) — accounts, per-space access, and OIDC SSO, all
+#       managed through its web Dashboard.
+# Why:  Single source of truth for every non-secret setting consumed by the
+#       silverbullet role and playbook, following the repo's group_vars
+#       convention — no defaults inside the role.
+# Secrets: only the backup secrets (restic password + Garage S3 key pair) live
+#       in group_vars/silverbullet/vault.yml with the vault_ prefix.
+#
+# IMPORTANT — this service is the one deliberate exception to "all config is
+# declarative". SilverBullet's accounts, spaces, primary URL, and OIDC provider
+# are configured in its web Dashboard and persisted to files under the data
+# folder (users.json, authentication.json) — upstream exposes NO environment
+# variable or config file to seed them. So Ansible deploys the container, route,
+# backup, and monitoring wiring, and docs/silverbullet.md carries the one-time
+# first-run runbook. See "OIDC / SSO" below.
+
+# ============================================================================
+# Image — pinned upstream tag (never :latest, per repo convention)
+# ============================================================================
+# SilverBullet. Releases: https://github.com/silverbulletmd/silverbullet/releases
+#
+# Variant: this is the DEFAULT image, which bundles Chromium and therefore
+# enables the Runtime API / shell capability (the `sb` CLI, space scripts that
+# shell out, `CONTAINER_BOOT.md` package installs). The `-slim` suffix (e.g.
+# 2.12.1-slim) omits Chromium, which makes `/.runtime/*` return 503 and drops
+# those features in exchange for a much smaller image. Chosen here because the
+# Runtime API is a primary reason to run SilverBullet as a server at all, and
+# valen's NVMe has ample room. Switch to the -slim tag deliberately, not by
+# accident, if that trade-off ever changes.
+silverbullet_image: "ghcr.io/silverbulletmd/silverbullet:2.12.1"
+
+# ============================================================================
+# Placement — directories
+# ============================================================================
+# Directory on valen holding the compose stack + .env (not the app data).
+silverbullet_dir: /opt/silverbullet
+
+# The data folder mounted at /data. Holds the SERVER STATE and the spaces
+# themselves:
+#   users.json          — accounts + password hashes
+#   authentication.json — OIDC provider config INCLUDING THE CLIENT SECRET
+#   spaces/             — the actual wiki content (markdown)
+#
+# WHAT: a host bind mount on valen's local NVMe (not a Docker named volume, not
+#   NFS, not the MergerFS pool).
+# WHY bind mount: the data folder must be inspectable/greppable by an operator
+#   (it is just markdown), and the generic restic restore handler copies a
+#   restored snapshot back to "{{ backup_compose_dir }}/<path>" — with the
+#   sidecar mounting this dir at /data/data, restore_paths: [data] lands the
+#   copy-back exactly here with no indirection. Same convention as Sonarr's and
+#   Jellyfin's /config bind mounts.
+# WHY not the pool: it is server state (accounts, secrets) plus a few MB of
+#   text — nothing that belongs on the parity-protected bulk pool, and putting
+#   it there would needlessly spin up HDDs on every keystroke-triggered save.
+# WHY not NFS: SQLite-free, but the server does random small reads/writes and
+#   upstream's file-watch (SB_FS_WATCH) relies on native filesystem events,
+#   which an NFS mount does not deliver — external edits would go unnoticed.
+silverbullet_data_dir: "{{ silverbullet_dir }}/data"
+
+# ============================================================================
+# Networking / ingress
+# ============================================================================
+# HTTP port. Published on 127.0.0.1 only; Traefik (co-located on valen) proxies
+# to it — the same loopback convention as every other valen-co-located service.
+# 8005 is free on valen: 8001/8003/8004 are nextcloud/paperless/cornerstone on
+# other hosts, and valen itself uses 2283 (immich), 5055 (jellyseerr), 7878
+# (radarr), 8080 (qbittorrent), 8090/8443 (mailcow), 8096 (jellyfin), 8989
+# (sonarr), 9696 (prowlarr), 3900-3903 (garage).
+silverbullet_port: 8005
+
+# Public hostname. Traefik terminates TLS (wildcard) and routes
+# Host(wiki.jardoole.xyz) -> 127.0.0.1:{{ silverbullet_port }}.
+#
+# NOTE: the service is named "silverbullet" (software) while the hostname is
+# "wiki" (function) — the same split as mailcow -> mail.jardoole.xyz. The
+# blackbox/adguard coverage guards key off the ROUTED HOSTNAME, so a registry
+# entry for "silverbullet" pointing at wiki.<domain> satisfies both.
+#
+# NOTE: this router carries NO Authentik forward-auth middleware. SilverBullet
+# authenticates natively: local accounts plus its own OIDC client against
+# Authentik (see "OIDC / SSO"). Forward-auth in front of it would break the
+# SilverBullet client's WebSocket sync, the `sb` CLI/HTTP API (bearer tokens),
+# and the OIDC flow itself — the same class of breakage documented for
+# Immich/Jellyfin. Consequence for monitoring: an unauthenticated probe reaches
+# the real front door, so the blackbox registry marks it kind: app.
+silverbullet_hostname: "wiki.{{ traefik_domain }}"
+
+# Public-facing base URL. Set this as Admin -> Server -> Primary URL in the
+# Dashboard. It is the origin SilverBullet builds its OIDC redirect from, so it
+# must be the Traefik hostname (not a LAN IP:port) for SSO to work.
+silverbullet_external_url: "https://{{ silverbullet_hostname }}"
+
+# ============================================================================
+# OIDC / SSO (Authentik) — configured in the Dashboard, NOT from here
+# ============================================================================
+# Upstream (docs/Single Sign-On.md, bin/silverbullet/src/config.rs,
+# server/src/multi/setup_api.rs): provider configuration is entered in the web
+# Dashboard (Admin -> Authentication) and persisted to
+# {{ silverbullet_data_dir }}/authentication.json. There is no SB_* env var and
+# no config file to seed it, and the very first boot is an interactive setup
+# wizard (POST /.setup/api/complete) that creates the initial local admin.
+#
+# Therefore, unlike Cornerstone/Immich/Paperless, there is NOTHING for Ansible
+# to template here and NO vault_silverbullet_oidc_client_secret:
+#   - the OIDC client is created manually in Authentik (no provider automation
+#     exists in this repo — same as every other service's Authentik setup), and
+#   - its client secret is typed into SilverBullet's wizard, landing in
+#     authentication.json.
+# authentication.json and users.json are secrets-at-rest; they are protected by
+# the data dir's permissions and, critically, ARE COVERED BY THE ENCRYPTED
+# RESTIC BACKUP below — which is what makes a rebuild/restore recover SSO without
+# re-issuing a client secret. See docs/silverbullet.md for the runbook.
+#
+# The values to enter when following that runbook are:
+#   Issuer URL        : https://auth.{{ traefik_domain }}/application/o/silverbullet/
+#   Client ID         : silverbullet
+#   Callback / redirect URI registered in Authentik:
+#     {{ silverbullet_external_url }}/.auth/central/oidc/callback
+#   Scopes            : openid, email, profile
+#   Flow              : Authorization Code + PKCE, confidential client
+# They are repeated here (rather than only in the docs) so the Authentik
+# application and SilverBullet's draft config can be reconciled from one place.
+
+# ============================================================================
+# Logging
+# ============================================================================
+silverbullet_log_max_size: "20m"
+silverbullet_log_max_file: "3"
+
+# ============================================================================
+# Backup — restic snapshot of the whole data folder → Garage S3
+# ============================================================================
+# WHAT: a lobaro/restic-backup-docker sidecar snapshots {{ silverbullet_data_dir }}
+#   on a schedule to a dedicated Garage S3 bucket.
+# WHY: the data folder is the ENTIRE server state — the wiki content plus
+#   users.json and authentication.json. Losing it means losing the wiki AND the
+#   SSO client secret, which would require re-issuing the Authentik provider.
+#   One snapshot covers everything (there is no separate DB to dump: multi-space
+#   mode is file-based).
+# RESOLVES: data loss on host rebuild; and the restore-any-snapshot path via the
+#   generic tooling (make verify-backups / drill / restore-backups).
+#
+# Bring-your-own credentials (vaulted, generated before first run):
+#   vault_silverbullet_backup_s3_access_key / _secret_key
+#     scripts/garage-keygen.sh vault_silverbullet_backup_s3
+#   vault_silverbullet_restic_password — openssl rand -base64 32.
+#     LOSING IT MAKES EVERY EXISTING SNAPSHOT UNRECOVERABLE.
+
+# lobaro/restic-backup-docker. Releases: https://github.com/lobaro/restic-backup-docker/releases
+silverbullet_backup_image_version: "v1.4.2"
+
+# Garage S3 endpoint + region (must match garage_s3_region in group_vars/ingress).
+silverbullet_backup_s3_endpoint: "https://s3.jardoole.xyz"
+silverbullet_backup_s3_region: "garage"
+
+# Dedicated bucket — created by the silverbullet.yml Garage play.
+silverbullet_backup_s3_bucket: "silverbullet-backup"
+
+# 5-field cron syntax. 05:00 keeps the snapshot inside the 02:00-05:00 block that
+# the 06:00 offsite mirror pull covers, so a fresh snapshot reaches beelink the
+# same morning. It shares the hour with prowlarr and mailcow's volumes backup;
+# the wiki is a few KB of text, so the overlap is not worth an off-hour slot.
+silverbullet_backup_schedule: "0 5 * * *"
+
+# GFS retention policy — matches the rest of the platform.
+silverbullet_backup_retention_args: "--keep-daily 7 --keep-weekly 4 --keep-monthly 4 --keep-yearly 1 --prune"
+
+# ============================================================================
+# Backup manifest — consumed by roles/backup_verify and roles/backup_restore
+# ============================================================================
+backup_compose_dir: "{{ silverbullet_dir }}"
+
+# The silverbullet container holds the data folder open (and would fight a
+# restore mid-write). Stop it before the restore handler copies data back, then
+# bring the stack up again. The restic sidecar is intentionally left running.
+backup_consumer_services:
+  - silverbullet
+
+backups:
+  - name: data
+    type: restic
+    compose_dir: "{{ silverbullet_dir }}"
+    # The restic sidecar that owns the repo.
+    compose_service: data-backup
+    bucket: "{{ silverbullet_backup_s3_bucket }}"
+    schedule: "{{ silverbullet_backup_schedule }}"
+    # Just above the 24h cron interval to absorb skew without false alerts.
+    max_age_hours: 27
+    # The sidecar mounts {{ silverbullet_data_dir }} at /data/data, so restic
+    # stores it under "data" and the restore handler copies .restore/data/data
+    # back over {{ silverbullet_dir }}/data — i.e. straight onto the live bind
+    # mount, which is exactly the path the container reads at /data.
+    restore_paths:
+      - data

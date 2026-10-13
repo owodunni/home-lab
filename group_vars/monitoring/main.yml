@@ -117,6 +117,14 @@ monitoring_blackbox_services:
   # unauthenticated probe reaches the real front door: a trustworthy liveness
   # signal, kind: app.
   cornerstone: {kind: app, url: "https://cornerstone.{{ traefik_domain }}"}
+  # SilverBullet also uses native Authentik OIDC (its router carries no
+  # forward-auth middleware), so an unauthenticated probe reaches the real front
+  # door: kind: app. Before the first-run wizard is completed the server answers
+  # every path with a 307 to /.setup/, which is already in valid_status_codes —
+  # so the probe does not false-alarm between deploy and setup. The URL is
+  # wiki.<domain> while the registry key is the service name (the guard matches
+  # on the routed TEMPLATE name, and the DNS guard on the URL hostname).
+  silverbullet: {kind: app, url: "https://wiki.{{ traefik_domain }}"}
   # Web UI / SOGo webmail front door only — probes liveness + cert expiry for
   # the HTTP route. SMTP/IMAPS (25/465/587/993) aren't HTTP and have no
   # blackbox coverage here; see design spec "Monitoring" for the noted

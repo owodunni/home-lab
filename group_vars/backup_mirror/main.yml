@@ -67,6 +67,7 @@ backup_mirror_buckets:
   - paperless-backup
   - paperless-media-backup
   - cornerstone-backup
+  - silverbullet-backup
   - prowlarr-backup
   - radarr-backup
   - sonarr-backup

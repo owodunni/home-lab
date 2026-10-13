@@ -101,6 +101,11 @@ adguard_rewrites:
     answer: "valen.{{ traefik_domain }}"
   - domain: "cornerstone.{{ traefik_domain }}"
     answer: "valen.{{ traefik_domain }}"
+  # wiki hosts SilverBullet, whose service name (and inventory group / playbook /
+  # group_vars dir) is "silverbullet". Required like every other rewrite — without
+  # it, LAN/VPN clients resolve the PUBLIC Cloudflare record and hairpin out.
+  - domain: "wiki.{{ traefik_domain }}"
+    answer: "valen.{{ traefik_domain }}"
   # mail: LAN/VPN clients must reach the web UI (Traefik) AND IMAP/submission
   # (465/587/993, firewall-gated to LAN+WireGuard) directly on valen — without
   # this rewrite they'd resolve the PUBLIC A record, where only 25/tcp is

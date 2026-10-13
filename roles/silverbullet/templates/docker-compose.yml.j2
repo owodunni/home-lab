@@ -1,0 +1,64 @@
+---
+# SilverBullet — markdown wiki server (multi-space mode). Managed by Ansible,
+# do not edit manually. Non-secret values come from group_vars (Jinja); secrets
+# come from .env.
+#
+# The app container needs no environment variables at all: SilverBullet's
+# accounts, spaces, primary URL, and OIDC provider are configured in its web
+# Dashboard and persisted under /data (see group_vars/silverbullet/main.yml
+# "OIDC / SSO"). The only secrets in this stack drive the backup sidecar.
+#
+# No healthcheck block: the upstream image already ships one
+# (`HEALTHCHECK CMD curl --fail http://localhost:$SB_PORT/.instance`), and
+# /.instance is answered in both setup mode and multi-space mode — so the
+# built-in probe is a genuine readiness check, not a guess.
+
+services:
+  silverbullet:
+    image: {{ silverbullet_image }}
+    container_name: silverbullet
+    restart: unless-stopped
+    volumes:
+      # Whole server state: wiki spaces + users.json + authentication.json.
+      # SilverBullet inherits the UID/GID of this directory (its entrypoint
+      # stats it) unless PUID/PGID are set; the role creates it root-owned, so
+      # the server runs as root *inside* its own container — upstream's default
+      # behaviour. The only host path it can reach is this bind mount: no Docker
+      # socket, no other mounts, so container-root stays bounded to its own data.
+      - {{ silverbullet_data_dir }}:/data
+    ports:
+      # Published on loopback only — Traefik (co-located on valen) proxies to it.
+      # No forward-auth middleware on the router: SilverBullet authenticates
+      # natively (local accounts + its own OIDC client), and forward-auth would
+      # break its WebSocket sync and bearer-token API. See silverbullet_hostname's
+      # comment in group_vars/silverbullet/main.yml.
+      - "127.0.0.1:{{ silverbullet_port }}:3000"
+    logging:
+      driver: json-file
+      options:
+        max-size: "{{ silverbullet_log_max_size }}"
+        max-file: "{{ silverbullet_log_max_file }}"
+
+  # Backup sidecar — restic snapshot of the whole data folder → Garage S3 on
+  # valen (local), mirrored offsite to beelink by the backup layer. Read-only
+  # mount: restic only ever reads.
+  data-backup:
+    image: ghcr.io/lobaro/restic-backup-docker:{{ silverbullet_backup_image_version }}
+    container_name: silverbullet-data-backup
+    restart: unless-stopped
+    environment:
+      RESTIC_REPOSITORY: "s3:{{ silverbullet_backup_s3_endpoint }}/{{ silverbullet_backup_s3_bucket }}"
+      RESTIC_PASSWORD: ${BACKUP_RESTIC_PASSWORD:?Variable is not set or empty}
+      AWS_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID:?Variable is not set or empty}
+      AWS_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY:?Variable is not set or empty}
+      AWS_DEFAULT_REGION: "{{ silverbullet_backup_s3_region }}"
+      RESTIC_TAG: silverbullet-data
+      BACKUP_CRON: "{{ silverbullet_backup_schedule }}"
+      RESTIC_FORGET_ARGS: "{{ silverbullet_backup_retention_args }}"
+    volumes:
+      # Mounted at /data/data so restic stores the snapshot under the path
+      # "data"; the restore handler then copies .restore/data/data back over
+      # {{ silverbullet_dir }}/data (restore_paths in the manifest).
+      - {{ silverbullet_data_dir }}:/data/data:ro
+    env_file:
+      - .env

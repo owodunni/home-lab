@@ -1,0 +1,10 @@
+---
+galaxy_info:
+  role_name: silverbullet
+  author: home-lab
+  description: >-
+    Deploy SilverBullet (markdown wiki server, multi-space mode) via
+    docker-compose, with a restic backup sidecar to Garage S3.
+  license: MIT
+  min_ansible_version: "2.15"
+dependencies: []

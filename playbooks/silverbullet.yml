@@ -1,0 +1,118 @@
+---
+# Deploy SilverBullet (markdown wiki, multi-space mode) and register its Traefik
+# route.
+#
+# What: Provisions the backup bucket/key on Garage (valen), then deploys the
+#       SilverBullet stack on [silverbullet] (valen) and registers the
+#       wiki.jardoole.xyz route with the co-located Traefik.
+# Why:  Self-hosted household wiki with account-based access and Authentik OIDC
+#       SSO, backed by the shared Garage S3 backup infrastructure.
+# Resolves: Automated deployment of the container, route, backup, and monitoring
+#           wiring. The account/space/OIDC configuration is NOT automatable — see
+#           "Manual steps" below.
+#
+# Prerequisites:
+#   - Docker runtime on valen (service-infra layer).
+#   - Traefik running with conf.d at /etc/traefik/conf.d (ingress layer).
+#   - Garage up on [garage] (service-infra layer) — the first play provisions the
+#     backup bucket/key there.
+#   - AdGuard rewrite for wiki.jardoole.xyz (group_vars/adguard/main.yml), and
+#     Authentik live (auth layer) for the OIDC provider.
+#
+# Manual steps (docs/silverbullet.md — upstream exposes no env var or config
+# file for any of this; it is all Dashboard/upstream-UI work):
+#   1. Complete the first-run setup wizard at https://wiki.jardoole.xyz/.setup/
+#      (creates the initial local administrator).
+#   2. Admin -> Server -> Primary URL = {{ silverbullet_external_url }}.
+#   3. Authentik: create an OAuth2/OpenID Provider + Application, slug
+#      "silverbullet", with redirect URI
+#      {{ silverbullet_external_url }}/.auth/central/oidc/callback
+#   4. Admin -> Authentication: add the OpenID Connect provider (issuer
+#      https://auth.<domain>/application/o/silverbullet/), test it, enable SSO.
+#   5. Users -> Add user (SSO, by email) and assign space access.
+#
+# Vault vars required in group_vars/silverbullet/vault.yml:
+#   vault_silverbullet_restic_password — openssl rand -base64 32.
+#                                        LOSING IT = snapshots unrecoverable.
+#   vault_silverbullet_backup_s3_access_key / _secret_key
+#     — scripts/garage-keygen.sh vault_silverbullet_backup_s3
+#   (There is deliberately no OIDC client secret here: it is entered in
+#   SilverBullet's Dashboard and stored in the backed-up data folder.)
+
+- name: Provision the SilverBullet backup bucket and key on Garage
+  # Runs on the Garage host (valen) because the `garage` CLI lives there. Kept
+  # in this service playbook so backup provisioning travels with the service.
+  # Garage is already up (service-infra precedes applications). Every check
+  # short-circuits on re-runs.
+  hosts: garage
+  become: true
+  vars:
+    _silverbullet_host: "{{ groups['silverbullet'][0] }}"
+    _bucket: "{{ hostvars[_silverbullet_host]['silverbullet_backup_s3_bucket'] }}"
+    _access_key: "{{ hostvars[_silverbullet_host]['vault_silverbullet_backup_s3_access_key'] }}"
+    _secret_key: "{{ hostvars[_silverbullet_host]['vault_silverbullet_backup_s3_secret_key'] }}"
+  tasks:
+    - name: List existing Garage buckets
+      ansible.builtin.command:
+        cmd: garage bucket list
+      register: garage_bucket_list
+      changed_when: false
+
+    - name: Create the SilverBullet backup bucket
+      when: _bucket not in garage_bucket_list.stdout
+      ansible.builtin.command:
+        cmd: garage bucket create {{ _bucket }}
+      changed_when: true
+
+    - name: List existing Garage API keys
+      ansible.builtin.command:
+        cmd: garage key list
+      register: garage_key_list
+      changed_when: false
+
+    - name: Import the vaulted backup API key
+      # Bring-your-own creds so a rebuilt Garage accepts the same key with no
+      # manual step. --yes bypasses the confirmation prompt.
+      when: _bucket not in garage_key_list.stdout
+      ansible.builtin.command:
+        cmd: >
+          garage key import --yes
+          -n {{ _bucket }}
+          {{ _access_key }}
+          {{ _secret_key }}
+      no_log: true  # secret key is on the command line
+      changed_when: true
+
+    - name: Read current grants on the backup bucket
+      ansible.builtin.command:
+        cmd: garage bucket info {{ _bucket }}
+      register: garage_bucket_info
+      changed_when: false
+
+    - name: Grant the key read/write access to its backup bucket
+      # Gated on the actual grant state (not key import) so a failed/interrupted
+      # grant re-runs cleanly rather than leaving a valid key with no bucket access.
+      when: _access_key not in garage_bucket_info.stdout
+      ansible.builtin.command:
+        cmd: >
+          garage bucket allow
+          {{ _bucket }}
+          --read --write
+          --key {{ _access_key }}
+      changed_when: true
+
+- name: Deploy SilverBullet and register its Traefik route
+  hosts: silverbullet
+  become: true
+
+  roles:
+    - role: silverbullet
+
+  tasks:
+    - name: Deploy Traefik routing config for SilverBullet
+      ansible.builtin.template:
+        src: templates/traefik-silverbullet.yml.j2
+        dest: /etc/traefik/conf.d/silverbullet.yml
+        owner: traefik
+        group: traefik
+        mode: "0640"

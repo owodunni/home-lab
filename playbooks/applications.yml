@@ -85,3 +85,13 @@
 # docs/superpowers/specs/2026-07-25-immich-deployment-design.md.
 - name: Deploy Immich photo/video management
   ansible.builtin.import_playbook: immich.yml
+
+# SilverBullet markdown wiki (multi-space mode, OIDC SSO against Authentik) — on
+# valen, behind the co-located Traefik. Independent of the media stack; placed
+# last among the apps as the newest service. Needs Authentik live (auth layer,
+# already satisfied by this point). NOTE: only the container/route/backup wiring
+# is automated — the account, space, and OIDC-provider setup happens in
+# SilverBullet's web Dashboard (upstream offers no env/config path); see
+# docs/silverbullet.md for the first-run runbook.
+- name: Deploy SilverBullet wiki
+  ansible.builtin.import_playbook: silverbullet.yml

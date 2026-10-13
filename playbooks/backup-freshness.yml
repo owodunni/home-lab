@@ -65,6 +65,15 @@
   roles:
     - role: backup_freshness
 
+- name: Backup freshness exporter | silverbullet
+  hosts: silverbullet
+  become: true
+  gather_facts: false
+  vars:
+    backup_freshness_service: silverbullet
+  roles:
+    - role: backup_freshness
+
 - name: Backup freshness exporter | prowlarr
   hosts: prowlarr
   become: true

@@ -104,6 +104,17 @@ out to Cloudflare. See `docs/superpowers/specs/2026-07-24-force-dns-through-adgu
   device there can't route to valen directly. beelink's own Traefik (already
   holding the `*.jardoole.xyz` wildcard cert) relays `jellyfin.jardoole.xyz`
   to valen over the existing WireGuard tunnel instead.
+- **SilverBullet wiki** — `silverbullet.yml` runs on valen (local bind dir
+  `/opt/silverbullet/data`, behind the co-located Traefik) and serves
+  `wiki.jardoole.xyz`. Accounts, spaces, and its Authentik OIDC client are
+  configured **in its own web Dashboard**, not here: upstream offers no env var or
+  config file, so the first-run wizard and the SSO setup are operator steps in
+  `docs/silverbullet.md`. The router deliberately carries no forward-auth (native
+  OIDC; forward-auth would break its WebSocket sync and bearer-token API).
+  Consequence: `authentication.json` holds the OIDC client secret and is
+  therefore *not* in `vault.yml` — the encrypted restic backup of the data folder
+  is what makes SSO recoverable. Note Authentik ≥2025.10 returns
+  `email_verified: false` by default, which SilverBullet rejects; see the runbook.
 
 ### Service host targeting
 
