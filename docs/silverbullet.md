@@ -25,19 +25,40 @@ encrypted restic backup — restore the data folder and SSO comes back with it.
 ## Deploy
 
 ```bash
-make app service=silverbullet
+make app service=silverbullet   # container, Traefik route, Garage bucket + key
+make app service=adguard        # publish the wiki.jardoole.xyz rewrite (see below)
 ```
 
-Idempotent: also provisions the `silverbullet-backup` Garage bucket + key.
+Both are idempotent. The AdGuard redeploy is **mandatory, not optional**:
+`group_vars/adguard/main.yml` already maps `wiki.jardoole.xyz` ->
+`valen.jardoole.xyz`, but AdGuard serves a generated config
+(`roles/adguard/templates/AdGuardHome.yaml.j2`), so the entry only takes effect
+once AdGuard is redeployed. Until then LAN/VPN clients resolve the **public**
+Cloudflare record for `wiki.jardoole.xyz` and hairpin out of the LAN — the wiki
+still loads, over the wrong path, which is why this is easy to miss.
 
-## 1. First-run setup
+No Cloudflare or UniFi change is needed: the port is published on loopback only
+and reached through the existing Traefik 443, never exposed publicly.
+
+## 1. Confirm DNS resolves on the LAN
+
+From a client that uses AdGuard (every LAN/VPN client does):
+
+```bash
+dig +short wiki.jardoole.xyz      # expect valen's LAN IP, never a Cloudflare one
+```
+
+A Cloudflare answer means AdGuard still has the old generated config — re-run
+`make app service=adguard`. Do not continue until it answers with valen's IP:
+setting the wiki up over the wrong host is what binds a space to a broken
+address (see step 2).
+
+## 2. First-run setup
 
 > **Complete this over `https://wiki.jardoole.xyz`, never `http://<ip>:8005`.**
 > Every space has a public address built from a *hostname + path*, and the wizard
 > defaults it to the origin you are using. Setting it up over an IP:port binds the
 > space to that address and it will not resolve behind Traefik.
-
-AdGuard already rewrites `wiki.jardoole.xyz` → `valen`, so just open the name.
 
 1. Open <https://wiki.jardoole.xyz> — an unconfigured server redirects to `/.setup/`.
 2. **Account creation** — create the first administrator (local username +
@@ -48,7 +69,7 @@ AdGuard already rewrites `wiki.jardoole.xyz` → `valen`, so just open the name.
    and save. SilverBullet derives the OIDC login origin from this value, so SSO
    cannot work until it is set.
 
-## 2. Authentik: create the provider and application
+## 3. Authentik: create the provider and application
 
 Admin interface (<https://auth.jardoole.xyz>) → **Applications → Providers →
 Create → OAuth2/OpenID Provider**:
@@ -104,7 +125,7 @@ Then **Applications → Create**: name `SilverBullet`, **slug `silverbullet`**
 `https://auth.jardoole.xyz/application/o/silverbullet/`), provider = the one
 above. Optionally bind a policy restricting it to the household group.
 
-## 3. SilverBullet: enable SSO
+## 4. SilverBullet: enable SSO
 
 **Admin → Authentication → OpenID Connect**:
 
@@ -123,7 +144,7 @@ The server must reach the issuer's discovery, token, and JWKS endpoints — same
 LAN here, so nothing to do. A private CA could be supplied via `SB_OIDC_CA_FILE`
 (not needed).
 
-## 4. Users and space access
+## 5. Users and space access
 
 **Users → Add user → SSO**, type the expected email, review the suggested
 username, and assign the spaces they need (`write` to contribute, `read` to
