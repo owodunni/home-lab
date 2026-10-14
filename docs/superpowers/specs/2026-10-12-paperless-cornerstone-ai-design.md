@@ -94,8 +94,6 @@ paperless_ai_llm_endpoint: "https://openrouter.ai/api/v1"
 paperless_ai_llm_output_language: "swe"
 # OpenRouter routing can exceed the 120s default; 180s gives headroom.
 paperless_ai_llm_request_timeout: 180
-# Routing guard: only use upstream providers that do not collect request data.
-paperless_ai_llm_extra_params: '{"provider":{"data_collection":"deny"}}'
 
 # Embeddings for RAG. bge-m3 accepts up to 8194 tokens; 1024-token chunks
 # leave margin and match the default.
@@ -116,7 +114,6 @@ PAPERLESS_AI_LLM_ENDPOINT={{ paperless_ai_llm_endpoint }}
 PAPERLESS_AI_LLM_API_KEY={{ vault_openrouter_api_key }}
 PAPERLESS_AI_LLM_OUTPUT_LANGUAGE={{ paperless_ai_llm_output_language }}
 PAPERLESS_AI_LLM_REQUEST_TIMEOUT={{ paperless_ai_llm_request_timeout }}
-PAPERLESS_AI_LLM_EXTRA_PARAMS={{ paperless_ai_llm_extra_params }}
 PAPERLESS_AI_LLM_ALLOW_INTERNAL_ENDPOINTS=false
 PAPERLESS_AI_LLM_EMBEDDING_BACKEND={{ paperless_ai_embedding_backend }}
 PAPERLESS_AI_LLM_EMBEDDING_MODEL={{ paperless_ai_embedding_model }}
