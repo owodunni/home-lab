@@ -810,9 +810,25 @@ grafana_dashboards:
   # temperature, reallocated/pending sectors, NVMe wearout). Pairs with the
   # smartctl scrape job + SMART alert rules above.
   # https://grafana.com/grafana/dashboards/22604
+  #
+  # What: this dashboard is wired by datasource *UID*, not name.
+  # Why:  rev4 stores every panel's datasource as an object, {"type":"prometheus",
+  #       "uid":"${DS_PROMETHEUS}"}. The grafana.grafana role's dashboards.yml
+  #       rewrites "${DS_PROMETHEUS}" verbatim with this `datasource:` value, and
+  #       Grafana resolves the object form's `uid` by UID only — putting the name
+  #       "Prometheus" there left all 29 refs pointing at a nonexistent UID
+  #       ("Datasource Prometheus was not found"). The other dashboards above use
+  #       the legacy string form, which still resolves by name, so they keep
+  #       `datasource: Prometheus`.
+  #       PBFA97CFB590B2093 is stable: Grafana's provisioner derives a missing
+  #       datasource UID deterministically from its name (safeUIDFromName:
+  #       "P" + uppercase hex(sha256(name)[:8])), and sha256("Prometheus") gives
+  #       BFA97CFB590B2093.
+  # Resolves: every panel on the SMARTctl dashboard erroring with the missing
+  #           datasource.
   - dashboard_id: 22604
-    revision_id: 2
-    datasource: Prometheus
+    revision_id: 4
+    datasource: PBFA97CFB590B2093
   # "Cadvisor exporter" — per-container CPU, memory, network, and disk metrics
   # for the Docker fleet, broken down by container. The view for deciding whether
   # a service should move to a different Pi. Pairs with the cadvisor scrape job +
