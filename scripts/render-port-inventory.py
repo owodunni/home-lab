@@ -271,13 +271,6 @@ blocks them outright:
   to valen; removing the leftover install on beelink is a pending cleanup
   task, not yet done, so the ports still exist but stay firewalled off.
 
-### NFSv3 helper ports
-
-`rpc.mountd`, `rpc.statd`, and `lockd` normally bind an ephemeral port chosen
-at boot, which cannot be named in a firewall rule. This lab pins them to fixed
-ports via `/etc/nfs.conf.d` (see `playbooks/nfs.yml`), which is what makes the
-`nfs-mountd-*` / `nfs-statd-*` / `nfs-lockd-*` rows above firewallable at all.
-
 ### beelink's barn LAN
 
 beelink's local barn WiFi network shares the `192.168.1.0/24` CIDR with the

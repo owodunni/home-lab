@@ -71,7 +71,7 @@ immich_upload_location: "{{ mergerfs_mount_point }}/immich"
 # WHY never the pool: Immich's DB uses pgvector/VectorChord with
 #   --data-checksums; Postgres over a network filesystem is a documented
 #   corruption/locking footgun (design spec "Placement"). Same rule as every
-#   other DB in this lab (authentik, nextcloud, vaultwarden, mailcow).
+#   other DB in this lab (authentik, vaultwarden, mailcow).
 immich_db_data_location: "{{ immich_dir }}/postgres"
 
 # Dir the unpack sidecar writes the plain (gunzipped) DB dump to — see
