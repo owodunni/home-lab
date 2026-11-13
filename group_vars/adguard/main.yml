@@ -79,7 +79,7 @@ adguard_bootstrap_dns:
 adguard_host_fqdns:
   - "valen.{{ traefik_domain }}"
   - "pi1.{{ traefik_domain }}" # inventory pi-cm5-1 (monitoring + Authentik)
-  - "pi2.{{ traefik_domain }}" # inventory pi-cm5-2 (Nextcloud + Vaultwarden)
+  - "pi2.{{ traefik_domain }}" # inventory pi-cm5-2 (Vaultwarden)
 
 adguard_rewrites:
   # valen
@@ -98,13 +98,6 @@ adguard_rewrites:
   - domain: "qbittorrent.{{ traefik_domain }}"
     answer: "valen.{{ traefik_domain }}"
   - domain: "immich.{{ traefik_domain }}"
-    answer: "valen.{{ traefik_domain }}"
-  - domain: "cornerstone.{{ traefik_domain }}"
-    answer: "valen.{{ traefik_domain }}"
-  # wiki hosts SilverBullet, whose service name (and inventory group / playbook /
-  # group_vars dir) is "silverbullet". Required like every other rewrite — without
-  # it, LAN/VPN clients resolve the PUBLIC Cloudflare record and hairpin out.
-  - domain: "wiki.{{ traefik_domain }}"
     answer: "valen.{{ traefik_domain }}"
   # mail: LAN/VPN clients must reach the web UI (Traefik) AND IMAP/submission
   # (465/587/993, firewall-gated to LAN+WireGuard) directly on valen — without
@@ -134,11 +127,7 @@ adguard_rewrites:
   - domain: "loki.{{ traefik_domain }}"
     answer: "pi1.{{ traefik_domain }}"
   # pi2 (inventory pi-cm5-2)
-  - domain: "nextcloud.{{ traefik_domain }}"
-    answer: "pi2.{{ traefik_domain }}"
   - domain: "vaultwarden.{{ traefik_domain }}"
-    answer: "pi2.{{ traefik_domain }}"
-  - domain: "paperless.{{ traefik_domain }}"
     answer: "pi2.{{ traefik_domain }}"
 
 # === Filtering categories ==================================================

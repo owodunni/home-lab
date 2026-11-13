@@ -35,7 +35,7 @@
   # Runs on the Garage host (valen) where the `garage` CLI lives. Creates the
   # DB and data backup buckets and imports the vaulted keys (bring-your-own
   # creds, so a rebuilt Garage accepts the same keys unattended). All checks
-  # short-circuit on subsequent runs. Mirrors playbooks/nextcloud.yml.
+  # short-circuit on subsequent runs. Mirrors playbooks/authentik.yml.
   hosts: garage
   become: true
   vars:

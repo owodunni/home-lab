@@ -49,8 +49,9 @@ must-do confidence checks; step 6 proves the design and is worth doing once.
    uv run ansible garage -b -a "garage bucket list"        # buckets exist on valen
    make verify-backups SERVICE=authentik                   # fresh + restic check passes
    ```
-   Repeat `verify-backups` for `vaultwarden` and `nextcloud`. ✅ lists restore
-   points, asserts freshness, prints "restic check passed".
+   Repeat `verify-backups` for the other services with backups (e.g.
+   `vaultwarden`, `immich`). ✅ lists restore points, asserts freshness, prints
+   "restic check passed".
 
 2. **Offsite copy pulled to beelink.**
    ```bash
@@ -93,7 +94,7 @@ must-do confidence checks; step 6 proves the design and is worth doing once.
      shows `backup-mirror-ro` with **read** only on every bucket.
 
 Expected non-failures: valen has no SnapRAID parity yet, so step 5 only shows
-activity on beelink and valen-origin data (Nextcloud files) is 2-1 until its
+activity on beelink and valen-origin data (e.g. Immich photos) is 2-1 until its
 parity drive lands.
 
 ## What `make drill` does

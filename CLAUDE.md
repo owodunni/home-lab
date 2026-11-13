@@ -29,7 +29,7 @@ the entire site.
 | **ingress** | Traefik reverse proxy with ACME wildcard certificates via Cloudflare DNS-01. | `traefik.yml` | `ingress` |
 | **service-infra** | Docker runtime + Garage S3 object storage — a shared backend other services consume (e.g. Authentik DB backups). Garage runs on valen, so services back up to a *local* S3 target; the offsite copy is the `backup` layer's job. | `docker.yml`, `garage.yml` | `services` / `garage` |
 | **auth** | Authentik SSO/OIDC identity provider. Backs up to Garage. | `authentik.yml` | `authentik` |
-| **applications** | End-user services on the full platform. Nextcloud, Vaultwarden, and the media (arr) stack — see [Application notes](#application-notes) below. | `nextcloud.yml`, `vaultwarden.yml`, `media-network.yml`, `media-forward-auth.yml`, `qbittorrent.yml`, `prowlarr.yml`, `radarr.yml`, `sonarr.yml`, `unpackerr.yml`, `jellyfin.yml`, `jellyseerr.yml`, `jellyfin-relay.yml` | `nextcloud` / `vaultwarden` / `media` / `qbittorrent` / `prowlarr` / `radarr` / `sonarr` / `unpackerr` / `jellyfin` / `jellyseerr` / `jellyfin_relay` |
+| **applications** | End-user services on the full platform. AdGuard Home, Vaultwarden, mailcow, the media (arr) stack, and Immich — see [Application notes](#application-notes) below. | `adguard.yml`, `vaultwarden.yml`, `mailcow.yml`, `media-network.yml`, `media-forward-auth.yml`, `qbittorrent.yml`, `prowlarr.yml`, `radarr.yml`, `sonarr.yml`, `unpackerr.yml`, `jellyfin.yml`, `jellyseerr.yml`, `jellyfin-relay.yml`, `immich.yml` | `adguard` / `vaultwarden` / `mailcow` / `media` / `qbittorrent` / `prowlarr` / `radarr` / `sonarr` / `unpackerr` / `jellyfin` / `jellyseerr` / `jellyfin_relay` / `immich` |
 | **backup** | Offsite copy of every service backup: beelink pulls each Garage bucket from valen into local restic repos with a read-only key. The decoupled "something else" that makes the offsite copy — apps only write locally to valen. See the Backups section below. | `backup-mirror.yml` | `garage` / `backup_mirror` |
 | **monitoring** | node_exporter and Grafana Alloy (log shipper) everywhere, smartctl_exporter on `[storage]`, a per-service local-backup-freshness exporter on each service host, blackbox_exporter on `[monitoring]` HTTP-probing every routed service's front door (liveness + TLS-expiry, IPv4-forced to the LAN), then Prometheus + Alertmanager + Loki + Grafana on `[monitoring]`. Alloy tails journald (all hosts) + Docker container logs (the `[services]` fleet) into Loki, whose chunks/index live in Garage S3 on valen (not the Pi eMMC), 30-day retention. Loki's ruler alerts on fatal log patterns (`LogDNSResolutionFailure` — the Jellyseerr class — + `LogPanicOrFatal`); metric alert rules cover host/drive faults, stale backups (local `BackupLocalStale` + offsite `BackupMirrorStale`), and app front-door/cert faults (`BlackboxProbeFailed` + `BlackboxCertExpiringSoon`). All route to email; Grafana at `grafana.jardoole.xyz`, Loki's push endpoint at `loki.jardoole.xyz` (Traefik basic-auth). Prometheus and Alertmanager have no native auth, so their UIs are gated by the same Authentik forward-auth middleware as the *arr apps (deployed on `[monitoring]` by `prometheus.yml`, bound to the `Grafana Admins` group) — which is why both are `kind: edge` in the blackbox registry (cert coverage only; liveness comes from their loopback `up` scrape + `InstanceDown`). Alert delivery is loopback so it survives Authentik being down; only the UIs require SSO. See `docs/superpowers/specs/2026-07-23-prometheus-alertmanager-sso-design.md`. A pre-commit guard (`scripts/check-blackbox-coverage.py`) fails the build if a routed service is missing from the `monitoring_blackbox_services` registry, so new services can't be silently unmonitored; log alerting needs no such guard because Alloy auto-discovers every container and the LogQL rules are fleet-wide, so a new service is covered automatically. | `node-exporter.yml`, `alloy.yml`, `smartctl-exporter.yml`, `backup-freshness.yml`, `blackbox-exporter.yml`, `loki.yml`, `prometheus.yml`, `grafana.yml` | `all` / `storage` / service groups / `monitoring` |
 | **security** | Hardening: default-deny host firewall (ufw; rules declared as `firewall_rules_*` in each service's group_vars, Docker-published ports via DOCKER-USER, self-healing rollback timer — see `docs/port-inventory.md`, generated + drift-guarded), then automatic security updates. SSH hardening to come. | `firewall.yml`, `unattended-upgrades.yml` | `all` |
@@ -79,16 +79,11 @@ out to Cloudflare. See `docs/superpowers/specs/2026-07-24-force-dns-through-adgu
 
 #### Application notes
 
-- **Nextcloud** — compute on a Pi, bulk file data on valen's pool over an NFS host
-  mount, behind a co-located Traefik. Postgres DB and NFS file data both backed up
+- **Vaultwarden** — password manager on pi-cm5-2 (Postgres backend + data dir all
+  local), behind the co-located Traefik. Postgres DB and data dir both backed up
   to local Garage on valen (pg_dump→restic and restic), then mirrored offsite to
-  beelink by the `backup` layer. Uses native Authentik OIDC — forward-auth would
-  break the sync/WebDAV clients.
-- **Vaultwarden** — password manager co-located with Nextcloud on the same Pi
-  (Postgres backend + data dir all local), behind the co-located Traefik. Postgres
-  DB and data dir both backed up to local Garage on valen (pg_dump→restic and
-  restic), then mirrored offsite to beelink by the `backup` layer. Uses native
-  Authentik OIDC SSO — forward-auth would break the Bitwarden clients.
+  beelink by the `backup` layer. Uses native Authentik OIDC SSO — forward-auth
+  would break the Bitwarden clients.
 - **Media (arr) stack** — on valen (compute + storage + Intel iGPU transcoding
   co-located, local bind mounts). Foundations first (`media-network.yml` cross-stack
   Docker network, then `media-forward-auth.yml` SSO middleware), then services in
@@ -104,17 +99,6 @@ out to Cloudflare. See `docs/superpowers/specs/2026-07-24-force-dns-through-adgu
   device there can't route to valen directly. beelink's own Traefik (already
   holding the `*.jardoole.xyz` wildcard cert) relays `jellyfin.jardoole.xyz`
   to valen over the existing WireGuard tunnel instead.
-- **SilverBullet wiki** — `silverbullet.yml` runs on valen (local bind dir
-  `/opt/silverbullet/data`, behind the co-located Traefik) and serves
-  `wiki.jardoole.xyz`. Accounts, spaces, and its Authentik OIDC client are
-  configured **in its own web Dashboard**, not here: upstream offers no env var or
-  config file, so the first-run wizard and the SSO setup are operator steps in
-  `docs/silverbullet.md`. The router deliberately carries no forward-auth (native
-  OIDC; forward-auth would break its WebSocket sync and bearer-token API).
-  Consequence: `authentication.json` holds the OIDC client secret and is
-  therefore *not* in `vault.yml` — the encrypted restic backup of the data folder
-  is what makes SSO recoverable. Note Authentik ≥2025.10 returns
-  `email_verified: false` by default, which SilverBullet rejects; see the runbook.
 
 ### Service host targeting
 
@@ -142,7 +126,7 @@ This means all variables travel with the service definition. Migrating a service
 to a new host is a single-line `hosts.ini` change with no playbook edits.
 
 **Variables live in `group_vars/<service>/`, not in the role.** A service role
-(`roles/nextcloud`, `roles/authentik`, the *arr roles, …) holds **no**
+(`roles/vaultwarden`, `roles/authentik`, the *arr roles, …) holds **no**
 `defaults/main.yml`, `vars/main.yml`, or inline `vars:`/`default()` fallbacks —
 every value it consumes, including structural constants like a shared `argv`
 prefix, is defined once in `group_vars/<service>/`. Splitting config across both

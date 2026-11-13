@@ -5,8 +5,8 @@
 # Generic and manifest-driven: the play sets `hosts: <service>` so the service's
 # `backups` manifest and `backup_compose_dir` are in scope, and passes
 # `backup_freshness_service` for the metric labels + unit names. All units are
-# named per service so multiple services on one host (e.g. nextcloud +
-# vaultwarden on pi-cm5-2) don't collide. See group_vars/monitoring/main.yml for
+# named per service so multiple services on one host (e.g. valen runs several
+# *arr apps) don't collide. See group_vars/monitoring/main.yml for
 # the BackupLocalStale / BackupLocalCheckFailed rules that consume the metrics,
 # and group_vars/all/main.yml for the schedule + textfile dir.
 

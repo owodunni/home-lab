@@ -65,9 +65,6 @@ firewall_source_aliases:
   # pi-cm5-1 — the sole Prometheus scraper. Every exporter rule restricts to
   # just this host instead of the whole homelab_subnet.
   monitoring_host: "192.168.1.19"
-  # valen — source of NFSv3 lock/status callbacks to clients (see
-  # firewall_rules_nextcloud_nfs_client in group_vars/nextcloud/main.yml).
-  nfs_server_host: "192.168.1.197"
   # Docker's default bridge address pool (172.16.0.0/12 spans the individual
   # per-compose /16 bridge subnets Docker hands out, e.g. valen's media
   # 172.28.0.0/16 + the arr/jellyfin service bridges 172.18-172.22). Used to

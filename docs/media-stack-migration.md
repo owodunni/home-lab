@@ -248,7 +248,7 @@ native mobile/TV client still logs in with a normal Jellyfin account.
 
 ## Repeatable porting recipe (per service `<svc>`)
 
-Template = `playbooks/nextcloud.yml` + `roles/nextcloud/`. For each service:
+Template = `playbooks/vaultwarden.yml` + `roles/vaultwarden/`. For each service:
 
 1. `roles/<svc>/` — `tasks/main.yml` (create stack dir → template
    `docker-compose.yml.j2` + `env.j2` → `community.docker.docker_compose_v2`),

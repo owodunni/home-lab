@@ -2,8 +2,8 @@
 # Applications layer
 #
 # What: Deploys end-user application services that sit on top of the full
-#       platform (ingress, Docker, storage/NFS, and identity): Nextcloud file
-#       sync/share, and the media (arr) stack on valen.
+#       platform (ingress, Docker, storage/NFS, and identity): AdGuard DNS,
+#       Vaultwarden, mailcow, the media (arr) stack, and Immich.
 # Why:  These services depend on everything below them — Traefik for ingress,
 #       Docker for runtime, the storage pool/NFS for bulk data, and (for SSO)
 #       Authentik. They are sequenced after `auth` so any OIDC integration can
@@ -24,17 +24,8 @@
 - name: Deploy AdGuard Home filtering DNS
   ansible.builtin.import_playbook: adguard.yml
 
-- name: Deploy Nextcloud file sync/share
-  ansible.builtin.import_playbook: nextcloud.yml
-
 - name: Deploy Vaultwarden password manager
   ansible.builtin.import_playbook: vaultwarden.yml
-
-- name: Deploy Paperless-ngx document management
-  ansible.builtin.import_playbook: paperless.yml
-
-- name: Deploy Cornerstone home management
-  ansible.builtin.import_playbook: cornerstone.yml
 
 # Mailcow self-hosted email. Independent of the media stack; placed after
 # Vaultwarden as another standalone app on top of the platform (ingress,
@@ -85,13 +76,3 @@
 # docs/superpowers/specs/2026-07-25-immich-deployment-design.md.
 - name: Deploy Immich photo/video management
   ansible.builtin.import_playbook: immich.yml
-
-# SilverBullet markdown wiki (multi-space mode, OIDC SSO against Authentik) — on
-# valen, behind the co-located Traefik. Independent of the media stack; placed
-# last among the apps as the newest service. Needs Authentik live (auth layer,
-# already satisfied by this point). NOTE: only the container/route/backup wiring
-# is automated — the account, space, and OIDC-provider setup happens in
-# SilverBullet's web Dashboard (upstream offers no env/config path); see
-# docs/silverbullet.md for the first-run runbook.
-- name: Deploy SilverBullet wiki
-  ansible.builtin.import_playbook: silverbullet.yml

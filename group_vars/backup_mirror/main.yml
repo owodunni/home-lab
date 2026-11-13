@@ -60,14 +60,8 @@ backup_mirror_textfile: /var/lib/node_exporter/backup_mirror.prom
 backup_mirror_buckets:
   - authentik-backup
   - authentik-volumes-backup
-  - nextcloud-backup
-  - nextcloud-data-backup
   - vaultwarden-backup
   - vaultwarden-data-backup
-  - paperless-backup
-  - paperless-media-backup
-  - cornerstone-backup
-  - silverbullet-backup
   - prowlarr-backup
   - radarr-backup
   - sonarr-backup

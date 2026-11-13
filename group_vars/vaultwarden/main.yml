@@ -7,14 +7,13 @@
 # Rust). It runs as a small docker-compose stack on a Pi (pi-cm5-2), behind the
 # co-located Traefik, with native OIDC SSO against Authentik and the same offsite
 # restic-to-Garage backups the rest of the platform uses. Structurally it mirrors
-# Nextcloud (see group_vars/nextcloud/main.yml) minus NFS — the vault dataset is
-# tiny and stays on local disk.
+# the other Postgres-backed services (see group_vars/authentik/main.yml) — the
+# vault dataset is tiny and stays on local disk.
 #
 # DB BACKEND: Postgres (not Vaultwarden's default SQLite). Why: it lets the DB
 # reuse the repo's existing pg_dump→restic backup engine verbatim (the `postgres`
 # backup type), giving guaranteed-consistent logical dumps — restic-ing a live
-# SQLite file risks an inconsistent snapshot. Same engine/rationale as Authentik
-# and Nextcloud.
+# SQLite file risks an inconsistent snapshot. Same engine/rationale as Authentik.
 
 # ============================================================================
 # Images — pinned upstream tags
